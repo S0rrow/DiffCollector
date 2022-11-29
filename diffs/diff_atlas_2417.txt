@@ -1,0 +1,204 @@
+diff --git a/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java b/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java
+index 8e693789b..53c503b20 100755
+--- a/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java
++++ b/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java
+@@ -21,13 +21,12 @@ package org.apache.atlas.web.resources;
+ import com.google.common.base.Preconditions;
+ import org.apache.atlas.AtlasClient;
+ import org.apache.atlas.AtlasException;
+-import org.apache.atlas.EntityAuditEvent;
+ import org.apache.atlas.services.MetadataService;
+ import org.apache.atlas.typesystem.Referenceable;
+ import org.apache.atlas.typesystem.exception.EntityExistsException;
+ import org.apache.atlas.typesystem.exception.EntityNotFoundException;
+-import org.apache.atlas.typesystem.exception.TraitNotFoundException;
+ import org.apache.atlas.typesystem.exception.TypeNotFoundException;
++import org.apache.atlas.typesystem.exception.TraitNotFoundException;
+ import org.apache.atlas.typesystem.json.InstanceSerialization;
+ import org.apache.atlas.typesystem.types.ValueConversionException;
+ import org.apache.atlas.utils.ParamChecker;
+@@ -44,7 +43,6 @@ import javax.inject.Singleton;
+ import javax.servlet.http.HttpServletRequest;
+ import javax.ws.rs.Consumes;
+ import javax.ws.rs.DELETE;
+-import javax.ws.rs.DefaultValue;
+ import javax.ws.rs.GET;
+ import javax.ws.rs.POST;
+ import javax.ws.rs.PUT;
+@@ -54,13 +52,10 @@ import javax.ws.rs.Produces;
+ import javax.ws.rs.QueryParam;
+ import javax.ws.rs.WebApplicationException;
+ import javax.ws.rs.core.Context;
+-import javax.ws.rs.core.MediaType;
+ import javax.ws.rs.core.Response;
+ import javax.ws.rs.core.UriBuilder;
+ import javax.ws.rs.core.UriInfo;
+ import java.net.URI;
+-import java.util.ArrayList;
+-import java.util.Collection;
+ import java.util.List;
+ 
+ 
+@@ -99,7 +94,7 @@ public class EntityResource {
+      * unique attribute for the give type.
+      */
+     @POST
+-    @Consumes({Servlets.JSON_MEDIA_TYPE, MediaType.APPLICATION_JSON})
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+     public Response submit(@Context HttpServletRequest request) {
+         try {
+@@ -154,7 +149,7 @@ public class EntityResource {
+      * @return response payload as json
+      */
+     @PUT
+-    @Consumes({Servlets.JSON_MEDIA_TYPE, MediaType.APPLICATION_JSON})
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+     public Response updateEntities(@Context HttpServletRequest request) {
+         try {
+@@ -199,7 +194,7 @@ public class EntityResource {
+      */
+     @POST
+     @Path("qualifiedName")
+-    @Consumes({Servlets.JSON_MEDIA_TYPE, MediaType.APPLICATION_JSON})
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+     public Response updateByUniqueAttribute(@QueryParam("type") String entityType,
+                                             @QueryParam("property") String attribute,
+@@ -246,7 +241,7 @@ public class EntityResource {
+      */
+     @POST
+     @Path("{guid}")
+-    @Consumes({Servlets.JSON_MEDIA_TYPE, MediaType.APPLICATION_JSON})
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+     public Response updateEntityByGuid(@PathParam("guid") String guid, @QueryParam("property") String attribute,
+                                        @Context HttpServletRequest request) {
+@@ -318,33 +313,19 @@ public class EntityResource {
+     }
+ 
+     /**
+-     * Delete entities from the repository identified by their guids (including their composite references)
+-     * or
+-     * Deletes a single entity identified by its type and unique attribute value from the repository (including their composite references)
++     * Delete entities from the repository
+      * 
+-     * @param guids list of deletion candidate guids
+-     *              or
+-     * @param entityType the entity type
+-     * @param attribute the unique attribute used to identify the entity
+-     * @param value the unique attribute value used to identify the entity
+-     * @param request - Ignored
+-     * @return response payload as json - including guids of entities(including composite references from that entity) that were deleted
++     * @param guids deletion candidate guids
++     * @param request
++     * @return response payload as json
+      */
+     @DELETE
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response deleteEntities(@QueryParam("guid") List<String> guids,
+-        @QueryParam("type") String entityType,
+-        @QueryParam("property") String attribute,
+-        @QueryParam("value") String value,
+-        @Context HttpServletRequest request) {
++    public Response deleteEntities(@QueryParam("guid") List<String> guids, @Context HttpServletRequest request) {
+         
+         try {
+-            List<String> deletedGuids = new ArrayList<>();
+-            if (guids != null && !guids.isEmpty()) {
+-                deletedGuids = metadataService.deleteEntities(guids);
+-            } else {
+-                deletedGuids = metadataService.deleteEntityByUniqueAttribute(entityType, attribute, value);
+-            }
++            List<String> deletedGuids = metadataService.deleteEntities(guids);
+             JSONObject response = new JSONObject();
+             response.put(AtlasClient.REQUEST_ID, Servlets.getRequestId());
+             JSONArray guidArray = new JSONArray(deletedGuids.size());
+@@ -353,13 +334,6 @@ public class EntityResource {
+             }
+             response.put(AtlasClient.GUID, guidArray);
+             return Response.ok(response).build();
+-        } catch (EntityNotFoundException e) {
+-            if(guids != null || !guids.isEmpty()) {
+-                LOG.error("An entity with GUID={} does not exist", guids, e);
+-            } else {
+-                LOG.error("An entity with qualifiedName {}-{}-{} does not exist", entityType, attribute, value, e);
+-            }
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+         }  catch (AtlasException | IllegalArgumentException e) {
+             LOG.error("Unable to delete entities {}", guids, e);
+             throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+@@ -442,7 +416,6 @@ public class EntityResource {
+     }
+ 
+     @GET
+-    @Consumes({Servlets.JSON_MEDIA_TYPE, MediaType.APPLICATION_JSON})
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+     public Response getEntity(@QueryParam("type") String entityType,
+                               @QueryParam("property") String attribute,
+@@ -541,7 +514,7 @@ public class EntityResource {
+      */
+     @POST
+     @Path("{guid}/traits")
+-    @Consumes({Servlets.JSON_MEDIA_TYPE, MediaType.APPLICATION_JSON})
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+     public Response addTrait(@Context HttpServletRequest request, @PathParam("guid") String guid) {
+         try {
+@@ -577,7 +550,7 @@ public class EntityResource {
+      */
+     @DELETE
+     @Path("{guid}/traits/{traitName}")
+-    @Consumes({Servlets.JSON_MEDIA_TYPE, MediaType.APPLICATION_JSON})
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+     public Response deleteTrait(@Context HttpServletRequest request, @PathParam("guid") String guid,
+             @PathParam(TRAIT_NAME) String traitName) {
+@@ -605,45 +578,4 @@ public class EntityResource {
+             throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+-
+-    /**
+-     * Returns the entity audit events for a given entity id. The events are returned in the decreasing order of timestamp.
+-     * @param guid entity id
+-     * @param startKey used for pagination. Startkey is inclusive, the returned results contain the event with the given startkey.
+-     *                  First time getAuditEvents() is called for an entity, startKey should be null,
+-     *                  with count = (number of events required + 1). Next time getAuditEvents() is called for the same entity,
+-     *                  startKey should be equal to the entityKey of the last event returned in the previous call.
+-     * @param count number of events required
+-     * @return
+-     */
+-    @GET
+-    @Path("{guid}/audit")
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response getAuditEvents(@PathParam("guid") String guid, @QueryParam("startKey") String startKey,
+-                                   @QueryParam("count") @DefaultValue("100") short count) {
+-        LOG.debug("Audit events request for entity {}, start key {}, number of results required {}", guid, startKey,
+-                count);
+-        try {
+-            List<EntityAuditEvent> events = metadataService.getAuditEvents(guid, startKey, count);
+-
+-            JSONObject response = new JSONObject();
+-            response.put(AtlasClient.REQUEST_ID, Servlets.getRequestId());
+-            response.put(AtlasClient.EVENTS, getJSONArray(events));
+-            return Response.ok(response).build();
+-        } catch (AtlasException | IllegalArgumentException e) {
+-            LOG.error("Unable to get audit events for entity {}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
+-            LOG.error("Unable to get audit events for entity {}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+-        }
+-    }
+-
+-    private <T> JSONArray getJSONArray(Collection<T> elements) throws JSONException {
+-        JSONArray jsonArray = new JSONArray();
+-        for(T element : elements) {
+-            jsonArray.put(new JSONObject(element.toString()));
+-        }
+-        return jsonArray;
+-    }
+ }

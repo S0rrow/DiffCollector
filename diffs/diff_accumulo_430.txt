@@ -1,0 +1,30 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/LargeRowIT.java b/test/src/main/java/org/apache/accumulo/test/functional/LargeRowIT.java
+index 3f765942ad..34d11fc03d 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/LargeRowIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/LargeRowIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.util.Map;
+@@ -49,6 +48,8 @@ import org.junit.Test;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class LargeRowIT extends AccumuloClusterHarness {
+   private static final Logger log = LoggerFactory.getLogger(LargeRowIT.class);
+ 
+@@ -108,7 +109,7 @@ public class LargeRowIT extends AccumuloClusterHarness {
+     Random r = new Random();
+     byte rowData[] = new byte[ROW_SIZE];
+     r.setSeed(SEED + 1);
+-    TreeSet<Text> splitPoints = new TreeSet<>();
++    TreeSet<Text> splitPoints = new TreeSet<Text>();
+     for (int i = 0; i < NUM_PRE_SPLITS; i++) {
+       r.nextBytes(rowData);
+       TestIngest.toPrintableChars(rowData);

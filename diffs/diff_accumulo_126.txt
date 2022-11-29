@@ -1,0 +1,48 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/randomwalk/security/SetAuths.java b/test/src/main/java/org/apache/accumulo/test/randomwalk/security/SetAuths.java
+index c1c28ea566..61c4fc6cc0 100644
+--- a/test/src/main/java/org/apache/accumulo/test/randomwalk/security/SetAuths.java
++++ b/test/src/main/java/org/apache/accumulo/test/randomwalk/security/SetAuths.java
+@@ -22,35 +22,32 @@ import java.util.Random;
+ import org.apache.accumulo.core.client.AccumuloException;
+ import org.apache.accumulo.core.client.AccumuloSecurityException;
+ import org.apache.accumulo.core.client.Connector;
+-import org.apache.accumulo.core.client.security.tokens.AuthenticationToken;
+ import org.apache.accumulo.core.security.Authorizations;
+-import org.apache.accumulo.core.security.CredentialHelper;
++import org.apache.accumulo.core.security.thrift.Credential;
+ import org.apache.accumulo.test.randomwalk.State;
+ import org.apache.accumulo.test.randomwalk.Test;
+ 
+ public class SetAuths extends Test {
+   
+   @Override
+-  public void visit(State state, Properties props) throws Exception {    
++  public void visit(State state, Properties props) throws Exception {
++    Credential auth;
++    
+     String authsString = props.getProperty("auths", "_random");
+     
+     String targetUser = props.getProperty("system");
+     String target;
+-    String authPrincipal;
+-    AuthenticationToken authToken;
+     if ("table".equals(targetUser)) {
+       target = WalkingSecurity.get(state).getTabUserName();
+-      authPrincipal = WalkingSecurity.get(state).getSysUserName();
+-      authToken = WalkingSecurity.get(state).getSysToken();
++      auth = WalkingSecurity.get(state).getSysCredentials();
+     } else {
+       target = WalkingSecurity.get(state).getSysUserName();
+-      authPrincipal = state.getUserName();
+-      authToken = state.getToken();
++      auth = state.getCredentials();
+     }
+-    Connector conn = state.getInstance().getConnector(authPrincipal, authToken);
++    Connector conn = state.getInstance().getConnector(auth);
+     
+     boolean exists = WalkingSecurity.get(state).userExists(target);
+-    boolean hasPermission = WalkingSecurity.get(state).canChangeAuthorizations(CredentialHelper.create(authPrincipal, authToken, state.getInstance().getInstanceID()), target);
++    boolean hasPermission = WalkingSecurity.get(state).canChangeAuthorizations(auth, target);
+     
+     Authorizations auths;
+     if (authsString.equals("_random")) {

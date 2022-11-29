@@ -1,0 +1,261 @@
+diff --git a/airavata-api/airavata-api-server/src/main/java/org/apache/airavata/api/server/handler/AiravataServerHandler.java b/airavata-api/airavata-api-server/src/main/java/org/apache/airavata/api/server/handler/AiravataServerHandler.java
+index 1002f912f..bf217d3e8 100644
+--- a/airavata-api/airavata-api-server/src/main/java/org/apache/airavata/api/server/handler/AiravataServerHandler.java
++++ b/airavata-api/airavata-api-server/src/main/java/org/apache/airavata/api/server/handler/AiravataServerHandler.java
+@@ -22,134 +22,34 @@
+ package org.apache.airavata.api.server.handler;
+ 
+ import org.apache.airavata.api.Airavata;
+-import org.apache.airavata.api.airavataAPIConstants;
+ import org.apache.airavata.api.error.AiravataClientException;
+ import org.apache.airavata.api.error.AiravataSystemException;
+ import org.apache.airavata.api.error.ExperimentNotFoundException;
+ import org.apache.airavata.api.error.InvalidRequestException;
+-import org.apache.airavata.model.workspace.Project;
+-import org.apache.airavata.orchestrator.client.OrchestratorClientFactory;
+-import org.apache.airavata.orchestrator.cpi.OrchestratorService;
+ import org.apache.airavata.persistance.registry.jpa.impl.RegistryFactory;
+ import org.apache.airavata.model.workspace.experiment.*;
+ import org.apache.airavata.registry.cpi.ChildDataType;
+ import org.apache.airavata.registry.cpi.DataType;
+ import org.apache.airavata.registry.cpi.ParentDataType;
+ import org.apache.airavata.registry.cpi.Registry;
+-import org.apache.airavata.registry.cpi.utils.Constants;
+ import org.apache.thrift.TException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import java.util.ArrayList;
+-import java.util.HashMap;
+ import java.util.List;
+-import java.util.Map;
+ 
+ public class AiravataServerHandler implements Airavata.Iface {
+ 
+     private Registry registry;
+     private static final Logger logger = LoggerFactory.getLogger(AiravataServerHandler.class);
+-	 //FIXME: these go in a configuration file or a "constants" class. 
+-    public static final String ORCHESTRATOR_SERVER_HOST = "localhost";
+-	 //FIXME: these go in a configuration file or a "constants" class. 
+-    public static final int ORCHESTRATOR_SERVER_PORT = 8940;
+-    private OrchestratorService.Client orchestratorClient;
+     /**
+      * Query Airavata to fetch the API version
+      */
+     @Override
+     public String GetAPIVersion() throws TException {
+-        return airavataAPIConstants.AIRAVATA_API_VERSION;
+-    }
+-
+-    /**
+-     * Create a Project
+-     *
+-     * @param project
+-     * @param userName
+-     */
+-    @Override
+-    public String createProject(Project project, String userName) throws InvalidRequestException, AiravataClientException, AiravataSystemException, TException {
+         return null;
+     }
+ 
+-    /**
+-     * Update a Project
+-     *
+-     * @param project
+-     */
+-    @Override
+-    public void updateProject(Project project) throws InvalidRequestException, AiravataClientException, AiravataSystemException, TException {
+-
+-    }
+-
+-    /**
+-     * Get a Project by ID
+-     *
+-     * @param projectId
+-     */
+-    @Override
+-    public Project getProject(String projectId) throws InvalidRequestException, AiravataClientException, AiravataSystemException, TException {
+-        return null;
+-    }
+-
+-    /**
+-     * Get all Project by user
+-     *
+-     * @param userName
+-     */
+-    @Override
+-    public List<Project> getAllUserProjects(String userName) throws InvalidRequestException, AiravataClientException, AiravataSystemException, TException {
+-        return null;
+-    }
+-
+-    /**
+-     * Get all Experiments within a Project
+-     *
+-     * @param projectId
+-     */
+-    @Override
+-    public List<Experiment> getAllExperimentsInProject(String projectId) throws InvalidRequestException, AiravataClientException, AiravataSystemException, TException {
+-        try {
+-            List<Experiment> experiments = new ArrayList<Experiment>();
+-            registry = RegistryFactory.getDefaultRegistry();
+-            List<Object> list = registry.get(DataType.EXPERIMENT, Constants.FieldConstants.ExperimentConstants.PROJECT_NAME, projectId);
+-            if (list != null && !list.isEmpty()){
+-                for (Object o : list){
+-                    experiments.add((Experiment)o);
+-                }
+-            }
+-            return experiments;
+-        } catch (Exception e) {
+-            logger.error("Error while retrieving the experiments", e);
+-            throw new AiravataSystemException();
+-        }
+-    }
+-
+-    /**
+-     * Get all Experiments by user
+-     *
+-     * @param userName
+-     */
+-    @Override
+-    public List<Experiment> getAllUserExperiments(String userName) throws InvalidRequestException, AiravataClientException, AiravataSystemException, TException {
+-        try {
+-            List<Experiment> experiments = new ArrayList<Experiment>();
+-            registry = RegistryFactory.getDefaultRegistry();
+-            List<Object> list = registry.get(DataType.EXPERIMENT, Constants.FieldConstants.ExperimentConstants.USER_NAME, userName);
+-            if (list != null && !list.isEmpty()){
+-                for (Object o : list){
+-                    experiments.add((Experiment)o);
+-                }
+-            }
+-            return experiments;
+-        } catch (Exception e) {
+-            logger.error("Error while retrieving the experiments", e);
+-            throw new AiravataSystemException();
+-        }
+-    }
+-
+     /**
+      * Create an experiment for the specified user belonging to the gateway. The gateway identity is not explicitly passed
+      * but inferred from the authentication header. This experiment is just a persistent place holder. The client
+@@ -317,34 +217,9 @@ public class AiravataServerHandler implements Airavata.Iface {
+         }
+     }
+ 
+-    public Map<String, JobStatus> getJobStatuses(String airavataExperimentId) throws TException {
+-        Map<String, JobStatus> jobStatus = new HashMap<String, JobStatus>();
+-        try {
+-            registry = RegistryFactory.getDefaultRegistry();
+-            List<Object> workflowNodes = registry.get(DataType.WORKFLOW_NODE_DETAIL, Constants.FieldConstants.WorkflowNodeConstants.EXPERIMENT_ID, airavataExperimentId);
+-            if (workflowNodes != null && !workflowNodes.isEmpty()){
+-                for (Object wf : workflowNodes){
+-                    String nodeInstanceId = ((WorkflowNodeDetails) wf).getNodeInstanceId();
+-                    List<Object> taskDetails = registry.get(DataType.TASK_DETAIL, Constants.FieldConstants.TaskDetailConstants.NODE_ID, nodeInstanceId);
+-                    if (taskDetails != null && !taskDetails.isEmpty()){
+-                        for (Object ts : taskDetails){
+-                            String taskID = ((TaskDetails) ts).getTaskID();
+-                            List<Object> jobDetails = registry.get(DataType.JOB_DETAIL, Constants.FieldConstants.JobDetaisConstants.TASK_ID, taskID);
+-                            if (jobDetails != null && !jobDetails.isEmpty()){
+-                                for (Object job : jobDetails){
+-                                    String jobID = ((JobDetails) job).getJobID();
+-                                    jobStatus.put(jobID, ((JobDetails) job).getJobStatus());
+-                                }
+-                            }
+-                        }
+-                    }
+-                }
+-            }
+-        } catch (Exception e) {
+-            logger.error("Error while retrieving the job statuses", e);
+-            throw new AiravataSystemException();
+-        }
+-        return jobStatus;
++    @Override
++    public TaskStatus getJobStatus(String resourceJobId) throws TException {
++        return null;
+     }
+ 
+     /**
+@@ -361,41 +236,25 @@ public class AiravataServerHandler implements Airavata.Iface {
+      *                               if more security credentials are enables, then the structure ExecutionSecurityParameters should be used.
+      *                               Note: This parameter is not persisted within Airavata Registry for security reasons.
+      * @return This method call does not have a return value.
+-     * @throws org.apache.airavata.api.error.InvalidRequestException
+-     *          For any incorrect forming of the request itself.
+-     * @throws org.apache.airavata.api.error.ExperimentNotFoundException
+-     *          If the specified experiment is not previously created, then an Experiment Not Found Exception is thrown.
+-     * @throws org.apache.airavata.api.error.AiravataClientException
+-     *          The following list of exceptions are thrown which Airavata Client can take corrective actions to resolve:
+-     *          <p/>
+-     *          UNKNOWN_GATEWAY_ID - If a Gateway is not registered with Airavata as a one time administrative
+-     *          step, then Airavata Registry will not have a provenance area setup. The client has to follow
+-     *          gateway registration steps and retry this request.
+-     *          <p/>
+-     *          AUTHENTICATION_FAILURE - How Authentication will be implemented is yet to be determined.
+-     *          For now this is a place holder.
+-     *          <p/>
+-     *          INVALID_AUTHORIZATION - This will throw an authorization exception. When a more robust security hand-shake
+-     *          is implemented, the authorization will be more substantial.
+-     * @throws org.apache.airavata.api.error.AiravataSystemException
+-     *          This exception will be thrown for any Airavata Server side issues and if the problem cannot be corrected by the client
+-     *          rather an Airavata Administrator will be notified to take corrective action.
++     * @throws org.apache.airavata.api.error.InvalidRequestException     For any incorrect forming of the request itself.
++     * @throws org.apache.airavata.api.error.ExperimentNotFoundException If the specified experiment is not previously created, then an Experiment Not Found Exception is thrown.
++     * @throws org.apache.airavata.api.error.AiravataClientException     The following list of exceptions are thrown which Airavata Client can take corrective actions to resolve:
++     *                                                                   <p/>
++     *                                                                   UNKNOWN_GATEWAY_ID - If a Gateway is not registered with Airavata as a one time administrative
++     *                                                                   step, then Airavata Registry will not have a provenance area setup. The client has to follow
++     *                                                                   gateway registration steps and retry this request.
++     *                                                                   <p/>
++     *                                                                   AUTHENTICATION_FAILURE - How Authentication will be implemented is yet to be determined.
++     *                                                                   For now this is a place holder.
++     *                                                                   <p/>
++     *                                                                   INVALID_AUTHORIZATION - This will throw an authorization exception. When a more robust security hand-shake
++     *                                                                   is implemented, the authorization will be more substantial.
++     * @throws org.apache.airavata.api.error.AiravataSystemException     This exception will be thrown for any Airavata Server side issues and if the problem cannot be corrected by the client
++     *                                                                   rather an Airavata Administrator will be notified to take corrective action.
+      */
+     @Override
+     public void launchExperiment(String airavataExperimentId, String airavataCredStoreToken) throws InvalidRequestException, ExperimentNotFoundException, AiravataClientException, AiravataSystemException, TException {
+-        if(orchestratorClient == null){
+-            orchestratorClient = OrchestratorClientFactory.createOrchestratorClient(ORCHESTRATOR_SERVER_HOST, ORCHESTRATOR_SERVER_PORT);
+-        }
+-        final String expID = airavataExperimentId;
+-        (new Thread(){
+-            public void run(){
+-                try {
+-                    orchestratorClient.launchExperiment(expID);
+-                } catch (TException e) {
+-                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+-                }
+-            }
+-        }).start();
++
+     }
+ 
+     /**
+@@ -423,15 +282,7 @@ public class AiravataServerHandler implements Airavata.Iface {
+      */
+     @Override
+     public String cloneExperiment(String airavataExperimentIdToBeCloned, Experiment updatedExperiment) throws InvalidRequestException, ExperimentNotFoundException, AiravataClientException, AiravataSystemException, TException {
+-        try {
+-            registry = RegistryFactory.getDefaultRegistry();
+-            UserConfigurationData previousConfiguration = (UserConfigurationData)registry.get(DataType.EXPERIMENT_CONFIGURATION_DATA, airavataExperimentIdToBeCloned);
+-            updatedExperiment.setUserConfigurationData(previousConfiguration);
+-            return (String)registry.add(ParentDataType.EXPERIMENT, updatedExperiment);
+-        } catch (Exception e) {
+-            logger.error("Error while cloning the experiment with existing configuration...", e);
+-            throw new AiravataSystemException();
+-        }
++        return null;
+     }
+ 
+     /**
+@@ -460,4 +311,8 @@ public class AiravataServerHandler implements Airavata.Iface {
+ 
+     }
+ 
++    @Override
++    public String createProject(String projectName, String userName) throws InvalidRequestException, ExperimentNotFoundException, AiravataClientException, AiravataSystemException, TException {
++        return null;
++    }
+ }

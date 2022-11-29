@@ -1,0 +1,79 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
+index f6c7786703..43de7c4de3 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
+@@ -21,7 +21,6 @@ import java.util.Map;
+ import java.util.Objects;
+ import java.util.Set;
+ 
+-import org.apache.activemq.artemis.api.core.ActiveMQAddressDoesNotExistException;
+ import org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException;
+ import org.apache.activemq.artemis.api.core.ActiveMQExceptionType;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+@@ -59,7 +58,6 @@ import org.apache.qpid.proton.amqp.transport.DeliveryState;
+ import org.apache.qpid.proton.amqp.transport.ErrorCondition;
+ import org.apache.qpid.proton.amqp.transport.SenderSettleMode;
+ import org.apache.qpid.proton.engine.Delivery;
+-import org.apache.qpid.proton.engine.EndpointState;
+ import org.apache.qpid.proton.engine.Sender;
+ import org.jboss.logging.Logger;
+ 
+@@ -248,18 +246,13 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+          boolean clientDefined = hasCapabilities(TOPIC, source) || hasCapabilities(QUEUE, source);
+          if (clientDefined)  {
+             multicast = hasCapabilities(TOPIC, source);
+-            AddressQueryResult addressQueryResult = sessionSPI.addressQuery(addressToUse.toString(), defaultRoutingType, true);
+-            if (!addressQueryResult.isExists()) {
+-               throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.sourceAddressDoesntExist();
+-            }
+-
+-            Set<RoutingType> routingTypes = addressQueryResult.getRoutingTypes();
+-
++            AddressInfo addressInfo = sessionSPI.getAddress(addressToUse);
++            Set<RoutingType> routingTypes = addressInfo.getRoutingTypes();
+             //if the client defines 1 routing type and the broker another then throw an exception
+             if (multicast && !routingTypes.contains(RoutingType.MULTICAST)) {
+-               throw new ActiveMQAMQPIllegalStateException("Address " + addressToUse + " is not configured for topic support");
++               throw new ActiveMQAMQPIllegalStateException("Address is not configured for topic support");
+             } else if (!multicast && !routingTypes.contains(RoutingType.ANYCAST)) {
+-               throw new ActiveMQAMQPIllegalStateException("Address " + addressToUse + " is not configured for queue support");
++               throw new ActiveMQAMQPIllegalStateException("Address is not configured for queue support");
+             }
+          } else {
+             //if not we look up the address
+@@ -433,7 +426,6 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+    @Override
+    public void close(boolean remoteLinkClose) throws ActiveMQAMQPException {
+       try {
+-         closed = true;
+          sessionSPI.closeSender(brokerConsumer);
+          // if this is a link close rather than a connection close or detach, we need to delete
+          // any durable resources for say pub subs
+@@ -473,9 +465,6 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+ 
+    @Override
+    public void onMessage(Delivery delivery) throws ActiveMQAMQPException {
+-      if (closed) {
+-         return;
+-      }
+       Object message = delivery.getContext();
+ 
+       boolean preSettle = sender.getRemoteSenderSettleMode() == SenderSettleMode.SETTLED;
+@@ -554,6 +543,7 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+     */
+    public int deliverMessage(Object message, int deliveryCount) throws Exception {
+       if (closed) {
++         System.err.println("Message can't be delivered as it's closed");
+          return 0;
+       }
+ 
+@@ -590,9 +580,6 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+          int size = nettyBuffer.writerIndex();
+ 
+          synchronized (connection.getLock()) {
+-            if (sender.getLocalState() == EndpointState.CLOSED) {
+-               return 0;
+-            }
+             final Delivery delivery;
+             delivery = sender.delivery(tag, 0, tag.length);
+             delivery.setMessageFormat((int) messageFormat);

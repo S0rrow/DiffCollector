@@ -1,0 +1,362 @@
+diff --git a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
+index 0b7eff56b5..17f5b79c47 100644
+--- a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
++++ b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
+@@ -25,24 +25,17 @@ import java.util.concurrent.ScheduledFuture;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+-import org.apache.activemq.advisory.AdvisorySupport;
+-import org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException;
+-import org.apache.activemq.artemis.api.core.ICoreMessage;
+-import org.apache.activemq.artemis.api.core.Message;
+-import org.apache.activemq.artemis.api.core.RoutingType;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.client.impl.ClientConsumerImpl;
+ import org.apache.activemq.artemis.core.protocol.openwire.OpenWireMessageConverter;
+-import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
++import org.apache.activemq.artemis.core.protocol.openwire.util.OpenWireUtil;
+ import org.apache.activemq.artemis.core.server.MessageReference;
+ import org.apache.activemq.artemis.core.server.QueueQueryResult;
+ import org.apache.activemq.artemis.core.server.ServerConsumer;
++import org.apache.activemq.artemis.core.server.ServerMessage;
+ import org.apache.activemq.artemis.core.server.SlowConsumerDetectionListener;
+-import org.apache.activemq.artemis.core.server.impl.AddressInfo;
+-import org.apache.activemq.artemis.core.server.impl.ServerConsumerImpl;
+ import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+ import org.apache.activemq.artemis.core.transaction.Transaction;
+-import org.apache.activemq.artemis.reader.MessageUtil;
+ import org.apache.activemq.command.ConsumerControl;
+ import org.apache.activemq.command.ConsumerId;
+ import org.apache.activemq.command.ConsumerInfo;
+@@ -51,32 +44,26 @@ import org.apache.activemq.command.MessageDispatch;
+ import org.apache.activemq.command.MessageId;
+ import org.apache.activemq.command.MessagePull;
+ import org.apache.activemq.command.RemoveInfo;
++import org.apache.activemq.wireformat.WireFormat;
+ 
+ public class AMQConsumer {
+-   private static final String AMQ_NOTIFICATIONS_DESTINATION = "activemq.notifications";
+-   private final AMQSession session;
+-   private final org.apache.activemq.command.ActiveMQDestination openwireDestination;
+-   private final boolean hasNotificationDestination;
+-   private final ConsumerInfo info;
++   private AMQSession session;
++   private org.apache.activemq.command.ActiveMQDestination openwireDestination;
++   private ConsumerInfo info;
+    private final ScheduledExecutorService scheduledPool;
+    private ServerConsumer serverConsumer;
+ 
+    private int prefetchSize;
+-   private final AtomicInteger currentWindow;
++   private AtomicInteger currentWindow;
+    private long messagePullSequence = 0;
+    private MessagePullHandler messagePullHandler;
+-   //internal means we don't expose
+-   //it's address/queue to management service
+-   private boolean internalAddress = false;
+ 
+    public AMQConsumer(AMQSession amqSession,
+                       org.apache.activemq.command.ActiveMQDestination d,
+                       ConsumerInfo info,
+-                      ScheduledExecutorService scheduledPool,
+-                      boolean internalAddress) {
++                      ScheduledExecutorService scheduledPool) {
+       this.session = amqSession;
+       this.openwireDestination = d;
+-      this.hasNotificationDestination = d.toString().contains(AMQ_NOTIFICATIONS_DESTINATION);
+       this.info = info;
+       this.scheduledPool = scheduledPool;
+       this.prefetchSize = info.getPrefetchSize();
+@@ -84,47 +71,35 @@ public class AMQConsumer {
+       if (prefetchSize == 0) {
+          messagePullHandler = new MessagePullHandler();
+       }
+-      this.internalAddress = internalAddress;
+    }
+ 
+    public void init(SlowConsumerDetectionListener slowConsumerDetectionListener, long nativeId) throws Exception {
+ 
+       SimpleString selector = info.getSelector() == null ? null : new SimpleString(info.getSelector());
+-      boolean preAck = false;
+-      if (info.isNoLocal()) {
+-         if (!AdvisorySupport.isAdvisoryTopic(openwireDestination)) {
+-            //tell the connection to add the property
+-            this.session.getConnection().setNoLocal(true);
+-         } else {
+-            preAck = true;
+-         }
+-         String id = info.getClientId() != null ? info.getClientId() : this.getId().getConnectionId();
+-         String noLocalSelector = MessageUtil.CONNECTION_ID_PROPERTY_NAME.toString() + "<>'" + id + "'";
+-         if (selector == null) {
+-            selector = new SimpleString(noLocalSelector);
+-         } else {
+-            selector = new SimpleString(info.getSelector() + " AND " + noLocalSelector);
+-         }
+-      }
+ 
+-      SimpleString destinationName = new SimpleString(session.convertWildcard(openwireDestination.getPhysicalName()));
++      String physicalName = OpenWireUtil.convertWildcard(openwireDestination.getPhysicalName());
++
++      SimpleString address;
+ 
+       if (openwireDestination.isTopic()) {
+-         SimpleString queueName = createTopicSubscription(info.isDurable(), info.getClientId(), destinationName.toString(), info.getSubscriptionName(), selector, destinationName);
++         if (openwireDestination.isTemporary()) {
++            address = new SimpleString("jms.temptopic." + physicalName);
++         }
++         else {
++            address = new SimpleString("jms.topic." + physicalName);
++         }
++
++         SimpleString queueName = createTopicSubscription(info.isDurable(), info.getClientId(), physicalName, info.getSubscriptionName(), selector, address);
+ 
+          serverConsumer = session.getCoreSession().createConsumer(nativeId, queueName, null, info.isBrowser(), false, -1);
+          serverConsumer.setlowConsumerDetection(slowConsumerDetectionListener);
+-         //only advisory topic consumers need this.
+-         ((ServerConsumerImpl)serverConsumer).setPreAcknowledge(preAck);
+-      } else {
+-         try {
+-            session.getCoreServer().createQueue(destinationName, RoutingType.ANYCAST, destinationName, null, true, false);
+-         } catch (ActiveMQQueueExistsException e) {
+-            // ignore
+-         }
+-         serverConsumer = session.getCoreSession().createConsumer(nativeId, destinationName, selector, info.isBrowser(), false, -1);
++      }
++      else {
++         SimpleString queueName = OpenWireUtil.toCoreAddress(openwireDestination);
++         session.getCoreServer().getJMSDestinationCreator().create(queueName);
++         serverConsumer = session.getCoreSession().createConsumer(nativeId, queueName, selector, info.isBrowser(), false, -1);
+          serverConsumer.setlowConsumerDetection(slowConsumerDetectionListener);
+-         AddressSettings addrSettings = session.getCoreServer().getAddressSettingsRepository().getMatch(destinationName.toString());
++         AddressSettings addrSettings = session.getCoreServer().getAddressSettingsRepository().getMatch(queueName.toString());
+          if (addrSettings != null) {
+             //see PolicyEntry
+             if (info.getPrefetchSize() != 0 && addrSettings.getQueuePrefetch() == 0) {
+@@ -135,6 +110,7 @@ public class AMQConsumer {
+                session.getConnection().dispatch(cc);
+             }
+          }
++
+       }
+ 
+       serverConsumer.setProtocolData(this);
+@@ -149,15 +125,8 @@ public class AMQConsumer {
+ 
+       SimpleString queueName;
+ 
+-      AddressInfo addressInfo = session.getCoreServer().getAddressInfo(address);
+-      if (addressInfo != null) {
+-         addressInfo.addRoutingType(RoutingType.MULTICAST);
+-      } else {
+-         addressInfo = new AddressInfo(address, RoutingType.MULTICAST);
+-      }
+-      addressInfo.setInternal(internalAddress);
+       if (isDurable) {
+-         queueName = org.apache.activemq.artemis.jms.client.ActiveMQDestination.createQueueNameForSubscription(true, clientID, subscriptionName);
++         queueName = new SimpleString(org.apache.activemq.artemis.jms.client.ActiveMQDestination.createQueueNameForDurableSubscription(true, clientID, subscriptionName));
+          QueueQueryResult result = session.getCoreSession().executeQueueQuery(queueName);
+          if (result.isExists()) {
+             // Already exists
+@@ -178,15 +147,18 @@ public class AMQConsumer {
+                session.getCoreSession().deleteQueue(queueName);
+ 
+                // Create the new one
+-               session.getCoreSession().createQueue(addressInfo, queueName, selector, false, true);
++               session.getCoreSession().createQueue(address, queueName, selector, false, true);
+             }
+-         } else {
+-            session.getCoreSession().createQueue(addressInfo, queueName, selector, false, true);
+          }
+-      } else {
++         else {
++            session.getCoreSession().createQueue(address, queueName, selector, false, true);
++         }
++      }
++      else {
+          queueName = new SimpleString(UUID.randomUUID().toString());
+ 
+-         session.getCoreSession().createQueue(addressInfo, queueName, selector, true, false);
++         session.getCoreSession().createQueue(address, queueName, selector, true, false);
++
+       }
+ 
+       return queueName;
+@@ -196,6 +168,10 @@ public class AMQConsumer {
+       return info.getConsumerId();
+    }
+ 
++   public WireFormat getMarshaller() {
++      return this.session.getMarshaller();
++   }
++
+    public void acquireCredit(int n) throws Exception {
+       if (messagePullHandler != null) {
+          //don't acquire any credits when the pull handler controls it!!
+@@ -211,30 +187,26 @@ public class AMQConsumer {
+ 
+    }
+ 
+-   public int handleDeliver(MessageReference reference, ICoreMessage message, int deliveryCount) {
++   public int handleDeliver(MessageReference reference, ServerMessage message, int deliveryCount) {
+       MessageDispatch dispatch;
+       try {
+          if (messagePullHandler != null && !messagePullHandler.checkForcedConsumer(message)) {
+             return 0;
+          }
+ 
+-         if (session.getConnection().isNoLocal() || session.isInternal()) {
+-            //internal session always delivers messages to noLocal advisory consumers
+-            //so we need to remove this property too.
+-            message.removeProperty(MessageUtil.CONNECTION_ID_PROPERTY_NAME);
+-         }
+-         //handleDeliver is performed by an executor (see JBPAPP-6030): any AMQConsumer can share the session.wireFormat()
+-         dispatch = OpenWireMessageConverter.createMessageDispatch(reference, message, session.wireFormat(), this);
++         dispatch = OpenWireMessageConverter.createMessageDispatch(reference, message, this);
+          int size = dispatch.getMessage().getSize();
+          reference.setProtocolData(dispatch.getMessage().getMessageId());
+          session.deliverMessage(dispatch);
+          currentWindow.decrementAndGet();
+          return size;
+-      } catch (IOException e) {
+-         ActiveMQServerLogger.LOGGER.warn("Error during message dispatch", e);
++      }
++      catch (IOException e) {
++         e.printStackTrace();
+          return 0;
+-      } catch (Throwable t) {
+-         ActiveMQServerLogger.LOGGER.warn("Error during message dispatch", t);
++      }
++      catch (Throwable t) {
++         t.printStackTrace();
+          return 0;
+       }
+    }
+@@ -246,12 +218,10 @@ public class AMQConsumer {
+       session.deliverMessage(md);
+    }
+ 
+-   /**
+-    * The acknowledgement in openwire is done based on intervals.
+-    * We will iterate through the list of delivering messages at {@link ServerConsumer#getDeliveringReferencesBasedOnProtocol(boolean, Object, Object)}
+-    * and add those to the Transaction.
+-    * Notice that we will start a new transaction on the cases where there is no transaction.
+-    */
++   /** The acknowledgement in openwire is done based on intervals.
++    *  We will iterate through the list of delivering messages at {@link ServerConsumer#getDeliveringReferencesBasedOnProtocol(boolean, Object, Object)}
++    *  and add those to the Transaction.
++    *  Notice that we will start a new transaction on the cases where there is no transaction. */
+    public void acknowledge(MessageAck ack) throws Exception {
+ 
+       MessageId first = ack.getFirstMessageId();
+@@ -278,19 +248,21 @@ public class AMQConsumer {
+ 
+          if (originalTX == null) {
+             transaction = session.getCoreSession().newTransaction();
+-         } else {
++         }
++         else {
+             transaction = originalTX;
+          }
+ 
+          if (ack.isIndividualAck() || ack.isStandardAck()) {
+             for (MessageReference ref : ackList) {
+-               ref.acknowledge(transaction, serverConsumer);
++               ref.acknowledge(transaction);
+             }
+-         } else if (ack.isPoisonAck()) {
++         }
++         else if (ack.isPoisonAck()) {
+             for (MessageReference ref : ackList) {
+                Throwable poisonCause = ack.getPoisonCause();
+                if (poisonCause != null) {
+-                  ref.getMessage().putStringProperty(OpenWireMessageConverter.AMQ_MSG_DLQ_DELIVERY_FAILURE_CAUSE_PROPERTY, new SimpleString(poisonCause.toString()));
++                  ref.getMessage().putStringProperty(OpenWireMessageConverter.AMQ_MSG_DLQ_DELIVERY_FAILURE_CAUSE_PROPERTY, poisonCause.toString());
+                }
+                ref.getQueue().sendToDeadLetterAddress(transaction, ref);
+             }
+@@ -301,9 +273,8 @@ public class AMQConsumer {
+          }
+       }
+       if (ack.isExpiredAck()) {
+-         for (MessageReference ref : ackList) {
+-            ref.getQueue().expire(ref, serverConsumer);
+-         }
++         //adjust delivering count for expired messages
++         this.serverConsumer.getQueue().decDelivering(ackList.size());
+       }
+    }
+ 
+@@ -335,10 +306,6 @@ public class AMQConsumer {
+       serverConsumer.close(false);
+    }
+ 
+-   public boolean hasNotificationDestination() {
+-      return hasNotificationDestination;
+-   }
+-
+    public org.apache.activemq.command.ActiveMQDestination getOpenwireDestination() {
+       return openwireDestination;
+    }
+@@ -353,16 +320,9 @@ public class AMQConsumer {
+    }
+ 
+    public boolean updateDeliveryCountAfterCancel(MessageReference ref) {
+-      long seqId = ref.getMessageID();
++      long seqId = ref.getMessage().getMessageID();
+       long lastDelSeqId = info.getLastDeliveredSequenceId();
+ 
+-      //in activemq5, closing a durable subscription won't close the consumer
+-      //at broker. Messages will be treated as if being redelivered to
+-      //the same consumer.
+-      if (this.info.isDurable() && this.getOpenwireDestination().isTopic()) {
+-         return true;
+-      }
+-
+       //because delivering count is always one greater than redelivery count
+       //we adjust it down before further calculating.
+       ref.decrementDeliveryCount();
+@@ -373,8 +333,6 @@ public class AMQConsumer {
+          // tx cases are handled by
+          // org.apache.activemq.artemis.core.protocol.openwire.OpenWireConnection.CommandProcessor.processRollbackTransaction()
+          ref.incrementDeliveryCount();
+-      } else if (lastDelSeqId == RemoveInfo.LAST_DELIVERED_UNSET && !session.isRolledBack(seqId)) {
+-         ref.incrementDeliveryCount();
+       }
+ 
+       return true;
+@@ -382,7 +340,7 @@ public class AMQConsumer {
+ 
+    /**
+     * The MessagePullHandler is used with slow consumer policies.
+-    */
++    * */
+    private class MessagePullHandler {
+ 
+       private long next = -1;
+@@ -405,12 +363,13 @@ public class AMQConsumer {
+          }
+       }
+ 
+-      public boolean checkForcedConsumer(Message message) {
++      public boolean checkForcedConsumer(ServerMessage message) {
+          if (message.containsProperty(ClientConsumerImpl.FORCED_DELIVERY_MESSAGE)) {
+             if (next >= 0) {
+                if (timeout <= 0) {
+                   latch.countDown();
+-               } else {
++               }
++               else {
+                   messagePullFuture = scheduledPool.schedule(new Runnable() {
+                      @Override
+                      public void run() {
+@@ -422,7 +381,8 @@ public class AMQConsumer {
+                }
+             }
+             return false;
+-         } else {
++         }
++         else {
+             next = -1;
+             if (messagePullFuture != null) {
+                messagePullFuture.cancel(true);

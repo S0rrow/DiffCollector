@@ -1,0 +1,24 @@
+diff --git a/server/tracer/src/main/java/org/apache/accumulo/tracer/AsyncSpanReceiver.java b/server/tracer/src/main/java/org/apache/accumulo/tracer/AsyncSpanReceiver.java
+index 28a9088ad4..d3a2fc53ba 100644
+--- a/server/tracer/src/main/java/org/apache/accumulo/tracer/AsyncSpanReceiver.java
++++ b/server/tracer/src/main/java/org/apache/accumulo/tracer/AsyncSpanReceiver.java
+@@ -113,8 +113,8 @@ public abstract class AsyncSpanReceiver<SpanKey,Destination> implements SpanRece
+         synchronized (sendQueue) {
+           sendQueue.remove();
+           sendQueue.notifyAll();
+-          sendQueueSize.decrementAndGet();
+         }
++        sendQueueSize.decrementAndGet();
+         continue;
+       }
+       SpanKey dest = getSpanKey(s.data);
+@@ -132,8 +132,8 @@ public abstract class AsyncSpanReceiver<SpanKey,Destination> implements SpanRece
+           synchronized (sendQueue) {
+             sendQueue.remove();
+             sendQueue.notifyAll();
+-            sendQueueSize.decrementAndGet();
+           }
++          sendQueueSize.decrementAndGet();
+           sent = true;
+         } catch (Exception ex) {
+           log.warn("Got error sending to " + dest + ", refreshing client", ex);

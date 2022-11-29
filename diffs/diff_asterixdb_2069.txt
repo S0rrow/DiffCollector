@@ -1,0 +1,1330 @@
+diff --git a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
+index 6d310f326c..6319062079 100644
+--- a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
++++ b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
+@@ -17,10 +17,8 @@ package edu.uci.ics.asterix.transaction.management.service.locking;
+ 
+ import java.io.IOException;
+ import java.io.OutputStream;
+-import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.concurrent.ConcurrentHashMap;
+-import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicLong;
+ import java.util.concurrent.locks.Condition;
+ import java.util.concurrent.locks.ReentrantReadWriteLock;
+@@ -44,12 +42,10 @@ import edu.uci.ics.hyracks.api.lifecycle.ILifeCycleComponent;
+  */
+ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent {
+ 
+-    private static final Logger LOGGER
+-        = Logger.getLogger(ConcurrentLockManager.class.getName());
++    private static final Logger LOGGER = Logger.getLogger(ConcurrentLockManager.class.getName());
+     private static final Level LVL = Level.FINER;
+     
+-    public static final boolean DEBUG_MODE = false;//true
+-    public static final boolean CHECK_CONSISTENCY = false;
++    public static final boolean IS_DEBUG_MODE = false;//true
+ 
+     private TransactionSubsystem txnSubsystem;
+     private ResourceGroupTable table;
+@@ -58,39 +54,45 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+     private JobArenaManager jobArenaMgr;
+     private ConcurrentHashMap<Integer, Long> jobIdSlotMap;
+     private ThreadLocal<DatasetLockCache> dsLockCache;
+-    private LockManagerStats stats = new LockManagerStats(10000); 
+     
++    private volatile int lCnt;
++    private volatile int ilCnt;
++    private volatile int tlCnt;
++    private volatile int itlCnt;
++    private volatile int ulCnt;
++    private volatile int rlCnt;
++        
+     enum LockAction {
+         ERR(false, false),
+         GET(false, false),
+-        UPD(false, true), // version of GET that updates the max lock mode
++        UPD(false, true), // special version of GET that updates the max lock mode
+         WAIT(true, false),
+         CONV(true, true) // convert (upgrade) a lock (e.g. from S to X)
+         ;
+         boolean wait;
+         boolean modify;
+-
+         LockAction(boolean wait, boolean modify) {
+             this.wait = wait;
+             this.modify = modify;
+         }
+     }
+-
++    
+     static LockAction[][] ACTION_MATRIX = {
+-            // new    NL              IS               IX                S                X
+-            { LockAction.ERR, LockAction.UPD, LockAction.UPD, LockAction.UPD, LockAction.UPD }, // NL
+-            { LockAction.ERR, LockAction.GET, LockAction.UPD, LockAction.UPD, LockAction.WAIT }, // IS
+-            { LockAction.ERR, LockAction.GET, LockAction.GET, LockAction.WAIT, LockAction.WAIT }, // IX
+-            { LockAction.ERR, LockAction.GET, LockAction.WAIT, LockAction.GET, LockAction.WAIT }, // S
+-            { LockAction.ERR, LockAction.WAIT, LockAction.WAIT, LockAction.WAIT, LockAction.WAIT } // X
++        // new    NL              IS               IX                S                X
++        { LockAction.ERR, LockAction.UPD,  LockAction.UPD,  LockAction.UPD,  LockAction.UPD  }, // NL
++        { LockAction.ERR, LockAction.GET,  LockAction.UPD,  LockAction.UPD,  LockAction.WAIT }, // IS
++        { LockAction.ERR, LockAction.GET,  LockAction.GET,  LockAction.WAIT, LockAction.WAIT }, // IX
++        { LockAction.ERR, LockAction.GET,  LockAction.WAIT, LockAction.GET,  LockAction.WAIT }, // S
++        { LockAction.ERR, LockAction.WAIT, LockAction.WAIT, LockAction.WAIT, LockAction.WAIT }  // X
+     };
+-
++        
+     public ConcurrentLockManager(TransactionSubsystem txnSubsystem) throws ACIDException {
+         this.txnSubsystem = txnSubsystem;
+-
++        
+         this.table = new ResourceGroupTable();
+-
+-        final int lockManagerShrinkTimer = txnSubsystem.getTransactionProperties().getLockManagerShrinkTimer();
++        
++        final int lockManagerShrinkTimer = txnSubsystem.getTransactionProperties()
++                .getLockManagerShrinkTimer();
+ 
+         int noArenas = Runtime.getRuntime().availableProcessors() * 2;
+ 
+@@ -103,6 +105,13 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 return new DatasetLockCache();
+             }
+         };
++        
++        lCnt = 0;
++        ilCnt = 0;
++        tlCnt = 0;
++        itlCnt = 0;
++        ulCnt = 0;
++        rlCnt = 0;
+     }
+ 
+     public AsterixTransactionProperties getTransactionProperties() {
+@@ -113,30 +122,31 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+     public void lock(DatasetId datasetId, int entityHashValue, byte lockMode, ITransactionContext txnContext)
+             throws ACIDException {
+         log("lock", datasetId.getId(), entityHashValue, lockMode, txnContext);
+-        stats.lock();
++        ++lCnt;
+         
+         final int dsId = datasetId.getId();        
+         final int jobId = txnContext.getJobId().getId();
+-
++        
+         if (entityHashValue != -1) {
+-            lock(datasetId, -1, LockMode.intentionMode(lockMode), txnContext);
+-        } else {
+-            if (dsLockCache.get().contains(jobId, dsId, lockMode)) {
+-                return;
++            // get the intention lock on the dataset, if we want to lock an individual item
++            final byte dsLockMode = LockMode.intentionMode(lockMode);
++            if (! dsLockCache.get().contains(jobId, dsId, dsLockMode)) {
++                lock(datasetId, -1, dsLockMode, txnContext);
++                dsLockCache.get().put(jobId, dsId, dsLockMode);
+             }
+         }
+ 
+         final long jobSlot = findOrAllocJobSlot(jobId);
+         
+-        final ResourceGroup group = table.get(dsId, entityHashValue);
++        final ResourceGroup group = table.get(datasetId, entityHashValue);
+         group.getLatch();
+         try {
+             validateJob(txnContext);
+-
++            
+             final long resSlot = findOrAllocResourceSlot(group, dsId, entityHashValue);
+             final long reqSlot = allocRequestSlot(resSlot, jobSlot, lockMode);
+             boolean locked = false;
+-            while (!locked) {
++            while (! locked) {
+                 final LockAction act = determineLockAction(resSlot, jobSlot, lockMode);
+                 switch (act) {
+                     case UPD:
+@@ -155,26 +165,19 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                         throw new IllegalStateException();
+                 }
+             }
+-            if (entityHashValue == -1) {
+-                dsLockCache.get().put(jobId, dsId, lockMode);
+-            }
+         } finally {
+             group.releaseLatch();
+         }
+-        
+-        if (CHECK_CONSISTENCY) assertLocksCanBefoundInJobQueue();
+     }
+ 
+-    private void enqueueWaiter(final ResourceGroup group, final long reqSlot, final long resSlot, final long jobSlot,
+-            final LockAction act, ITransactionContext txnContext) throws ACIDException {
++    private void enqueueWaiter(final ResourceGroup group, final long reqSlot,
++            final long resSlot, final long jobSlot, final LockAction act,
++            ITransactionContext txnContext) throws ACIDException {
+         final Queue queue = act.modify ? upgrader : waiter;
+-        if (introducesDeadlock(resSlot, jobSlot, NOPTracker.INSTANCE)) {
+-            DeadlockTracker tracker = new CollectingTracker();
+-            tracker.pushJob(jobSlot);
+-            introducesDeadlock(resSlot, jobSlot, tracker);
+-            requestAbort(txnContext, tracker.toString());
+-        } else {
++        if (! introducesDeadlock(resSlot, jobSlot)) {
+             queue.add(reqSlot, resSlot, jobSlot);
++        } else {
++            requestAbort(txnContext);
+         }
+         try {
+             group.await(txnContext);
+@@ -183,83 +186,18 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         }
+     }
+ 
+-    interface DeadlockTracker {
+-        void pushResource(long resSlot);
+-        void pushRequest(long reqSlot);
+-        void pushJob(long jobSlot);
+-        void pop();
+-    }
+-    
+-    static class NOPTracker implements DeadlockTracker {        
+-        static final DeadlockTracker INSTANCE = new NOPTracker();
+-
+-        public void pushResource(long resSlot) {}
+-        public void pushRequest(long reqSlot) {}
+-        public void pushJob(long jobSlot) {}
+-        public void pop() {}
+-    }
+-    
+-    static class CollectingTracker implements DeadlockTracker {
+-        ArrayList<Long> slots = new ArrayList<Long>();
+-        ArrayList<String> types = new ArrayList<String>();
+-
+-        @Override
+-        public void pushResource(long resSlot) {
+-            types.add("Resource");
+-            slots.add(resSlot);
+-            System.err.println("push " + types.get(types.size() - 1) + " " + slots.get(slots.size() - 1));
+-        }
+-
+-        @Override
+-        public void pushRequest(long reqSlot) {
+-            types.add("Request");
+-            slots.add(reqSlot);
+-            System.err.println("push " + types.get(types.size() - 1) + " " + slots.get(slots.size() - 1));
+-        }
+-
+-        @Override
+-        public void pushJob(long jobSlot) {
+-            types.add("Job");
+-            slots.add(jobSlot);
+-            System.err.println("push " + types.get(types.size() - 1) + " " + slots.get(slots.size() - 1));
+-        }
+-
+-        @Override
+-        public void pop() {
+-            System.err.println("pop " + types.get(types.size() - 1) + " " + slots.get(slots.size() - 1));
+-            types.remove(types.size() - 1);
+-            slots.remove(slots.size() - 1);            
+-        }
+-        
+-        @Override
+-        public String toString() {
+-            StringBuilder sb = new StringBuilder();
+-            for (int i = 0; i < slots.size(); ++i) {
+-                sb.append(types.get(i) + " " + slots.get(i) + "\n");
+-            }
+-            return sb.toString();
+-        }
+-    }
+-        
+     /**
+-     * determine if adding a job to the waiters of a resource will introduce a
++     * determine if adding a job to the waiters of a resource will introduce a 
+      * cycle in the wait-graph where the job waits on itself
+-     * 
+-     * @param resSlot
+-     *            the slot that contains the information about the resource
+-     * @param jobSlot
+-     *            the slot that contains the information about the job
++     * @param resSlot the slot that contains the information about the resource
++     * @param jobSlot the slot that contains the information about the job
+      * @return true if a cycle would be introduced, false otherwise
+      */
+-    private boolean introducesDeadlock(final long resSlot, final long jobSlot,
+-            final DeadlockTracker tracker) {
++    private boolean introducesDeadlock(final long resSlot, final long jobSlot) {
+         synchronized (jobArenaMgr) {
+-            tracker.pushResource(resSlot);
+             long reqSlot = resArenaMgr.getLastHolder(resSlot);
+             while (reqSlot >= 0) {
+-                tracker.pushRequest(reqSlot);
+-                final long holderJobSlot = reqArenaMgr.getJobSlot(reqSlot);
+-                tracker.pushJob(holderJobSlot);
++                long holderJobSlot = reqArenaMgr.getJobSlot(reqSlot);
+                 if (holderJobSlot == jobSlot) {
+                     return true;
+                 }
+@@ -267,7 +205,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 long waiter = jobArenaMgr.getLastWaiter(holderJobSlot);
+                 while (waiter >= 0) {
+                     long watingOnResSlot = reqArenaMgr.getResourceId(waiter);
+-                    if (introducesDeadlock(watingOnResSlot, jobSlot, tracker)) {
++                    if (introducesDeadlock(watingOnResSlot, jobSlot)) {
+                         return true;
+                     }
+                     waiter = reqArenaMgr.getNextJobRequest(waiter);
+@@ -276,45 +214,45 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                         waiter = jobArenaMgr.getLastUpgrader(holderJobSlot);
+                     }
+                 }
+-                tracker.pop(); // job
+-                tracker.pop(); // request
+                 reqSlot = reqArenaMgr.getNextRequest(reqSlot);
+             }
+-            tracker.pop(); // resource
+             return false;
+         }
+     }
+-    
++
+     @Override
+     public void instantLock(DatasetId datasetId, int entityHashValue, byte lockMode, ITransactionContext txnContext)
+             throws ACIDException {
+         log("instantLock", datasetId.getId(), entityHashValue, lockMode, txnContext);
+-        stats.instantLock();
++        ++ilCnt;
+         
+         final int dsId = datasetId.getId();        
+         final int jobId = txnContext.getJobId().getId();
+-
++        
+         if (entityHashValue != -1) {
+-            lock(datasetId, -1, LockMode.intentionMode(lockMode), txnContext);
+-        } else {
+-            throw new UnsupportedOperationException("instant locks are not supported on datasets");
++            // get the intention lock on the dataset, if we want to lock an individual item
++            final byte dsLockMode = LockMode.intentionMode(lockMode);
++            if (! dsLockCache.get().contains(jobId, dsId, dsLockMode)) {
++                lock(datasetId, -1, dsLockMode, txnContext);
++                dsLockCache.get().put(jobId, dsId, dsLockMode);
++            }
+         }
+ 
+-        final ResourceGroup group = table.get(dsId, entityHashValue);
++        final ResourceGroup group = table.get(datasetId, entityHashValue);
+         if (group.firstResourceIndex.get() == -1l) {
+             validateJob(txnContext);
+             // if we do not have a resource in the group, we know that the
+             // resource that we are looking for is not locked 
+             return;
+         }
+-
++        
+         // we only allocate a request slot if we actually have to wait
+         long reqSlot = -1;
+ 
+         group.getLatch();
+         try {
+             validateJob(txnContext);
+-
++            
+             final long resSlot = findResourceInGroup(group, dsId, entityHashValue);
+             if (resSlot < 0) {
+                 // if we don't find the resource, there are no locks on it.
+@@ -322,7 +260,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             }
+ 
+             final long jobSlot = findOrAllocJobSlot(jobId);
+-
++            
+             while (true) {
+                 final LockAction act = determineLockAction(resSlot, jobSlot, lockMode);
+                 switch (act) {
+@@ -344,7 +282,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         } finally {
+             if (reqSlot != -1) {
+                 // deallocate request, if we allocated one earlier
+-                if (DEBUG_MODE) LOGGER.finer("del req slot " + TypeUtil.Global.toString(reqSlot));
++                LOGGER.info("XXX del req slot " + TypeUtil.Global.toString(reqSlot));
+                 reqArenaMgr.deallocate(reqSlot);
+             }
+             group.releaseLatch();
+@@ -355,24 +293,25 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+     public boolean tryLock(DatasetId datasetId, int entityHashValue, byte lockMode, ITransactionContext txnContext)
+             throws ACIDException {
+         log("tryLock", datasetId.getId(), entityHashValue, lockMode, txnContext);
+-        stats.tryLock();
++        ++tlCnt;
+         
+         final int dsId = datasetId.getId();
+         final int jobId = txnContext.getJobId().getId();
+ 
+         if (entityHashValue != -1) {
+-            if (! tryLock(datasetId, -1, LockMode.intentionMode(lockMode), txnContext)) {
+-                return false;
+-            }
+-        } else {
+-            if (dsLockCache.get().contains(jobId, dsId, lockMode)) {
+-                return true;
++            // get the intention lock on the dataset, if we want to lock an individual item
++            final byte dsLockMode = LockMode.intentionMode(lockMode);
++            if (! dsLockCache.get().contains(jobId, dsId, dsLockMode)) {
++                if (! tryLock(datasetId, -1, dsLockMode, txnContext)) {
++                    return false;
++                }
++                dsLockCache.get().put(jobId, dsId, dsLockMode);
+             }
+         }
+ 
+         final long jobSlot = findOrAllocJobSlot(jobId);
+         
+-        final ResourceGroup group = table.get(dsId, entityHashValue);
++        final ResourceGroup group = table.get(datasetId, entityHashValue);
+         group.getLatch();
+ 
+         try {
+@@ -380,7 +319,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+ 
+             final long resSlot = findOrAllocResourceSlot(group, dsId, entityHashValue);
+             final long reqSlot = allocRequestSlot(resSlot, jobSlot, lockMode);
+-
++            
+             final LockAction act = determineLockAction(resSlot, jobSlot, lockMode);
+             switch (act) {
+                 case UPD:
+@@ -388,9 +327,6 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                     // no break
+                 case GET:
+                     addHolder(reqSlot, resSlot, jobSlot);
+-                    if (entityHashValue == -1) {
+-                        dsLockCache.get().put(jobId, dsId, lockMode);
+-                    }
+                     return true;
+                 case WAIT:
+                 case CONV:
+@@ -401,7 +337,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         } finally {
+             group.releaseLatch();
+         }
+-
++        
+         // if we did acquire the dataset lock, but not the entity lock, we keep
+         // it anyway and clean it up at the end of the job
+     }
+@@ -410,31 +346,34 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+     public boolean instantTryLock(DatasetId datasetId, int entityHashValue, byte lockMode,
+             ITransactionContext txnContext) throws ACIDException {
+         log("instantTryLock", datasetId.getId(), entityHashValue, lockMode, txnContext);
+-        stats.instantTryLock();
++        ++itlCnt;
+         
+         final int dsId = datasetId.getId();
+         final int jobId = txnContext.getJobId().getId();
+ 
+         if (entityHashValue != -1) {
+-            if (! tryLock(datasetId, -1, LockMode.intentionMode(lockMode), txnContext)) {
+-                return false;
++            // get the intention lock on the dataset, if we want to lock an individual item
++            final byte dsLockMode = LockMode.intentionMode(lockMode);
++            if (! dsLockCache.get().contains(jobId, dsId, dsLockMode)) {
++                if (! tryLock(datasetId, -1, dsLockMode, txnContext)) {
++                    return false;
++                }
++                dsLockCache.get().put(jobId, dsId, dsLockMode);
+             }
+-        } else {
+-            throw new UnsupportedOperationException("instant locks are not supported on datasets");
+         }
+ 
+-        final ResourceGroup group = table.get(dsId, entityHashValue);
++        final ResourceGroup group = table.get(datasetId, entityHashValue);
+         if (group.firstResourceIndex.get() == -1l) {
+             validateJob(txnContext);
+             // if we do not have a resource in the group, we know that the
+             // resource that we are looking for is not locked 
+             return true;
+         }
+-
++        
+         group.getLatch();
+         try {
+             validateJob(txnContext);
+-
++            
+             final long resSlot = findResourceInGroup(group, dsId, entityHashValue);
+             if (resSlot < 0) {
+                 // if we don't find the resource, there are no locks on it.
+@@ -442,7 +381,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             }
+ 
+             final long jobSlot = findOrAllocJobSlot(jobId);
+-
++            
+             LockAction act = determineLockAction(resSlot, jobSlot, lockMode);
+             switch (act) {
+                 case UPD:
+@@ -454,41 +393,34 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 case ERR:
+                 default:
+                     throw new IllegalStateException();
+-            }
++                }
+         } finally {
+             group.releaseLatch();
+         }
+     }
+ 
+     @Override
+-    public void unlock(DatasetId datasetId, int entityHashValue, byte lockMode, ITransactionContext txnContext)
+-            throws ACIDException {
++    public void unlock(DatasetId datasetId, int entityHashValue, byte lockMode, ITransactionContext txnContext) throws ACIDException {
+         log("unlock", datasetId.getId(), entityHashValue, lockMode, txnContext);
+-        final int jobId = txnContext.getJobId().getId();
+-        final long jobSlot = jobIdSlotMap.get(jobId);
+-        final int dsId = datasetId.getId();
+-        unlock(dsId, entityHashValue, lockMode, jobSlot);
+-    }
+-
+-    private void unlock(int dsId, int entityHashValue, byte lockMode, long jobSlot) throws ACIDException {
+-        log("unlock", dsId, entityHashValue, lockMode, null);
+-        stats.unlock();
++        ++ulCnt;
+ 
+-        ResourceGroup group = table.get(dsId, entityHashValue);
++        ResourceGroup group = table.get(datasetId, entityHashValue);
+         group.getLatch();
+         try {
+ 
++            int dsId = datasetId.getId();
+             long resource = findResourceInGroup(group, dsId, entityHashValue);
+             if (resource < 0) {
+                 throw new IllegalStateException("resource (" + dsId + ",  " + entityHashValue + ") not found");
+             }
+-            
+-            if (CHECK_CONSISTENCY) assertLocksCanBefoundInJobQueue();
+-            
++
++            int jobId = txnContext.getJobId().getId();
++            long jobSlot = findOrAllocJobSlot(jobId);
++
+             long holder = removeLastHolder(resource, jobSlot, lockMode);
+ 
+             // deallocate request
+-            if (DEBUG_MODE) LOGGER.finer("del req slot " + TypeUtil.Global.toString(holder));
++            LOGGER.info("XXX del req slot " + TypeUtil.Global.toString(holder));
+             reqArenaMgr.deallocate(holder);
+             // deallocate resource or fix max lock mode
+             if (resourceNotUsed(resource)) {
+@@ -501,7 +433,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                     }
+                     resArenaMgr.setNext(prev, resArenaMgr.getNext(resource));
+                 }
+-                if (DEBUG_MODE) LOGGER.finer("del res slot " + TypeUtil.Global.toString(resource));
++                LOGGER.info("XXX del res slot " + TypeUtil.Global.toString(resource));
+                 resArenaMgr.deallocate(resource);
+             } else {
+                 final int oldMaxMode = resArenaMgr.getMaxMode(resource);
+@@ -519,11 +451,11 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+ 
+         // dataset intention locks are cleaned up at the end of the job
+     }
+-
++    
+     @Override
+     public void releaseLocks(ITransactionContext txnContext) throws ACIDException {
+         log("releaseLocks", -1, -1, LockMode.ANY, txnContext);
+-        stats.releaseLocks();
++        ++rlCnt;
+ 
+         int jobId = txnContext.getJobId().getId();
+         Long jobSlot = jobIdSlotMap.get(jobId);
+@@ -533,52 +465,50 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         }
+         //System.err.println(table.append(new StringBuilder(), true).toString());
+         if (LOGGER.isLoggable(LVL)) {
+-            LOGGER.log(LVL, "jobArenaMgr " + jobArenaMgr.addTo(new RecordManagerStats()).toString());
+-            LOGGER.log(LVL, "resArenaMgr " + resArenaMgr.addTo(new RecordManagerStats()).toString());
+-            LOGGER.log(LVL, "reqArenaMgr " + reqArenaMgr.addTo(new RecordManagerStats()).toString());
++            LOGGER.log(LVL, "jobArenaMgr " + jobArenaMgr.addTo(new Stats()).toString());
++            LOGGER.log(LVL, "resArenaMgr " + resArenaMgr.addTo(new Stats()).toString());
++            LOGGER.log(LVL, "reqArenaMgr " + reqArenaMgr.addTo(new Stats()).toString());
+         }
+-        long holder;
+         synchronized (jobArenaMgr) {
+-            holder = jobArenaMgr.getLastHolder(jobSlot);
+-        }
+-        while (holder != -1) {
+-            long resource = reqArenaMgr.getResourceId(holder);
+-            int dsId = resArenaMgr.getDatasetId(resource);
+-            int pkHashVal = resArenaMgr.getPkHashVal(resource);
+-            unlock(dsId, pkHashVal, LockMode.ANY, jobSlot);
+-            synchronized (jobArenaMgr) {
++            long holder = jobArenaMgr.getLastHolder(jobSlot);
++            while (holder != -1) {
++                long resource = reqArenaMgr.getResourceId(holder);
++                int dsId = resArenaMgr.getDatasetId(resource);
++                int pkHashVal = resArenaMgr.getPkHashVal(resource);
++                unlock(new DatasetId(dsId), pkHashVal, LockMode.ANY, txnContext);
+                 holder = jobArenaMgr.getLastHolder(jobSlot);
+             }
++            LOGGER.info("XXX del job slot " + TypeUtil.Global.toString(jobSlot));
++            jobArenaMgr.deallocate(jobSlot);
++            jobIdSlotMap.remove(jobId);
+         }
+-        if (DEBUG_MODE) LOGGER.finer("del job slot " + TypeUtil.Global.toString(jobSlot));
+-        jobArenaMgr.deallocate(jobSlot);
+-        jobIdSlotMap.remove(jobId);
+-        stats.logCounters(LOGGER, Level.INFO, true);
++        logCounters();
++        //LOGGER.info(toString());
+     }
+-
++        
+     private long findOrAllocJobSlot(int jobId) {
+         Long jobSlot = jobIdSlotMap.get(jobId);
+         if (jobSlot == null) {
+             jobSlot = new Long(jobArenaMgr.allocate());
+-            if (DEBUG_MODE) LOGGER.finer("new job slot " + TypeUtil.Global.toString(jobSlot) + " (" + jobId + ")");
++            LOGGER.info("XXX new job slot " + TypeUtil.Global.toString(jobSlot) + " (" + jobId + ")");
+             jobArenaMgr.setJobId(jobSlot, jobId);
+             Long oldSlot = jobIdSlotMap.putIfAbsent(jobId, jobSlot);
+             if (oldSlot != null) {
+                 // if another thread allocated a slot for this jobId between
+                 // get(..) and putIfAbsent(..), we'll use that slot and
+                 // deallocate the one we allocated
+-                if (DEBUG_MODE) LOGGER.finer("del job slot " + TypeUtil.Global.toString(jobSlot) + " due to conflict");
++                LOGGER.info("XXX del job slot " + TypeUtil.Global.toString(jobSlot) + " due to conflict");
+                 jobArenaMgr.deallocate(jobSlot);
+                 jobSlot = oldSlot;
+             }
+         }
+-        assert (jobSlot >= 0);
++        assert(jobSlot >= 0);
+         return jobSlot;
+     }
+ 
+     private long findOrAllocResourceSlot(ResourceGroup group, int dsId, int entityHashValue) {
+         long resSlot = findResourceInGroup(group, dsId, entityHashValue);
+-
++        
+         if (resSlot == -1) {
+             // we don't know about this resource, let's alloc a slot
+             resSlot = resArenaMgr.allocate();
+@@ -586,9 +516,9 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             resArenaMgr.setPkHashVal(resSlot, entityHashValue);
+             resArenaMgr.setNext(resSlot, group.firstResourceIndex.get());
+             group.firstResourceIndex.set(resSlot);
+-            if (DEBUG_MODE) LOGGER.finer("new res slot " + TypeUtil.Global.toString(resSlot) + " (" + dsId + ", " + entityHashValue + ")");
++            LOGGER.info("XXX new res slot " + TypeUtil.Global.toString(resSlot) + " (" + dsId + ", " + entityHashValue + ")");
+         } else {
+-            if (DEBUG_MODE) LOGGER.finer("fnd res slot " + TypeUtil.Global.toString(resSlot) + " (" + dsId + ", " + entityHashValue + ")");
++            LOGGER.info("XXX fnd res slot " + TypeUtil.Global.toString(resSlot) + " (" + dsId + ", " + entityHashValue + ")");
+         }
+         return resSlot;
+     }
+@@ -598,12 +528,10 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         reqArenaMgr.setResourceId(reqSlot, resSlot);
+         reqArenaMgr.setLockMode(reqSlot, lockMode); // lock mode is a byte!!
+         reqArenaMgr.setJobSlot(reqSlot, jobSlot);
+-        if (DEBUG_MODE) {
+-            LOGGER.finer("new req slot " + TypeUtil.Global.toString(reqSlot)
+-                    + " (" + TypeUtil.Global.toString(resSlot)
+-                    + ", " + TypeUtil.Global.toString(jobSlot)
+-                    + ", " + LockMode.toString(lockMode) + ")");
+-        }
++        LOGGER.info("XXX new req slot " + TypeUtil.Global.toString(reqSlot)
++                + " (" + TypeUtil.Global.toString(resSlot)
++                + ", " + TypeUtil.Global.toString(jobSlot)
++                + ", " + LockMode.toString(lockMode) + ")");
+         return reqSlot;
+     }
+ 
+@@ -620,15 +548,11 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+      * when we've got a lock conflict for a different job, we always have to
+      * wait, if it is for the same job we either have to
+      * a) (wait and) convert the lock once conversion becomes viable or
+-     * b) acquire the lock if we want to lock the same resource with the same
++     * b) acquire the lock if we want to lock the same resource with the same 
+      * lock mode for the same job.
+-     * 
+-     * @param resource
+-     *            the resource slot that's being locked
+-     * @param job
+-     *            the job slot of the job locking the resource
+-     * @param lockMode
+-     *            the lock mode that the resource should be locked with
++     * @param resource the resource slot that's being locked
++     * @param job the job slot of the job locking the resource
++     * @param lockMode the lock mode that the resource should be locked with
+      * @return
+      */
+     private LockAction updateActionForSameJob(long resource, long job, byte lockMode) {
+@@ -648,40 +572,57 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         }
+         return res;
+     }
+-
++    
+     private long findResourceInGroup(ResourceGroup group, int dsId, int entityHashValue) {
+-        stats.logCounters(LOGGER, Level.INFO, false);
++        
++        if ((lCnt + ilCnt + tlCnt + itlCnt + ulCnt + rlCnt)  % 10000 == 0) {
++            logCounters();
++        }
++        
+         long resSlot = group.firstResourceIndex.get();
+         while (resSlot != -1) {
+             // either we already have a lock on this resource or we have a 
+             // hash collision
+-            if (resArenaMgr.getDatasetId(resSlot) == dsId && resArenaMgr.getPkHashVal(resSlot) == entityHashValue) {
++            if (resArenaMgr.getDatasetId(resSlot) == dsId && 
++                    resArenaMgr.getPkHashVal(resSlot) == entityHashValue) {
+                 return resSlot;
+             } else {
+                 resSlot = resArenaMgr.getNext(resSlot);
+             }
+         }
+-        return -1;
++        return -1;        
++    }
++    
++    private void logCounters() {
++        final Level lvl = Level.INFO;
++        if (LOGGER.isLoggable(lvl)) {
++            LOGGER.log(lvl, "number of lock requests             : " + lCnt);
++            LOGGER.log(lvl, "number of instant lock requests     : " + ilCnt);
++            LOGGER.log(lvl, "number of try lock requests         : " + tlCnt);
++            LOGGER.log(lvl, "number of instant try lock requests : " + itlCnt);
++            LOGGER.log(lvl, "number of unlock requests           : " + ulCnt);
++            LOGGER.log(lvl, "number of release locks requests    : " + rlCnt);
++        }
+     }
+ 
+     private void addHolder(long request, long resource, long job) {
+         long lastHolder = resArenaMgr.getLastHolder(resource);
+         reqArenaMgr.setNextRequest(request, lastHolder);
+         resArenaMgr.setLastHolder(resource, request);
+-
++        
+         synchronized (jobArenaMgr) {
+             long lastJobHolder = jobArenaMgr.getLastHolder(job);
+             insertIntoJobQueue(request, lastJobHolder);
+             jobArenaMgr.setLastHolder(job, request);
+         }
+     }
+-
+-    private long removeLastHolder(long resource, long jobSlot, byte lockMode) throws ACIDException {
++    
++    private long removeLastHolder(long resource, long jobSlot, byte lockMode) {
+         long holder = resArenaMgr.getLastHolder(resource);
+         if (holder < 0) {
+             throw new IllegalStateException("no holder for resource " + resource);
+         }
+-
++        
+         // remove from the list of holders for a resource
+         if (requestMatches(holder, jobSlot, lockMode)) {
+             // if the head of the queue matches, we need to update the resource
+@@ -690,21 +631,22 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         } else {
+             holder = removeRequestFromQueueForJob(holder, jobSlot, lockMode);
+         }
+-
++        
+         synchronized (jobArenaMgr) {
+             // remove from the list of requests for a job
+-            long newHead = removeRequestFromJob(holder, jobArenaMgr.getLastHolder(jobSlot));
+-            jobArenaMgr.setLastHolder(jobSlot, newHead);
++            long newHead = removeRequestFromJob(jobSlot, holder);
++            jobArenaMgr.setLastHolder(jobSlot, newHead);            
+         }
+         return holder;
+     }
+ 
+     private boolean requestMatches(long holder, long jobSlot, byte lockMode) {
+-        return jobSlot == reqArenaMgr.getJobSlot(holder)
+-                && (lockMode == LockMode.ANY || lockMode == reqArenaMgr.getLockMode(holder));
++        return jobSlot == reqArenaMgr.getJobSlot(holder) 
++                && (lockMode == LockMode.ANY
++                || lockMode == reqArenaMgr.getLockMode(holder));
+     }
+ 
+-    private long removeRequestFromJob(long holder, long unmodified) {
++    private long removeRequestFromJob(long jobSlot, long holder) {
+         long prevForJob = reqArenaMgr.getPrevJobRequest(holder);
+         long nextForJob = reqArenaMgr.getNextJobRequest(holder);
+         if (nextForJob != -1) {
+@@ -714,16 +656,15 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             return nextForJob;
+         } else {
+             reqArenaMgr.setNextJobRequest(prevForJob, nextForJob);
+-            return unmodified;
++            return -1;
+         }
+     }
+ 
+     interface Queue {
+         void add(long request, long resource, long job);
+-
+         void remove(long request, long resource, long job);
+     }
+-
++    
+     final Queue waiter = new Queue() {
+         public void add(long request, long resource, long job) {
+             long waiter = resArenaMgr.getFirstWaiter(resource);
+@@ -737,9 +678,8 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 waiter = jobArenaMgr.getLastWaiter(job);
+                 insertIntoJobQueue(request, waiter);
+                 jobArenaMgr.setLastWaiter(job, request);
+-            }
++            }            
+         }
+-
+         public void remove(long request, long resource, long job) {
+             long waiter = resArenaMgr.getFirstWaiter(resource);
+             if (waiter == request) {
+@@ -750,12 +690,12 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             }
+             synchronized (jobArenaMgr) {
+                 // remove from the list of requests for a job
+-                long newHead = removeRequestFromJob(waiter, jobArenaMgr.getLastWaiter(job));
+-                jobArenaMgr.setLastWaiter(job, newHead);
+-            }
++                long newHead = removeRequestFromJob(job, waiter);
++                jobArenaMgr.setLastWaiter(job, newHead);            
++            }            
+         }
+     };
+-
++        
+     final Queue upgrader = new Queue() {
+         public void add(long request, long resource, long job) {
+             long upgrader = resArenaMgr.getFirstUpgrader(resource);
+@@ -768,10 +708,9 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             synchronized (jobArenaMgr) {
+                 upgrader = jobArenaMgr.getLastUpgrader(job);
+                 insertIntoJobQueue(request, upgrader);
+-                jobArenaMgr.setLastUpgrader(job, request);
++                jobArenaMgr.setLastUpgrader(job, request);            
+             }
+         }
+-
+         public void remove(long request, long resource, long job) {
+             long upgrader = resArenaMgr.getFirstUpgrader(resource);
+             if (upgrader == request) {
+@@ -782,12 +721,12 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             }
+             synchronized (jobArenaMgr) {
+                 // remove from the list of requests for a job
+-                long newHead = removeRequestFromJob(upgrader, jobArenaMgr.getLastUpgrader(job));
+-                jobArenaMgr.setLastUpgrader(job, newHead);
++                long newHead = removeRequestFromJob(job, upgrader);
++                jobArenaMgr.setLastUpgrader(job, newHead);            
+             }
+         }
+     };
+-
++        
+     private void insertIntoJobQueue(long newRequest, long oldRequest) {
+         reqArenaMgr.setNextJobRequest(newRequest, oldRequest);
+         reqArenaMgr.setPrevJobRequest(newRequest, -1);
+@@ -798,20 +737,20 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+ 
+     private void appendToRequestQueue(long head, long appendee) {
+         long next = reqArenaMgr.getNextRequest(head);
+-        while (next != -1) {
++        while(next != -1) {
+             head = next;
+             next = reqArenaMgr.getNextRequest(head);
+         }
+-        reqArenaMgr.setNextRequest(head, appendee);
++        reqArenaMgr.setNextRequest(head, appendee);        
+     }
+-
++        
+     private long removeRequestFromQueueForSlot(long head, long reqSlot) {
+         long cur = head;
+         long prev = cur;
+         while (prev != -1) {
+             cur = reqArenaMgr.getNextRequest(prev);
+             if (cur == -1) {
+-                throw new IllegalStateException("request " + reqSlot + " not in queue");
++                throw new IllegalStateException("request " + reqSlot+ " not in queue");
+             }
+             if (cur == reqSlot) {
+                 break;
+@@ -820,20 +759,16 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         }
+         long next = reqArenaMgr.getNextRequest(cur);
+         reqArenaMgr.setNextRequest(prev, next);
+-        return cur;
++        return cur;        
+     }
+-
++    
+     /**
+      * remove the first request for a given job and lock mode from a request queue.
+-     * If the value of the parameter lockMode is LockMode.ANY the first request
++     * If the value of the parameter lockMode is LockMode.NL the first request
+      * for the job is removed - independent of the LockMode.
+-     * 
+-     * @param head
+-     *            the head of the request queue
+-     * @param jobSlot
+-     *            the job slot
+-     * @param lockMode
+-     *            the lock mode
++     * @param head the head of the request queue
++     * @param jobSlot the job slot
++     * @param lockMode the lock mode 
+      * @return the slot of the first request that matched the given job
+      */
+     private long removeRequestFromQueueForJob(long head, long jobSlot, byte lockMode) {
+@@ -853,107 +788,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         reqArenaMgr.setNextRequest(prev, next);
+         return holder;
+     }
+-
+-    private String resQueueToString(long head) {
+-        return appendResQueue(new StringBuilder(), head).toString();
+-    }
+     
+-    private StringBuilder appendResQueue(StringBuilder sb, long resSlot) {
+-        appendResource(sb, resSlot);
+-        sb.append("\n");
+-        appendReqQueue(sb, resArenaMgr.getLastHolder(resSlot));
+-        return sb;
+-    }
+-    
+-    private StringBuilder appendReqQueue(StringBuilder sb, long head) {
+-        while (head != -1) {
+-            appendRequest(sb, head);
+-            sb.append("\n");
+-            head = reqArenaMgr.getNextRequest(head);
+-        }
+-        return sb;
+-    }
+-    
+-    private void appendResource(StringBuilder sb, long resSlot) {
+-        sb.append("{ ");
+-
+-        sb.append(" \"dataset id\"");
+-        sb.append(" : \"");
+-        sb.append(resArenaMgr.getDatasetId(resSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"pk hash val\"");
+-        sb.append(" : \"");
+-        sb.append(resArenaMgr.getPkHashVal(resSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"max mode\"");
+-        sb.append(" : \"");
+-        sb.append(LockMode.toString((byte)resArenaMgr.getMaxMode(resSlot)));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"last holder\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, resArenaMgr.getLastHolder(resSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"first waiter\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, resArenaMgr.getFirstWaiter(resSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"first upgrader\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, resArenaMgr.getFirstUpgrader(resSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"next\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, resArenaMgr.getNext(resSlot));
+-
+-        sb.append("\" }");
+-    }
+-
+-    private void appendRequest(StringBuilder sb, long reqSlot) {
+-        sb.append("{ ");
+-        
+-        sb.append(" \"resource id\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, reqArenaMgr.getResourceId(reqSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"lock mode\"");
+-        sb.append(" : \"");
+-        sb.append(LockMode.toString((byte)reqArenaMgr.getLockMode(reqSlot)));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"job slot\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, reqArenaMgr.getJobSlot(reqSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"prev job request\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, reqArenaMgr.getPrevJobRequest(reqSlot));
+-
+-        sb.append("\", ");
+-
+-        sb.append(" \"next job request\"");
+-        sb.append(" : \"");
+-        TypeUtil.Global.append(sb, reqArenaMgr.getNextJobRequest(reqSlot));
+-        
+-        sb.append("\" }");
+-    }
+-
+     private int determineNewMaxMode(long resource, int oldMaxMode) {
+         int newMaxMode = LockMode.NL;
+         long holder = resArenaMgr.getLastHolder(resource);
+@@ -970,38 +805,19 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 case GET:
+                     break;
+                 case WAIT:
+-                case CONV:
+-                case ERR:
+                     throw new IllegalStateException("incompatible locks in holder queue");
+             }
+             holder = reqArenaMgr.getNextRequest(holder);
+         }
+-        return newMaxMode;
++        return newMaxMode;        
+     }
+-
++    
+     private boolean resourceNotUsed(long resource) {
+-        return resArenaMgr.getLastHolder(resource) == -1 && resArenaMgr.getFirstUpgrader(resource) == -1
++        return resArenaMgr.getLastHolder(resource) == -1
++                && resArenaMgr.getFirstUpgrader(resource) == -1
+                 && resArenaMgr.getFirstWaiter(resource) == -1;
+     }
+ 
+-    private void validateJob(ITransactionContext txnContext) throws ACIDException {
+-        if (txnContext.getTxnState() == ITransactionManager.ABORTED) {
+-            throw new ACIDException("" + txnContext.getJobId() + " is in ABORTED state.");
+-        } else if (txnContext.isTimeout()) {
+-            requestAbort(txnContext, "timeout");
+-        }
+-    }
+-
+-    private void requestAbort(ITransactionContext txnContext, String msg) throws ACIDException {
+-        txnContext.setTimeout(true);
+-        throw new ACIDException("Transaction " + txnContext.getJobId()
+-                + " should abort (requested by the Lock Manager)" + ":\n" + msg);
+-    }
+-
+-    /*
+-     * Debugging support
+-     */
+-    
+     private void log(String string, int id, int entityHashValue, byte lockMode, ITransactionContext txnContext) {
+         if (! LOGGER.isLoggable(LVL)) {
+             return;
+@@ -1018,82 +834,24 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             sb.append(" , mode : ").append(LockMode.toString(lockMode));
+         }
+         if (txnContext != null) {
+-            sb.append(" , jobId : ").append(txnContext.getJobId());
++            sb.append(" , jobId : ").append(txnContext.getJobId());            
+         }
+-        sb.append(" , thread : ").append(Thread.currentThread().getName());
+         sb.append(" }");
+         LOGGER.log(LVL, sb.toString());
+     }
+ 
+-    private void assertLocksCanBefoundInJobQueue() throws ACIDException {
+-        for (int i = 0; i < ResourceGroupTable.TABLE_SIZE; ++i) {
+-            final ResourceGroup group = table.get(i);
+-            if (group.tryLatch(100, TimeUnit.MILLISECONDS)) {
+-                try {
+-                    long resSlot = group.firstResourceIndex.get();
+-                    while (resSlot != -1) {
+-                        int dsId = resArenaMgr.getDatasetId(resSlot);
+-                        int entityHashValue = resArenaMgr.getPkHashVal(resSlot);
+-                        long reqSlot = resArenaMgr.getLastHolder(resSlot);
+-                        while (reqSlot != -1) {
+-                            byte lockMode = (byte) reqArenaMgr.getLockMode(reqSlot);
+-                            long jobSlot = reqArenaMgr.getJobSlot(reqSlot);
+-                            int jobId = jobArenaMgr.getJobId(jobSlot);
+-                            assertLockCanBeFoundInJobQueue(dsId, entityHashValue, lockMode, jobId);
+-                            reqSlot = reqArenaMgr.getNextRequest(reqSlot);
+-                        }
+-                        resSlot = resArenaMgr.getNext(resSlot);
+-                    }
+-                } finally {
+-                    group.releaseLatch();
+-                }
+-            } else {
+-                LOGGER.warning("Could not check locks for " + group);
+-            }
+-        }
+-    }
+-    
+-    private void assertLockCanBeFoundInJobQueue(int dsId, int entityHashValue, byte lockMode, int jobId) {
+-        if (findLockInJobQueue(dsId, entityHashValue, jobId, lockMode) == -1) {
+-            String msg = "request for " + LockMode.toString(lockMode) + " lock on dataset " + dsId + " entity "
+-                    + entityHashValue + " not found for job " + jobId + " in thread " + Thread.currentThread().getName();
+-            LOGGER.severe(msg);            
+-            throw new IllegalStateException(msg);
++    private void validateJob(ITransactionContext txnContext) throws ACIDException {
++        if (txnContext.getTxnState() == ITransactionManager.ABORTED) {
++            throw new ACIDException("" + txnContext.getJobId() + " is in ABORTED state.");
++        } else if (txnContext.isTimeout()) {
++            requestAbort(txnContext);
+         }
+     }
+ 
+-    /**
+-     * tries to find a lock request searching though the job queue
+-     * @param dsId dataset id
+-     * @param entityHashValue primary key hash value
+-     * @param jobId job id
+-     * @param lockMode lock mode
+-     * @return the slot of the request, if the lock request is found, -1 otherwise 
+-     */
+-    private long findLockInJobQueue(final int dsId, final int entityHashValue, final int jobId, byte lockMode) {
+-        Long jobSlot = jobIdSlotMap.get(jobId);
+-        if (jobSlot == null) {
+-            return -1;
+-        }
+-
+-        long holder;
+-        synchronized (jobArenaMgr) {
+-            holder = jobArenaMgr.getLastHolder(jobSlot);
+-        }
+-        while (holder != -1) {
+-            long resource = reqArenaMgr.getResourceId(holder);
+-            if (dsId == resArenaMgr.getDatasetId(resource)
+-                    && entityHashValue == resArenaMgr.getPkHashVal(resource)
+-                    && jobSlot == reqArenaMgr.getJobSlot(holder)
+-                    && (lockMode == reqArenaMgr.getLockMode(holder)
+-                        || lockMode == LockMode.ANY)) {
+-                return holder;
+-            }
+-            synchronized (jobArenaMgr) {
+-                holder = reqArenaMgr.getNextJobRequest(holder);
+-            }
+-        }
+-        return -1;
++    private void requestAbort(ITransactionContext txnContext) throws ACIDException {
++        txnContext.setTimeout(true);
++        throw new ACIDException("Transaction " + txnContext.getJobId()
++                + " should abort (requested by the Lock Manager)");
+     }
+ 
+     public StringBuilder append(StringBuilder sb) {
+@@ -1112,7 +870,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             sb.append(">>dump_end\t>>----- [reqArenaMgr] -----\n");
+ 
+             sb.append(">>dump_begin\t>>----- [jobIdSlotMap] -----\n");
+-            for (Integer i : jobIdSlotMap.keySet()) {
++            for(Integer i : jobIdSlotMap.keySet()) {
+                 sb.append(i).append(" : ");
+                 TypeUtil.Global.append(sb, jobIdSlotMap.get(i));
+                 sb.append("\n");
+@@ -1127,11 +885,11 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         }
+         return sb;
+     }
+-
++    
+     public String toString() {
+         return append(new StringBuilder()).toString();
+     }
+-
++    
+     @Override
+     public String prettyPrint() throws ACIDException {
+         StringBuilder s = new StringBuilder("\n########### LockManager Status #############\n");
+@@ -1144,25 +902,26 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+     }
+ 
+     @Override
+-    public void dumpState(OutputStream os) throws IOException {
+-        os.write(toString().getBytes());
+-    }
+-
+-    @Override
+-    public void stop(boolean dumpState, OutputStream os) throws IOException {
++    public void stop(boolean dumpState, OutputStream os) {
+         if (dumpState) {
+-            dumpState(os);
++            try {
++                os.write(toString().getBytes());
++                os.flush();
++            } catch (IOException e) {
++                LOGGER.warning("caught exception when dumping state of ConcurrentLockManager: " + e.toString());
++                //ignore
++            }
+         }
+     }
+-
++    
+     private static class DatasetLockCache {
+         private long jobId = -1;
+-        private HashMap<Integer, Byte> lockCache = new HashMap<Integer, Byte>();
++        private HashMap<Integer,Byte> lockCache =  new HashMap<Integer,Byte>();
+         // size 1 cache to avoid the boxing/unboxing that comes with the 
+         // access to the HashMap
+         private int cDsId = -1;
+         private byte cDsLockMode = -1;
+-
++        
+         public boolean contains(final int jobId, final int dsId, byte dsLockMode) {
+             if (this.jobId == jobId) {
+                 if (this.cDsId == dsId && this.cDsLockMode == dsLockMode) {
+@@ -1173,7 +932,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                     this.cDsId = dsId;
+                     this.cDsLockMode = dsLockMode;
+                     return true;
+-                }
++                }            
+             } else {
+                 this.jobId = -1;
+                 this.cDsId = -1;
+@@ -1182,14 +941,14 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             }
+             return false;
+         }
+-
++        
+         public void put(final int jobId, final int dsId, byte dsLockMode) {
+             this.jobId = jobId;
+             this.cDsId = dsId;
+             this.cDsLockMode = dsLockMode;
+             this.lockCache.put(dsId, dsLockMode);
+         }
+-
++        
+         public String toString() {
+             return "[ " + jobId + " : " + lockCache.toString() + "]";
+         }
+@@ -1199,37 +958,33 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         public static final int TABLE_SIZE = 1024; // TODO increase?
+ 
+         private ResourceGroup[] table;
+-
++        
+         public ResourceGroupTable() {
+             table = new ResourceGroup[TABLE_SIZE];
+             for (int i = 0; i < TABLE_SIZE; ++i) {
+                 table[i] = new ResourceGroup();
+             }
+         }
+-
+-        ResourceGroup get(int dId, int entityHashValue) {
++        
++        ResourceGroup get(DatasetId dId, int entityHashValue) {
+             // TODO ensure good properties of hash function
+-            int h = Math.abs(dId ^ entityHashValue);
++            int h = Math.abs(dId.getId() ^ entityHashValue);
+             if (h < 0) h = 0;
+             return table[h % TABLE_SIZE];
+         }
+         
+-        ResourceGroup get(int i) {
+-            return table[i];
+-        }
+-
+         public void getAllLatches() {
+             for (int i = 0; i < TABLE_SIZE; ++i) {
+                 table[i].getLatch();
+             }
+         }
+-
++        
+         public void releaseAllLatches() {
+             for (int i = 0; i < TABLE_SIZE; ++i) {
+                 table[i].releaseLatch();
+             }
+         }
+-
++        
+         public StringBuilder append(StringBuilder sb) {
+             return append(sb, false);
+         }
+@@ -1247,7 +1002,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             return sb;
+         }
+     }
+-
++    
+     private static class ResourceGroup {
+         private ReentrantReadWriteLock latch;
+         private Condition condition;
+@@ -1258,31 +1013,21 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             condition = latch.writeLock().newCondition();
+             firstResourceIndex = new AtomicLong(-1);
+         }
+-
++        
+         void getLatch() {
+             log("latch");
+             latch.writeLock().lock();
+         }
+         
+-        boolean tryLatch(long timeout, TimeUnit unit) throws ACIDException {
+-            log("tryLatch");
+-            try {
+-                return latch.writeLock().tryLock(timeout, unit);
+-            } catch (InterruptedException e) {
+-                LOGGER.finer("interrupted while wating on ResourceGroup");
+-                throw new ACIDException("interrupted", e);
+-            }
+-        }
+-
+         void releaseLatch() {
+             log("release");
+             latch.writeLock().unlock();
+         }
+-
++        
+         boolean hasWaiters() {
+             return latch.hasQueuedThreads();
+         }
+-
++        
+         void await(ITransactionContext txnContext) throws ACIDException {
+             log("wait for");
+             try {
+@@ -1292,21 +1037,22 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 throw new ACIDException(txnContext, "interrupted", e);
+             }
+         }
+-
++        
+         void wakeUp() {
+             log("notify");
+             condition.signalAll();
+         }
+-
++        
+         void log(String s) {
+             if (LOGGER.isLoggable(LVL)) {
+                 LOGGER.log(LVL, s + " " + toString());
+             }            
+         }
+-
++        
+         public String toString() {
+-            return "{ id : " + hashCode() + ", first : " + TypeUtil.Global.toString(firstResourceIndex.get()) + ", waiters : "
+-                    + (hasWaiters() ? "true" : "false") + " }";
++            return "{ id : " + hashCode()
++                    + ", first : " + firstResourceIndex.toString() 
++                    + ", waiters : " + (hasWaiters() ? "true" : "false") + " }";
+         }
+     }
+ }

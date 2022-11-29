@@ -1,0 +1,77 @@
+diff --git a/server/base/src/main/java/org/apache/accumulo/server/client/BulkImporter.java b/server/base/src/main/java/org/apache/accumulo/server/client/BulkImporter.java
+index f9d69305f4..6e0583edf9 100644
+--- a/server/base/src/main/java/org/apache/accumulo/server/client/BulkImporter.java
++++ b/server/base/src/main/java/org/apache/accumulo/server/client/BulkImporter.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.server.client;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.io.IOException;
+ import java.util.ArrayList;
+ import java.util.Collection;
+@@ -74,6 +72,7 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.net.HostAndPort;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class BulkImporter {
+ 
+@@ -204,14 +203,14 @@ public class BulkImporter {
+           while (keListIter.hasNext()) {
+             KeyExtent ke = keListIter.next();
+ 
+-            timer.start(Timers.QUERY_METADATA);
+             try {
++              timer.start(Timers.QUERY_METADATA);
+               tabletsToAssignMapFileTo.addAll(findOverlappingTablets(context, fs, locator, entry.getKey(), ke));
++              timer.stop(Timers.QUERY_METADATA);
+               keListIter.remove();
+             } catch (Exception ex) {
+               log.warn("Exception finding overlapping tablets, will retry tablet " + ke, ex);
+             }
+-            timer.stop(Timers.QUERY_METADATA);
+           }
+ 
+           if (tabletsToAssignMapFileTo.size() > 0)
+@@ -255,13 +254,13 @@ public class BulkImporter {
+       Set<Path> failedFailures = processFailures(completeFailures);
+       assignmentStats.unrecoveredMapFiles(failedFailures);
+ 
++      timer.stop(Timers.TOTAL);
+       printReport(paths);
+       return assignmentStats;
+     } finally {
+       if (client != null) {
+         ServerClient.close(client);
+       }
+-      timer.stop(Timers.TOTAL);
+     }
+   }
+ 
+@@ -619,20 +618,12 @@ public class BulkImporter {
+   public static List<TabletLocation> findOverlappingTablets(ClientContext context, VolumeManager fs, TabletLocator locator, Path file, KeyExtent failed)
+       throws Exception {
+     locator.invalidateCache(failed);
+-    Text start = getStartRowForExtent(failed);
++    Text start = failed.getPrevEndRow();
++    if (start != null)
++      start = Range.followingPrefix(start);
+     return findOverlappingTablets(context, fs, locator, file, start, failed.getEndRow());
+   }
+ 
+-  protected static Text getStartRowForExtent(KeyExtent extent) {
+-    Text start = extent.getPrevEndRow();
+-    if (start != null) {
+-      start = new Text(start);
+-      // ACCUMULO-3967 We want the first possible key in this tablet, not the following row from the previous tablet
+-      start.append(byte0, 0, 1);
+-    }
+-    return start;
+-  }
+-
+   final static byte[] byte0 = {0};
+ 
+   public static List<TabletLocation> findOverlappingTablets(ClientContext context, VolumeManager vm, TabletLocator locator, Path file, Text startRow,

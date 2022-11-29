@@ -1,0 +1,515 @@
+diff --git a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
+index 00902ee126..9597ca956d 100644
+--- a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
++++ b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
+@@ -20,7 +20,6 @@ import java.io.OutputStream;
+ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.concurrent.ConcurrentHashMap;
+-import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicLong;
+ import java.util.concurrent.locks.Condition;
+ import java.util.concurrent.locks.ReentrantReadWriteLock;
+@@ -46,10 +45,9 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+ 
+     private static final Logger LOGGER
+         = Logger.getLogger(ConcurrentLockManager.class.getName());
+-    private static final Level LVL = Level.FINER;
++    private static final Level LVL = Level.INFO;
+     
+     public static final boolean DEBUG_MODE = false;//true
+-    public static final boolean CHECK_CONSISTENCY = false;
+ 
+     private TransactionSubsystem txnSubsystem;
+     private ResourceGroupTable table;
+@@ -162,11 +160,24 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             group.releaseLatch();
+         }
+         
+-        if (CHECK_CONSISTENCY) assertLocksCanBefoundInJobQueue();
++        assertLocksCanBefound();
++        
++        //assertLockCanBeFound(dsId, entityHashValue, lockMode, jobId);
+     }
+ 
+     private void enqueueWaiter(final ResourceGroup group, final long reqSlot, final long resSlot, final long jobSlot,
+             final LockAction act, ITransactionContext txnContext) throws ACIDException {
++        if (LOGGER.isLoggable(LVL)) {
++            StringBuilder sb = new StringBuilder();
++            final int jobId = jobArenaMgr.getJobId(jobSlot);
++            final int datasetId = resArenaMgr.getDatasetId(resSlot);
++            final int pkHashVal = resArenaMgr.getPkHashVal(resSlot);
++            sb.append("job " + jobId + " wants to ");
++            sb.append(act.modify ? "upgrade lock" : "wait");
++            sb.append(" for [" + datasetId + ", " + pkHashVal + "]");
++            LOGGER.log(LVL, sb.toString());
++        }
++
+         final Queue queue = act.modify ? upgrader : waiter;
+         if (introducesDeadlock(resSlot, jobSlot, NOPTracker.INSTANCE)) {
+             DeadlockTracker tracker = new CollectingTracker();
+@@ -483,7 +494,8 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 throw new IllegalStateException("resource (" + dsId + ",  " + entityHashValue + ") not found");
+             }
+             
+-            if (CHECK_CONSISTENCY) assertLocksCanBefoundInJobQueue();
++            assertLocksCanBefound();
++            //assertLockCanBeFound(dsId, entityHashValue, lockMode, jobArenaMgr.getJobId(jobSlot));
+             
+             long holder = removeLastHolder(resource, jobSlot, lockMode);
+ 
+@@ -554,8 +566,15 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         jobArenaMgr.deallocate(jobSlot);
+         jobIdSlotMap.remove(jobId);
+         stats.logCounters(LOGGER, Level.INFO, true);
++        if (LOGGER.isLoggable(LVL)) {
++            LOGGER.log(LVL, "after releaseLocks");
++            LOGGER.log(LVL, "jobArenaMgr " + jobArenaMgr.addTo(new RecordManagerStats()).toString());
++            LOGGER.log(LVL, "resArenaMgr " + resArenaMgr.addTo(new RecordManagerStats()).toString());
++            LOGGER.log(LVL, "reqArenaMgr " + reqArenaMgr.addTo(new RecordManagerStats()).toString());
++        }
++        //LOGGER.info(toString());
+     }
+-
++    
+     private long findOrAllocJobSlot(int jobId) {
+         Long jobSlot = jobIdSlotMap.get(jobId);
+         if (jobSlot == null) {
+@@ -609,10 +628,11 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+ 
+     private LockAction determineLockAction(long resSlot, long jobSlot, byte lockMode) {
+         final int curLockMode = resArenaMgr.getMaxMode(resSlot);
+-        final LockAction act = ACTION_MATRIX[curLockMode][lockMode];
++        LockAction act = ACTION_MATRIX[curLockMode][lockMode];
+         if (act == LockAction.WAIT) {
+-            return updateActionForSameJob(resSlot, jobSlot, lockMode);
++            act = updateActionForSameJob(resSlot, jobSlot, lockMode);
+         }
++        LOGGER.info("determineLockAction(" + resSlot + ", " + jobSlot + ", " + lockMode + ") -> " + act);
+         return act;
+     }
+ 
+@@ -674,6 +694,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             insertIntoJobQueue(request, lastJobHolder);
+             jobArenaMgr.setLastHolder(job, request);
+         }
++        //assertLocksCanBefound();
+     }
+ 
+     private long removeLastHolder(long resource, long jobSlot, byte lockMode) {
+@@ -681,7 +702,8 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         if (holder < 0) {
+             throw new IllegalStateException("no holder for resource " + resource);
+         }
+-        LOGGER.warning(resQueueToString(resource));
++        assertLocksCanBefound();
++        LOGGER.info(resQueueToString(resource));
+         // remove from the list of holders for a resource
+         if (requestMatches(holder, jobSlot, lockMode)) {
+             // if the head of the queue matches, we need to update the resource
+@@ -690,12 +712,10 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         } else {
+             holder = removeRequestFromQueueForJob(holder, jobSlot, lockMode);
+         }
+-
+-        synchronized (jobArenaMgr) {
+-            // remove from the list of requests for a job
+-            long newHead = removeRequestFromJob(holder, jobArenaMgr.getLastHolder(jobSlot));
+-            jobArenaMgr.setLastHolder(jobSlot, newHead);
+-        }
++        LOGGER.info(resQueueToString(resource));
++        removeRequestFromJob(jobSlot, holder);
++        LOGGER.info(resQueueToString(resource));
++        assertLocksCanBefound();
+         return holder;
+     }
+ 
+@@ -704,17 +724,19 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 && (lockMode == LockMode.ANY || lockMode == reqArenaMgr.getLockMode(holder));
+     }
+ 
+-    private long removeRequestFromJob(long holder, long unmodified) {
+-        long prevForJob = reqArenaMgr.getPrevJobRequest(holder);
+-        long nextForJob = reqArenaMgr.getNextJobRequest(holder);
+-        if (nextForJob != -1) {
+-            reqArenaMgr.setPrevJobRequest(nextForJob, prevForJob);
+-        }
+-        if (prevForJob == -1) {
+-            return nextForJob;
+-        } else {
+-            reqArenaMgr.setNextJobRequest(prevForJob, nextForJob);
+-            return unmodified;
++    private void removeRequestFromJob(long jobSlot, long holder) {
++        synchronized (jobArenaMgr) {
++            long prevForJob = reqArenaMgr.getPrevJobRequest(holder);
++            long nextForJob = reqArenaMgr.getNextJobRequest(holder);
++            if (nextForJob != -1) {
++                reqArenaMgr.setPrevJobRequest(nextForJob, prevForJob);
++            }
++            if (prevForJob == -1) {
++                // this was the first request for the job
++                jobArenaMgr.setLastHolder(jobSlot, nextForJob);
++            } else {
++                reqArenaMgr.setNextJobRequest(prevForJob, nextForJob);
++            }        
+         }
+     }
+ 
+@@ -738,6 +760,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 insertIntoJobQueue(request, waiter);
+                 jobArenaMgr.setLastWaiter(job, request);
+             }
++            //assertLocksCanBefound();
+         }
+ 
+         public void remove(long request, long resource, long job) {
+@@ -748,11 +771,8 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             } else {
+                 waiter = removeRequestFromQueueForSlot(waiter, request);
+             }
+-            synchronized (jobArenaMgr) {
+-                // remove from the list of requests for a job
+-                long newHead = removeRequestFromJob(waiter, jobArenaMgr.getLastWaiter(job));
+-                jobArenaMgr.setLastWaiter(job, newHead);
+-            }
++            removeRequestFromJob(job, waiter);
++            //assertLocksCanBefound();
+         }
+     };
+ 
+@@ -770,6 +790,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 insertIntoJobQueue(request, upgrader);
+                 jobArenaMgr.setLastUpgrader(job, request);
+             }
++            //assertLocksCanBefound();
+         }
+ 
+         public void remove(long request, long resource, long job) {
+@@ -780,15 +801,13 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             } else {
+                 upgrader = removeRequestFromQueueForSlot(upgrader, request);
+             }
+-            synchronized (jobArenaMgr) {
+-                // remove from the list of requests for a job
+-                long newHead = removeRequestFromJob(upgrader, jobArenaMgr.getLastUpgrader(job));
+-                jobArenaMgr.setLastUpgrader(job, newHead);
+-            }
++            removeRequestFromJob(job, upgrader);
++            //assertLocksCanBefound();
+         }
+     };
+ 
+     private void insertIntoJobQueue(long newRequest, long oldRequest) {
++        LOGGER.info("insertIntoJobQueue(" + newRequest + ", " + oldRequest + ")");
+         reqArenaMgr.setNextJobRequest(newRequest, oldRequest);
+         reqArenaMgr.setPrevJobRequest(newRequest, -1);
+         if (oldRequest >= 0) {
+@@ -854,6 +873,106 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         return holder;
+     }
+ 
++    private String resQueueToString(long head) {
++        return appendResQueue(new StringBuilder(), head).toString();
++    }
++    
++    private StringBuilder appendResQueue(StringBuilder sb, long resSlot) {
++        appendResource(sb, resSlot);
++        sb.append("\n");
++        appendReqQueue(sb, resArenaMgr.getLastHolder(resSlot));
++        return sb;
++    }
++    
++    private StringBuilder appendReqQueue(StringBuilder sb, long head) {
++        while (head != -1) {
++            appendRequest(sb, head);
++            sb.append("\n");
++            head = reqArenaMgr.getNextRequest(head);
++        }
++        return sb;
++    }
++    
++    private void appendResource(StringBuilder sb, long resSlot) {
++        sb.append("{ ");
++
++        sb.append(" \"dataset id\"");
++        sb.append(" : \"");
++        sb.append(resArenaMgr.getDatasetId(resSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"pk hash val\"");
++        sb.append(" : \"");
++        sb.append(resArenaMgr.getPkHashVal(resSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"max mode\"");
++        sb.append(" : \"");
++        sb.append(LockMode.toString((byte)resArenaMgr.getMaxMode(resSlot)));
++
++        sb.append("\", ");
++
++        sb.append(" \"last holder\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, resArenaMgr.getLastHolder(resSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"first waiter\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, resArenaMgr.getFirstWaiter(resSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"first upgrader\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, resArenaMgr.getFirstUpgrader(resSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"next\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, resArenaMgr.getNext(resSlot));
++
++        sb.append("\" }");
++    }
++
++    private void appendRequest(StringBuilder sb, long reqSlot) {
++        sb.append("{ ");
++        
++        sb.append(" \"resource id\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, reqArenaMgr.getResourceId(reqSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"lock mode\"");
++        sb.append(" : \"");
++        sb.append(LockMode.toString((byte)reqArenaMgr.getLockMode(reqSlot)));
++
++        sb.append("\", ");
++
++        sb.append(" \"job slot\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, reqArenaMgr.getJobSlot(reqSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"prev job request\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, reqArenaMgr.getPrevJobRequest(reqSlot));
++
++        sb.append("\", ");
++
++        sb.append(" \"next job request\"");
++        sb.append(" : \"");
++        TypeUtil.Global.append(sb, reqArenaMgr.getNextJobRequest(reqSlot));
++        
++        sb.append("\" }");
++    }
++
+     private int determineNewMaxMode(long resource, int oldMaxMode) {
+         int newMaxMode = LockMode.NL;
+         long holder = resArenaMgr.getLastHolder(resource);
+@@ -884,24 +1003,6 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 && resArenaMgr.getFirstWaiter(resource) == -1;
+     }
+ 
+-    private void validateJob(ITransactionContext txnContext) throws ACIDException {
+-        if (txnContext.getTxnState() == ITransactionManager.ABORTED) {
+-            throw new ACIDException("" + txnContext.getJobId() + " is in ABORTED state.");
+-        } else if (txnContext.isTimeout()) {
+-            requestAbort(txnContext, "timeout");
+-        }
+-    }
+-
+-    private void requestAbort(ITransactionContext txnContext, String msg) throws ACIDException {
+-        txnContext.setTimeout(true);
+-        throw new ACIDException("Transaction " + txnContext.getJobId()
+-                + " should abort (requested by the Lock Manager)" + ":\n" + msg);
+-    }
+-
+-    /*
+-     * Debugging support
+-     */
+-    
+     private void log(String string, int id, int entityHashValue, byte lockMode, ITransactionContext txnContext) {
+         if (! LOGGER.isLoggable(LVL)) {
+             return;
+@@ -925,36 +1026,44 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         LOGGER.log(LVL, sb.toString());
+     }
+ 
+-    private void assertLocksCanBefoundInJobQueue() throws ACIDException {
++    private void validateJob(ITransactionContext txnContext) throws ACIDException {
++        if (txnContext.getTxnState() == ITransactionManager.ABORTED) {
++            throw new ACIDException("" + txnContext.getJobId() + " is in ABORTED state.");
++        } else if (txnContext.isTimeout()) {
++            requestAbort(txnContext, "timeout");
++        }
++    }
++
++    private void requestAbort(ITransactionContext txnContext, String msg) throws ACIDException {
++        txnContext.setTimeout(true);
++        throw new ACIDException("Transaction " + txnContext.getJobId()
++                + " should abort (requested by the Lock Manager)" + ":\n" + msg);
++    }
++
++    private void assertLocksCanBefound() {
+         for (int i = 0; i < ResourceGroupTable.TABLE_SIZE; ++i) {
+-            final ResourceGroup group = table.get(i);
+-            if (group.tryLatch(100, TimeUnit.MILLISECONDS)) {
+-                try {
+-                    long resSlot = group.firstResourceIndex.get();
+-                    while (resSlot != -1) {
+-                        int dsId = resArenaMgr.getDatasetId(resSlot);
+-                        int entityHashValue = resArenaMgr.getPkHashVal(resSlot);
+-                        long reqSlot = resArenaMgr.getLastHolder(resSlot);
+-                        while (reqSlot != -1) {
+-                            byte lockMode = (byte) reqArenaMgr.getLockMode(reqSlot);
+-                            long jobSlot = reqArenaMgr.getJobSlot(reqSlot);
+-                            int jobId = jobArenaMgr.getJobId(jobSlot);
+-                            assertLockCanBeFoundInJobQueue(dsId, entityHashValue, lockMode, jobId);
+-                            reqSlot = reqArenaMgr.getNextRequest(reqSlot);
+-                        }
+-                        resSlot = resArenaMgr.getNext(resSlot);
+-                    }
+-                } finally {
+-                    group.releaseLatch();
++            final ResourceGroup group = table.table[i];
++            group.getLatch();
++            long resSlot = group.firstResourceIndex.get();
++            while (resSlot != -1) {
++                int dsId = resArenaMgr.getDatasetId(resSlot);
++                int entityHashValue = resArenaMgr.getPkHashVal(resSlot);
++                long reqSlot = resArenaMgr.getLastHolder(resSlot);
++                while (reqSlot != -1) {
++                    byte lockMode = (byte) reqArenaMgr.getLockMode(reqSlot);
++                    long jobSlot = reqArenaMgr.getJobSlot(reqSlot);
++                    int jobId = jobArenaMgr.getJobId(jobSlot);
++                    assertLockCanBeFound(dsId, entityHashValue, lockMode, jobId);
++                    reqSlot = reqArenaMgr.getNextRequest(reqSlot);
+                 }
+-            } else {
+-                LOGGER.warning("Could not check locks for " + group);
++                resSlot = resArenaMgr.getNext(resSlot);
+             }
++            group.releaseLatch();
+         }
+     }
+     
+-    private void assertLockCanBeFoundInJobQueue(int dsId, int entityHashValue, byte lockMode, int jobId) {
+-        if (findLockInJobQueue(dsId, entityHashValue, jobId, lockMode) == -1) {
++    private void assertLockCanBeFound(int dsId, int entityHashValue, byte lockMode, int jobId) {
++        if (!findLock(dsId, entityHashValue, jobId, lockMode)) {
+             String msg = "request for " + LockMode.toString(lockMode) + " lock on dataset " + dsId + " entity "
+                     + entityHashValue + " not found for job " + jobId + " in thread " + Thread.currentThread().getName();
+             LOGGER.severe(msg);            
+@@ -968,12 +1077,12 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+      * @param entityHashValue primary key hash value
+      * @param jobId job id
+      * @param lockMode lock mode
+-     * @return the slot of the request, if the lock request is found, -1 otherwise 
++     * @return true, if the lock request is found, false otherwise 
+      */
+-    private long findLockInJobQueue(final int dsId, final int entityHashValue, final int jobId, byte lockMode) {
++    private boolean findLock(final int dsId, final int entityHashValue, final int jobId, byte lockMode) {
+         Long jobSlot = jobIdSlotMap.get(jobId);
+         if (jobSlot == null) {
+-            return -1;
++            return false;
+         }
+ 
+         long holder;
+@@ -987,35 +1096,15 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                     && jobSlot == reqArenaMgr.getJobSlot(holder)
+                     && (lockMode == reqArenaMgr.getLockMode(holder)
+                         || lockMode == LockMode.ANY)) {
+-                return holder;
++                return true;
+             }
+             synchronized (jobArenaMgr) {
+                 holder = reqArenaMgr.getNextJobRequest(holder);
+             }
+         }
+-        return -1;
++        return false;
+     }
+ 
+-    private String resQueueToString(long resSlot) {
+-        return appendResQueue(new StringBuilder(), resSlot).toString();
+-    }
+-    
+-    private StringBuilder appendResQueue(StringBuilder sb, long resSlot) {
+-        resArenaMgr.appendRecord(sb, resSlot);
+-        sb.append("\n");
+-        appendReqQueue(sb, resArenaMgr.getLastHolder(resSlot));
+-        return sb;
+-    }
+-    
+-    private StringBuilder appendReqQueue(StringBuilder sb, long head) {
+-        while (head != -1) {
+-            reqArenaMgr.appendRecord(sb, head);
+-            sb.append("\n");
+-            head = reqArenaMgr.getNextRequest(head);
+-        }
+-        return sb;
+-    }
+-    
+     public StringBuilder append(StringBuilder sb) {
+         table.getAllLatches();
+         try {
+@@ -1118,7 +1207,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+     private static class ResourceGroupTable {
+         public static final int TABLE_SIZE = 1024; // TODO increase?
+ 
+-        private ResourceGroup[] table;
++        ResourceGroup[] table;
+ 
+         public ResourceGroupTable() {
+             table = new ResourceGroup[TABLE_SIZE];
+@@ -1126,17 +1215,13 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+                 table[i] = new ResourceGroup();
+             }
+         }
+-
++        
+         ResourceGroup get(int dId, int entityHashValue) {
+             // TODO ensure good properties of hash function
+             int h = Math.abs(dId ^ entityHashValue);
+             if (h < 0) h = 0;
+             return table[h % TABLE_SIZE];
+         }
+-        
+-        ResourceGroup get(int i) {
+-            return table[i];
+-        }
+ 
+         public void getAllLatches() {
+             for (int i = 0; i < TABLE_SIZE; ++i) {
+@@ -1183,16 +1268,6 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+             log("latch");
+             latch.writeLock().lock();
+         }
+-        
+-        boolean tryLatch(long timeout, TimeUnit unit) throws ACIDException {
+-            log("tryLatch");
+-            try {
+-                return latch.writeLock().tryLock(timeout, unit);
+-            } catch (InterruptedException e) {
+-                LOGGER.finer("interrupted while wating on ResourceGroup");
+-                throw new ACIDException("interrupted", e);
+-            }
+-        }
+ 
+         void releaseLatch() {
+             log("release");
+@@ -1219,7 +1294,7 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         }
+ 
+         void log(String s) {
+-            if (LOGGER.isLoggable(LVL)) {
++            if (LOGGER.isLoggable(Level.FINER)) {
+                 LOGGER.log(LVL, s + " " + toString());
+             }            
+         }

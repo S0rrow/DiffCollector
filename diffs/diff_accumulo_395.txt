@@ -1,0 +1,60 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/SplitCancelsMajCIT.java b/test/src/main/java/org/apache/accumulo/test/SplitCancelsMajCIT.java
+index 1afd33d633..fc54b64759 100644
+--- a/test/src/main/java/org/apache/accumulo/test/SplitCancelsMajCIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/SplitCancelsMajCIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertTrue;
+ 
+ import java.util.EnumSet;
+@@ -35,10 +34,10 @@ import org.apache.accumulo.core.iterators.IteratorUtil.IteratorScope;
+ import org.apache.accumulo.harness.SharedMiniClusterBase;
+ import org.apache.accumulo.test.functional.SlowIterator;
+ import org.apache.hadoop.io.Text;
+-import org.junit.AfterClass;
+-import org.junit.BeforeClass;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ // ACCUMULO-2862
+ public class SplitCancelsMajCIT extends SharedMiniClusterBase {
+ 
+@@ -47,16 +46,6 @@ public class SplitCancelsMajCIT extends SharedMiniClusterBase {
+     return 2 * 60;
+   }
+ 
+-  @BeforeClass
+-  public static void setup() throws Exception {
+-    SharedMiniClusterBase.startMiniCluster();
+-  }
+-
+-  @AfterClass
+-  public static void teardown() throws Exception {
+-    SharedMiniClusterBase.stopMiniCluster();
+-  }
+-
+   @Test
+   public void test() throws Exception {
+     final String tableName = getUniqueNames(1)[0];
+@@ -74,7 +63,7 @@ public class SplitCancelsMajCIT extends SharedMiniClusterBase {
+     }
+     bw.flush();
+     // start majc
+-    final AtomicReference<Exception> ex = new AtomicReference<>();
++    final AtomicReference<Exception> ex = new AtomicReference<Exception>();
+     Thread thread = new Thread() {
+       @Override
+       public void run() {
+@@ -90,7 +79,7 @@ public class SplitCancelsMajCIT extends SharedMiniClusterBase {
+     long now = System.currentTimeMillis();
+     sleepUninterruptibly(10, TimeUnit.SECONDS);
+     // split the table, interrupts the compaction
+-    SortedSet<Text> partitionKeys = new TreeSet<>();
++    SortedSet<Text> partitionKeys = new TreeSet<Text>();
+     partitionKeys.add(new Text("10"));
+     c.tableOperations().addSplits(tableName, partitionKeys);
+     thread.join();

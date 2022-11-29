@@ -1,0 +1,69 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/TableOperationsIT.java b/test/src/main/java/org/apache/accumulo/test/TableOperationsIT.java
+index 8455a40a73..7d6e6bd40c 100644
+--- a/test/src/main/java/org/apache/accumulo/test/TableOperationsIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/TableOperationsIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertTrue;
+ import static org.junit.Assert.fail;
+@@ -59,15 +58,15 @@ import org.apache.accumulo.core.security.TablePermission;
+ import org.apache.accumulo.core.tabletserver.thrift.TabletClientService;
+ import org.apache.accumulo.harness.AccumuloClusterHarness;
+ import org.apache.accumulo.test.functional.BadIterator;
+-import org.apache.accumulo.test.functional.FunctionalTestUtils;
+ import org.apache.hadoop.io.Text;
+ import org.apache.thrift.TException;
+-import org.junit.After;
+ import org.junit.Assert;
+ import org.junit.Before;
+ import org.junit.Test;
+ 
++import com.google.common.collect.Maps;
+ import com.google.common.collect.Sets;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class TableOperationsIT extends AccumuloClusterHarness {
+ 
+@@ -85,11 +84,6 @@ public class TableOperationsIT extends AccumuloClusterHarness {
+     connector = getConnector();
+   }
+ 
+-  @After
+-  public void checkForDanglingFateLocks() {
+-    FunctionalTestUtils.assertNoDanglingFateLocks(getConnector().getInstance(), getCluster());
+-  }
+-
+   @Test
+   public void getDiskUsageErrors() throws TableExistsException, AccumuloException, AccumuloSecurityException, TableNotFoundException, TException {
+     String tableName = getUniqueNames(1)[0];
+@@ -148,7 +142,7 @@ public class TableOperationsIT extends AccumuloClusterHarness {
+     connector.tableOperations().clone(tableName, newTable, false, null, null);
+ 
+     // verify tables are exactly the same
+-    Set<String> tables = new HashSet<>();
++    Set<String> tables = new HashSet<String>();
+     tables.add(tableName);
+     tables.add(newTable);
+     diskUsages = connector.tableOperations().getDiskUsage(tables);
+@@ -210,7 +204,7 @@ public class TableOperationsIT extends AccumuloClusterHarness {
+     tops.clone(originalTable, clonedTable, true, null, null);
+     tops.merge(clonedTable, null, new Text("b"));
+ 
+-    Map<String,Integer> rowCounts = new HashMap<>();
++    Map<String,Integer> rowCounts = Maps.newHashMap();
+     Scanner s = connector.createScanner(clonedTable, new Authorizations());
+     for (Entry<Key,Value> entry : s) {
+       final Key key = entry.getKey();
+@@ -237,7 +231,7 @@ public class TableOperationsIT extends AccumuloClusterHarness {
+   }
+ 
+   private Map<String,String> propsToMap(Iterable<Map.Entry<String,String>> props) {
+-    Map<String,String> map = new HashMap<>();
++    Map<String,String> map = new HashMap<String,String>();
+     for (Map.Entry<String,String> prop : props) {
+       map.put(prop.getKey(), prop.getValue());
+     }

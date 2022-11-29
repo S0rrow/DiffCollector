@@ -1,0 +1,39 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/replication/UnorderedWorkAssignerReplicationIT.java b/test/src/main/java/org/apache/accumulo/test/replication/UnorderedWorkAssignerReplicationIT.java
+index 282e5b390e..7650dd5ee3 100644
+--- a/test/src/main/java/org/apache/accumulo/test/replication/UnorderedWorkAssignerReplicationIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/replication/UnorderedWorkAssignerReplicationIT.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.replication;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.HashMap;
+ import java.util.Iterator;
+ import java.util.Map;
+@@ -68,6 +66,7 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class UnorderedWorkAssignerReplicationIT extends ConfigurableMacBase {
+   private static final Logger log = LoggerFactory.getLogger(UnorderedWorkAssignerReplicationIT.class);
+@@ -103,7 +102,7 @@ public class UnorderedWorkAssignerReplicationIT extends ConfigurableMacBase {
+   @Override
+   public void configure(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
+     cfg.setNumTservers(1);
+-    cfg.setProperty(Property.INSTANCE_ZK_TIMEOUT, "15s");
++    cfg.setProperty(Property.INSTANCE_ZK_TIMEOUT, "10s");
+     cfg.setProperty(Property.TSERV_WALOG_MAX_SIZE, "2M");
+     cfg.setProperty(Property.GC_CYCLE_START, "1s");
+     cfg.setProperty(Property.GC_CYCLE_DELAY, "5s");
+@@ -123,7 +122,7 @@ public class UnorderedWorkAssignerReplicationIT extends ConfigurableMacBase {
+     // Set the same SSL information from the primary when present
+     Map<String,String> primarySiteConfig = primaryCfg.getSiteConfig();
+     if ("true".equals(primarySiteConfig.get(Property.INSTANCE_RPC_SSL_ENABLED.getKey()))) {
+-      Map<String,String> peerSiteConfig = new HashMap<>();
++      Map<String,String> peerSiteConfig = new HashMap<String,String>();
+       peerSiteConfig.put(Property.INSTANCE_RPC_SSL_ENABLED.getKey(), "true");
+       String keystorePath = primarySiteConfig.get(Property.RPC_SSL_KEYSTORE_PATH.getKey());
+       Assert.assertNotNull("Keystore Path was null", keystorePath);

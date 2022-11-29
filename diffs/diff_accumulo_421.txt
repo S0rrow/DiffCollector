@@ -1,0 +1,30 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ConstraintIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ConstraintIT.java
+index 39b0342b41..5817b03e3e 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ConstraintIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ConstraintIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.util.HashMap;
+@@ -46,6 +45,8 @@ import org.junit.Test;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class ConstraintIT extends AccumuloClusterHarness {
+   private static final Logger log = LoggerFactory.getLogger(ConstraintIT.class);
+ 
+@@ -292,7 +293,7 @@ public class ConstraintIT extends AccumuloClusterHarness {
+         throw new Exception("Unexpected constraints");
+       }
+ 
+-      HashMap<String,Integer> expected = new HashMap<>();
++      HashMap<String,Integer> expected = new HashMap<String,Integer>();
+ 
+       expected.put("org.apache.accumulo.examples.simple.constraints.NumericValueConstraint", numericErrors);
+       expected.put("org.apache.accumulo.examples.simple.constraints.AlphaNumKeyConstraint", 1);

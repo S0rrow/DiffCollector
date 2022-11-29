@@ -1,0 +1,107 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageSubscription.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageSubscription.java
+index 386f21ffc6..e619900272 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageSubscription.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageSubscription.java
+@@ -1,4 +1,4 @@
+-/*
++/**
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements. See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.
+@@ -18,7 +18,6 @@ package org.apache.activemq.artemis.core.paging.cursor;
+ 
+ import java.util.concurrent.Executor;
+ 
+-import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.core.paging.PagedMessage;
+ import org.apache.activemq.artemis.core.paging.PagingStore;
+ import org.apache.activemq.artemis.core.paging.impl.Page;
+@@ -26,7 +25,8 @@ import org.apache.activemq.artemis.core.server.Queue;
+ import org.apache.activemq.artemis.core.transaction.Transaction;
+ import org.apache.activemq.artemis.utils.LinkedListIterator;
+ 
+-public interface PageSubscription {
++public interface PageSubscription
++{
+ 
+    // Cursor query operations --------------------------------------
+ 
+@@ -35,9 +35,7 @@ public interface PageSubscription {
+    // To be called before the server is down
+    void stop();
+ 
+-   /**
+-    * This is a callback to inform the PageSubscription that something was routed, so the empty flag can be cleared
+-    */
++   /** This is a callback to inform the PageSubscription that something was routed, so the empty flag can be cleared */
+    void notEmpty();
+ 
+    void bookmark(PagePosition position) throws Exception;
+@@ -50,9 +48,7 @@ public interface PageSubscription {
+ 
+    boolean isPersistent();
+ 
+-   /**
+-    * Used as a delegate method to {@link PagingStore#isPaging()}
+-    */
++   /** Used as a delegate method to {@link PagingStore#isPaging()} */
+    boolean isPaging();
+ 
+    LinkedListIterator<PagedReference> iterator();
+@@ -83,6 +79,7 @@ public interface PageSubscription {
+    void confirmPosition(Transaction tx, PagePosition position) throws Exception;
+ 
+    /**
++    *
+     * @return the first page in use or MAX_LONG if none is in use
+     */
+    long getFirstPage();
+@@ -96,7 +93,7 @@ public interface PageSubscription {
+ 
+    void reloadPageCompletion(PagePosition position);
+ 
+-   void reloadPageInfo(long pageNr) throws ActiveMQException;
++   void reloadPageInfo(long pageNr);
+ 
+    /**
+     * To be called when the cursor decided to ignore a position.
+@@ -109,7 +106,6 @@ public interface PageSubscription {
+ 
+    /**
+     * To be used to avoid a redelivery of a prepared ACK after load
+-    *
+     * @param position
+     */
+    void reloadPreparedACK(Transaction tx, PagePosition position);
+@@ -120,7 +116,6 @@ public interface PageSubscription {
+ 
+    /**
+     * To be used on redeliveries
+-    *
+     * @param position
+     */
+    void redeliver(PageIterator iterator, PagePosition position);
+@@ -133,9 +128,7 @@ public interface PageSubscription {
+     */
+    boolean isComplete(long page);
+ 
+-   /**
+-    * wait all the scheduled runnables to finish their current execution
+-    */
++   /** wait all the scheduled runnables to finish their current execution */
+    void flushExecutors();
+ 
+    void setQueue(Queue queue);
+@@ -144,11 +137,10 @@ public interface PageSubscription {
+ 
+    /**
+     * To be used to requery the reference case the Garbage Collection removed it from the PagedReference as it's using WeakReferences
+-    *
+     * @param pos
+     * @return
+     */
+-   PagedMessage queryMessage(PagePosition pos) throws ActiveMQException;
++   PagedMessage queryMessage(PagePosition pos);
+ 
+    /**
+     * @return executor used by the PageSubscription

@@ -1,0 +1,39 @@
+diff --git a/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java b/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java
+index d4e7bee71..75616f990 100755
+--- a/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java
++++ b/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java
+@@ -31,9 +31,6 @@ import java.util.Map.Entry;
+ import java.util.jar.Attributes;
+ import java.util.jar.Manifest;
+ 
+-import org.apache.aries.application.filesystem.IDirectory;
+-import org.apache.aries.application.filesystem.IFile;
+-
+ /**
+  * This class contains utilities for parsing manifests. It provides methods to
+  * parse the manifest, read a manifest into a map and to split an manifest
+@@ -126,24 +123,6 @@ public class ManifestProcessor
+     return man;
+   }
+   
+-  /**
+-   * Obtain a manifest from an IDirectory. 
+-   * 
+-   * @param appDir
+-   * @param manifestName the name of manifest
+-   * @return Manifest, or null if none found.
+-   * @throws IOException
+-   */
+-  public static Manifest obtainManifestFromAppDir(IDirectory appDir, String manifestName) throws IOException{
+-    IFile manifestFile = appDir.getFile(manifestName);
+-    Manifest man = null;
+-    if (manifestFile != null) {
+-      man = parseManifest(manifestFile.open());
+-    }
+-    return man;
+-  }
+-
+-  
+   /**
+    * 
+    * Splits a delimiter separated string, tolerating presence of non separator commas

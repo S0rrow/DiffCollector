@@ -1,0 +1,253 @@
+diff --git a/repository/src/main/java/org/apache/hadoop/metadata/repository/typestore/GraphBackedTypeStore.java b/repository/src/main/java/org/apache/hadoop/metadata/repository/typestore/GraphBackedTypeStore.java
+index 49478312c..226df0f97 100755
+--- a/repository/src/main/java/org/apache/hadoop/metadata/repository/typestore/GraphBackedTypeStore.java
++++ b/repository/src/main/java/org/apache/hadoop/metadata/repository/typestore/GraphBackedTypeStore.java
+@@ -25,7 +25,6 @@ import com.tinkerpop.blueprints.Direction;
+ import com.tinkerpop.blueprints.Edge;
+ import com.tinkerpop.blueprints.Vertex;
+ import org.apache.commons.lang.StringUtils;
+-import org.apache.hadoop.metadata.GraphTransaction;
+ import org.apache.hadoop.metadata.MetadataException;
+ import org.apache.hadoop.metadata.repository.Constants;
+ import org.apache.hadoop.metadata.repository.graph.GraphProvider;
+@@ -55,8 +54,12 @@ import java.util.List;
+ 
+ public class GraphBackedTypeStore implements ITypeStore {
+     public static final String VERTEX_TYPE = "typeSystem";
+-    private static final String PROPERTY_PREFIX = Constants.INTERNAL_PROPERTY_KEY_PREFIX + "type.";
++    private static final String PROPERTY_PREFIX = "type.";
+     public static final String SUPERTYPE_EDGE_LABEL = PROPERTY_PREFIX + ".supertype";
++    public static final String SUBTYPE_EDGE_LABEL = PROPERTY_PREFIX + ".subtype";
++
++    private static final ImmutableList META_PROPERTIES = ImmutableList.of(Constants.VERTEX_TYPE_PROPERTY_KEY,
++            Constants.TYPE_CATEGORY_PROPERTY_KEY, Constants.TYPENAME_PROPERTY_KEY);
+ 
+     private static Logger LOG = LoggerFactory.getLogger(GraphBackedTypeStore.class);
+ 
+@@ -73,56 +76,49 @@ public class GraphBackedTypeStore implements ITypeStore {
+     }
+ 
+     @Override
+-    @GraphTransaction
+     public void store(TypeSystem typeSystem, ImmutableList<String> typeNames) throws MetadataException {
+-        ImmutableList<String> coreTypes = typeSystem.getCoreTypes();
+-        for (String typeName : typeNames) {
+-            if (!coreTypes.contains(typeName)) {
+-                IDataType dataType = typeSystem.getDataType(IDataType.class, typeName);
+-                LOG.debug("Processing {}.{} in type store", dataType.getTypeCategory(), dataType.getName());
+-                switch (dataType.getTypeCategory()) {
+-                    case ENUM:
+-                        storeInGraph((EnumType)dataType);
+-                        break;
+-
+-                    case STRUCT:
+-                        StructType structType = (StructType) dataType;
+-                        storeInGraph(typeSystem, dataType.getTypeCategory(), dataType.getName(),
+-                                ImmutableList.copyOf(structType.infoToNameMap.keySet()), ImmutableList.<String>of());
+-                        break;
+-
+-                    case TRAIT:
+-                    case CLASS:
+-                        HierarchicalType type = (HierarchicalType) dataType;
+-                        storeInGraph(typeSystem, dataType.getTypeCategory(), dataType.getName(),
+-                                type.immediateAttrs, type.superTypes);
+-                        break;
+-
+-                    default:    //Ignore primitive/collection types as they are covered under references
+-                        break;
++        try {
++            ImmutableList<String> coreTypes = typeSystem.getCoreTypes();
++            titanGraph.rollback();  //Cleanup previous state
++            for (String typeName : typeNames) {
++                if (!coreTypes.contains(typeName)) {
++                    IDataType dataType = typeSystem.getDataType(IDataType.class, typeName);
++                    LOG.debug("Processing {}.{} in type store", dataType.getTypeCategory(), dataType.getName());
++                    switch (dataType.getTypeCategory()) {
++                        case ENUM:
++                            storeInGraph((EnumType)dataType);
++                            break;
++
++                        case STRUCT:
++                            StructType structType = (StructType) dataType;
++                            storeInGraph(typeSystem, dataType.getTypeCategory(), dataType.getName(),
++                                    ImmutableList.copyOf(structType.infoToNameMap.keySet()), ImmutableList.<String>of());
++                            break;
++
++                        case TRAIT:
++                        case CLASS:
++                            HierarchicalType type = (HierarchicalType) dataType;
++                            storeInGraph(typeSystem, dataType.getTypeCategory(), dataType.getName(),
++                                    type.immediateAttrs, type.superTypes);
++                            break;
++
++                        default:    //Ignore primitive/collection types as they are covered under references
++                            break;
++                    }
+                 }
+             }
++            titanGraph.commit();
++        } finally {
++            titanGraph.rollback();
+         }
+     }
+ 
+-    private void addProperty(Vertex vertex, String propertyName, Object value) {
+-        LOG.debug("Setting property {} = \"{}\" to vertex {}", propertyName, value, vertex);
+-        vertex.setProperty(propertyName, value);
+-    }
+-
+     private void storeInGraph(EnumType dataType) {
+         Vertex vertex = createVertex(dataType.getTypeCategory(), dataType.getName());
+-        List<String> values = new ArrayList<>(dataType.values().size());
+-        for (EnumValue enumValue : dataType.values()) {
+-            String key = getPropertyKey(dataType.getName(), enumValue.value);
+-            addProperty(vertex, key, enumValue.ordinal);
+-            values.add(enumValue.value);
++        for (EnumValue value : dataType.values()) {
++            String key = getPropertyKey(dataType.getName(), value.value);
++            vertex.setProperty(key, value.ordinal);
+         }
+-        addProperty(vertex, getPropertyKey(dataType.getName()), values);
+-    }
+-
+-    private String getPropertyKey(String name) {
+-        return PROPERTY_PREFIX + name;
+     }
+ 
+     private String getPropertyKey(String parent, String child) {
+@@ -136,20 +132,18 @@ public class GraphBackedTypeStore implements ITypeStore {
+     private void storeInGraph(TypeSystem typeSystem, DataTypes.TypeCategory category, String typeName,
+                               ImmutableList<AttributeInfo> attributes, ImmutableList<String> superTypes) throws MetadataException {
+         Vertex vertex = createVertex(category, typeName);
+-        List<String> attrNames = new ArrayList<>();
+         if (attributes != null) {
+             for (AttributeInfo attribute : attributes) {
+                 String propertyKey = getPropertyKey(typeName, attribute.name);
+                 try {
+-                    addProperty(vertex, propertyKey, attribute.toJson());
++                    vertex.setProperty(propertyKey, attribute.toJson());
+                 } catch (JSONException e) {
+                     throw new StorageException(typeName, e);
+                 }
+-                attrNames.add(attribute.name);
++
+                 addReferencesForAttribute(typeSystem, vertex, attribute);
+             }
+         }
+-        addProperty(vertex, getPropertyKey(typeName), attrNames);
+ 
+         //Add edges for hierarchy
+         if (superTypes != null) {
+@@ -157,6 +151,7 @@ public class GraphBackedTypeStore implements ITypeStore {
+                 HierarchicalType superType = typeSystem.getDataType(HierarchicalType.class, superTypeName);
+                 Vertex superVertex = createVertex(superType.getTypeCategory(), superTypeName);
+                 addEdge(vertex, superVertex, SUPERTYPE_EDGE_LABEL);
++                addEdge(superVertex, vertex, SUBTYPE_EDGE_LABEL);
+             }
+         }
+     }
+@@ -193,7 +188,7 @@ public class GraphBackedTypeStore implements ITypeStore {
+                 break;
+ 
+             default:
+-                throw new IllegalArgumentException("Attribute cannot reference instances of type : " + attrDataType.getTypeCategory());
++                throw new IllegalArgumentException("Unhandled type category " + attrDataType.getTypeCategory());
+         }
+ 
+         for (IDataType attrType : attrDataTypes) {
+@@ -211,11 +206,9 @@ public class GraphBackedTypeStore implements ITypeStore {
+     }
+ 
+     @Override
+-    @GraphTransaction
+     public TypesDef restore() throws MetadataException {
+         //Get all vertices for type system
+-        Iterator vertices =
+-                titanGraph.query().has(Constants.VERTEX_TYPE_PROPERTY_KEY, VERTEX_TYPE).vertices().iterator();
++        Iterator vertices = titanGraph.query().has(Constants.VERTEX_TYPE_PROPERTY_KEY, VERTEX_TYPE).vertices().iterator();
+ 
+         ImmutableList.Builder<EnumTypeDefinition> enums = ImmutableList.builder();
+         ImmutableList.Builder<StructTypeDefinition> structs = ImmutableList.builder();
+@@ -227,25 +220,25 @@ public class GraphBackedTypeStore implements ITypeStore {
+             DataTypes.TypeCategory typeCategory = vertex.getProperty(Constants.TYPE_CATEGORY_PROPERTY_KEY);
+             String typeName = vertex.getProperty(Constants.TYPENAME_PROPERTY_KEY);
+             LOG.info("Restoring type {}.{}", typeCategory, typeName);
+-            switch (typeCategory) {
++            switch(typeCategory) {
+             case ENUM:
+                 enums.add(getEnumType(vertex));
+                 break;
+ 
+             case STRUCT:
+-                AttributeDefinition[] attributes = getAttributes(vertex, typeName);
++                AttributeDefinition[] attributes = getAttributes(vertex);
+                 structs.add(new StructTypeDefinition(typeName, attributes));
+                 break;
+ 
+             case CLASS:
+                 ImmutableList<String> superTypes = getSuperTypes(vertex);
+-                attributes = getAttributes(vertex, typeName);
++                attributes = getAttributes(vertex);
+                 classTypes.add(new HierarchicalTypeDefinition(ClassType.class, typeName, superTypes, attributes));
+                 break;
+ 
+             case TRAIT:
+                 superTypes = getSuperTypes(vertex);
+-                attributes = getAttributes(vertex, typeName);
++                attributes = getAttributes(vertex);
+                 traits.add(new HierarchicalTypeDefinition(TraitType.class, typeName, superTypes, attributes));
+                 break;
+ 
+@@ -259,10 +252,11 @@ public class GraphBackedTypeStore implements ITypeStore {
+     private EnumTypeDefinition getEnumType(Vertex vertex) {
+         String typeName = vertex.getProperty(Constants.TYPENAME_PROPERTY_KEY);
+         List<EnumValue> enumValues = new ArrayList<>();
+-        List<String> values = vertex.getProperty(getPropertyKey(typeName));
+-        for (String value : values) {
+-            String valueProperty = getPropertyKey(typeName, value);
+-            enumValues.add(new EnumValue(value, vertex.<Integer>getProperty(valueProperty)));
++        for (String property : vertex.getPropertyKeys()) {
++            if (!META_PROPERTIES.contains(property)) {
++                String enumValue = StringUtils.removeStart(property, PROPERTY_PREFIX + typeName);
++                enumValues.add(new EnumValue(enumValue, vertex.<Integer>getProperty(property)));
++            }
+         }
+         return new EnumTypeDefinition(typeName, enumValues.toArray(new EnumValue[enumValues.size()]));
+     }
+@@ -277,15 +271,15 @@ public class GraphBackedTypeStore implements ITypeStore {
+         return ImmutableList.copyOf(superTypes);
+     }
+ 
+-    private AttributeDefinition[] getAttributes(Vertex vertex, String typeName) throws MetadataException {
++    private AttributeDefinition[] getAttributes(Vertex vertex) throws MetadataException {
+         List<AttributeDefinition> attributes = new ArrayList<>();
+-        List<String> attrNames = vertex.getProperty(getPropertyKey(typeName));
+-        for (String attrName : attrNames) {
+-            try {
+-                String propertyKey = getPropertyKey(typeName, attrName);
+-                attributes.add(AttributeInfo.fromJson((String) vertex.getProperty(propertyKey)));
+-            } catch (JSONException e) {
+-                throw new MetadataException(e);
++        for (String property : vertex.getPropertyKeys()) {
++            if (!META_PROPERTIES.contains(property)) {
++                try {
++                    attributes.add(AttributeInfo.fromJson((String) vertex.getProperty(property)));
++                } catch (JSONException e) {
++                    throw new MetadataException(e);
++                }
+             }
+         }
+         return attributes.toArray(new AttributeDefinition[attributes.size()]);
+@@ -318,9 +312,9 @@ public class GraphBackedTypeStore implements ITypeStore {
+         if (vertex == null) {
+             LOG.debug("Adding vertex {}{}", PROPERTY_PREFIX, typeName);
+             vertex = titanGraph.addVertex(null);
+-            addProperty(vertex, Constants.VERTEX_TYPE_PROPERTY_KEY, VERTEX_TYPE);  //Mark as type vertex
+-            addProperty(vertex, Constants.TYPE_CATEGORY_PROPERTY_KEY, category);
+-            addProperty(vertex, Constants.TYPENAME_PROPERTY_KEY, typeName);
++            vertex.setProperty(Constants.VERTEX_TYPE_PROPERTY_KEY, VERTEX_TYPE);  //Mark as type vertex
++            vertex.setProperty(Constants.TYPE_CATEGORY_PROPERTY_KEY, category);
++            vertex.setProperty(Constants.TYPENAME_PROPERTY_KEY, typeName);
+         }
+         return vertex;
+     }

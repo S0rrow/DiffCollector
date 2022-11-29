@@ -1,0 +1,46 @@
+diff --git a/artemis-commons/src/main/java/org/apache/activemq/artemis/api/core/ActiveMQExceptionType.java b/artemis-commons/src/main/java/org/apache/activemq/artemis/api/core/ActiveMQExceptionType.java
+index 73616a8c3f..6aca1d013d 100644
+--- a/artemis-commons/src/main/java/org/apache/activemq/artemis/api/core/ActiveMQExceptionType.java
++++ b/artemis-commons/src/main/java/org/apache/activemq/artemis/api/core/ActiveMQExceptionType.java
+@@ -154,12 +154,6 @@ public enum ActiveMQExceptionType {
+          return new ActiveMQTransactionOutcomeUnknownException(msg);
+       }
+    },
+-   TRANSACTION_TIMEOUT(116) {
+-      @Override
+-      public ActiveMQException createException(String msg) {
+-         return new ActiveMQTranasactionTimeoutException(msg);
+-      }
+-   },
+    ALREADY_REPLICATING(116) {
+       @Override
+       public ActiveMQException createException(String msg) {
+@@ -178,12 +172,6 @@ public enum ActiveMQExceptionType {
+          return new ActiveMQInvalidTransientQueueUseException(msg);
+       }
+    },
+-   REMOTE_DISCONNECT(119) {
+-      @Override
+-      public ActiveMQException createException(String msg) {
+-         return new ActiveMQRemoteDisconnectException(msg);
+-      }
+-   },
+ 
+    GENERIC_EXCEPTION(999),
+    NATIVE_ERROR_INTERNAL(200),
+@@ -213,13 +201,12 @@ public enum ActiveMQExceptionType {
+          return new ActiveMQClusterSecurityException(msg);
+       }
+ 
+-   },
+-   NOT_IMPLEMTNED_EXCEPTION(213);
++   };
+ 
+    private static final Map<Integer, ActiveMQExceptionType> TYPE_MAP;
+ 
+    static {
+-      HashMap<Integer, ActiveMQExceptionType> map = new HashMap<>();
++      HashMap<Integer, ActiveMQExceptionType> map = new HashMap<Integer, ActiveMQExceptionType>();
+       for (ActiveMQExceptionType type : EnumSet.allOf(ActiveMQExceptionType.class)) {
+          map.put(type.getCode(), type);
+       }

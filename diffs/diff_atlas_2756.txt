@@ -1,0 +1,155 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasClassificationDefStoreV1.java b/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasClassificationDefStoreV1.java
+index 89445048c..f9c17fd8c 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasClassificationDefStoreV1.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasClassificationDefStoreV1.java
+@@ -20,14 +20,19 @@ package org.apache.atlas.repository.store.graph.v1;
+ 
+ import org.apache.atlas.AtlasErrorCode;
+ import org.apache.atlas.exception.AtlasBaseException;
++import org.apache.atlas.model.SearchFilter;
+ import org.apache.atlas.model.typedef.AtlasClassificationDef;
++import org.apache.atlas.model.typedef.AtlasClassificationDef.AtlasClassificationDefs;
+ import org.apache.atlas.repository.Constants;
+ import org.apache.atlas.repository.graphdb.AtlasVertex;
+ import org.apache.atlas.repository.store.graph.AtlasClassificationDefStore;
++import org.apache.atlas.repository.util.FilterUtil;
+ import org.apache.atlas.type.AtlasClassificationType;
+ import org.apache.atlas.type.AtlasType;
+ import org.apache.atlas.type.AtlasTypeRegistry;
++import org.apache.atlas.type.AtlasTypeUtil;
+ import org.apache.atlas.typesystem.types.DataTypes.TypeCategory;
++import org.apache.commons.collections.CollectionUtils;
+ import org.apache.commons.lang.StringUtils;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+@@ -35,8 +40,6 @@ import org.slf4j.LoggerFactory;
+ import java.util.ArrayList;
+ import java.util.Iterator;
+ import java.util.List;
+-import java.util.regex.Matcher;
+-import java.util.regex.Pattern;
+ 
+ /**
+  * ClassificationDef store in v1 format.
+@@ -44,10 +47,6 @@ import java.util.regex.Pattern;
+ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 implements AtlasClassificationDefStore {
+     private static final Logger LOG = LoggerFactory.getLogger(AtlasClassificationDefStoreV1.class);
+ 
+-    private static final String  TRAIT_NAME_REGEX   = "[a-zA-Z][a-zA-Z0-9_ .]*";
+-
+-    private static final Pattern TRAIT_NAME_PATTERN = Pattern.compile(TRAIT_NAME_REGEX);
+-
+     public AtlasClassificationDefStoreV1(AtlasTypeDefGraphStoreV1 typeDefStore, AtlasTypeRegistry typeRegistry) {
+         super(typeDefStore, typeRegistry);
+     }
+@@ -58,7 +57,7 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+             LOG.debug("==> AtlasClassificationDefStoreV1.preCreate({})", classificationDef);
+         }
+ 
+-        validateType(classificationDef);
++        AtlasTypeUtil.validateType(classificationDef);
+ 
+         AtlasType type = typeRegistry.getType(classificationDef.getName());
+ 
+@@ -178,7 +177,7 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+             LOG.debug("==> AtlasClassificationDefStoreV1.update({})", classifiDef);
+         }
+ 
+-        validateType(classifiDef);
++        AtlasTypeUtil.validateType(classifiDef);
+ 
+         AtlasClassificationDef ret = StringUtils.isNotBlank(classifiDef.getGuid())
+                   ? updateByGuid(classifiDef.getGuid(), classifiDef) : updateByName(classifiDef.getName(), classifiDef);
+@@ -197,7 +196,7 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+             LOG.debug("==> AtlasClassificationDefStoreV1.updateByName({}, {})", name, classificationDef);
+         }
+ 
+-        validateType(classificationDef);
++        AtlasTypeUtil.validateType(classificationDef);
+ 
+         AtlasType type = typeRegistry.getType(classificationDef.getName());
+ 
+@@ -229,7 +228,7 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+             LOG.debug("==> AtlasClassificationDefStoreV1.updateByGuid({})", guid);
+         }
+ 
+-        validateType(classificationDef);
++        AtlasTypeUtil.validateType(classificationDef);
+ 
+         AtlasType type = typeRegistry.getTypeByGuid(guid);
+ 
+@@ -263,10 +262,6 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+ 
+         AtlasVertex ret = typeDefStore.findTypeVertexByNameAndCategory(name, TypeCategory.TRAIT);
+ 
+-        if (AtlasGraphUtilsV1.typeHasInstanceVertex(name)) {
+-            throw new AtlasBaseException(AtlasErrorCode.TYPE_HAS_REFERENCES, name);
+-        }
+-
+         if (ret == null) {
+             throw new AtlasBaseException(AtlasErrorCode.TYPE_NAME_NOT_FOUND, name);
+         }
+@@ -309,12 +304,6 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+ 
+         AtlasVertex ret = typeDefStore.findTypeVertexByGuidAndCategory(guid, TypeCategory.TRAIT);
+ 
+-        String typeName = AtlasGraphUtilsV1.getProperty(ret, Constants.TYPENAME_PROPERTY_KEY, String.class);
+-
+-        if (AtlasGraphUtilsV1.typeHasInstanceVertex(typeName)) {
+-            throw new AtlasBaseException(AtlasErrorCode.TYPE_HAS_REFERENCES, typeName);
+-        }
+-
+         if (ret == null) {
+             throw new AtlasBaseException(AtlasErrorCode.TYPE_GUID_NOT_FOUND, guid);
+         }
+@@ -349,9 +338,37 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+         }
+     }
+ 
++    @Override
++    public AtlasClassificationDefs search(SearchFilter filter) throws AtlasBaseException {
++        if (LOG.isDebugEnabled()) {
++            LOG.debug("==> AtlasClassificationDefStoreV1.search({})", filter);
++        }
++
++        List<AtlasClassificationDef> classificationDefs = new ArrayList<>();
++        Iterator<AtlasVertex>        vertices           = typeDefStore.findTypeVerticesByCategory(TypeCategory.TRAIT);
++
++        while(vertices.hasNext()) {
++            AtlasVertex            vertex            = vertices.next();
++            AtlasClassificationDef classificationDef = toClassificationDef(vertex);
++
++            if (classificationDef != null) {
++                classificationDefs.add(classificationDef);
++            }
++        }
++
++        CollectionUtils.filter(classificationDefs, FilterUtil.getPredicateFromSearchFilter(filter));
++
++        AtlasClassificationDefs ret = new AtlasClassificationDefs(classificationDefs);
++
++        if (LOG.isDebugEnabled()) {
++            LOG.debug("<== AtlasClassificationDefStoreV1.search({}): {}", filter, ret);
++        }
++        return ret;
++    }
++
+     private void updateVertexPreCreate(AtlasClassificationDef  classificationDef,
+                                        AtlasClassificationType classificationType,
+-                                       AtlasVertex             vertex) throws AtlasBaseException {
++                                       AtlasVertex             vertex) {
+         AtlasStructDefStoreV1.updateVertexPreCreate(classificationDef, classificationType, vertex, typeDefStore);
+     }
+ 
+@@ -380,11 +397,4 @@ public class AtlasClassificationDefStoreV1 extends AtlasAbstractDefStoreV1 imple
+ 
+         return ret;
+     }
+-
+-    @Override
+-    public boolean isValidName(String typeName) {
+-        Matcher m = TRAIT_NAME_PATTERN.matcher(typeName);
+-
+-        return m.matches();
+-    }
+ }

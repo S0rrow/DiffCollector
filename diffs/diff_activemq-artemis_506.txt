@@ -1,0 +1,45 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/MessageReference.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/MessageReference.java
+index 95b30b27c1..274e687a03 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/MessageReference.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/MessageReference.java
+@@ -1,4 +1,4 @@
+-/*
++/**
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements. See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.
+@@ -16,23 +16,22 @@
+  */
+ package org.apache.activemq.artemis.core.server;
+ 
+-import org.apache.activemq.artemis.api.core.ActiveMQException;
+ 
+ /**
+  * A reference to a message.
+  *
+  * Channels store message references rather than the messages themselves.
+  */
+-public interface MessageReference {
++public interface MessageReference
++{
+ 
+    boolean isPaged();
+ 
+-   ServerMessage getMessage() throws ActiveMQException;
++   ServerMessage getMessage();
+ 
+    /**
+     * We define this method aggregation here because on paging we need to hold the original estimate,
+     * so we need to perform some extra steps on paging.
+-    *
+     * @return
+     */
+    int getMessageMemoryEstimate();
+@@ -40,6 +39,7 @@ public interface MessageReference {
+    MessageReference copy(Queue queue);
+ 
+    /**
++    *
+     * @return The time in the future that delivery will be delayed until, or zero if
+     * no scheduled delivery will occur
+     */

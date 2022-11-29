@@ -1,0 +1,32 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/MessageReferenceImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/MessageReferenceImpl.java
+index dfbeb8799b..09b3650ffd 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/MessageReferenceImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/MessageReferenceImpl.java
+@@ -86,9 +86,7 @@ public class MessageReferenceImpl extends LinkedListImpl.Node<MessageReferenceIm
+ 
+    // Static --------------------------------------------------------
+ 
+-   // This value has been computed by using https://github.com/openjdk/jol
+-   // on HotSpot 64-bit VM COOPS, 8-byte alignment
+-   private static final int memoryOffset = 72;
++   private static final int memoryOffset = 64;
+ 
+    // Constructors --------------------------------------------------
+ 
+@@ -179,16 +177,6 @@ public class MessageReferenceImpl extends LinkedListImpl.Node<MessageReferenceIm
+       return MessageReferenceImpl.memoryOffset;
+    }
+ 
+-   public static void accountForChangeInMemoryEstimate(final MessageReference ref, final int existingMemoryEstimate) {
+-      final int delta = ref.getMessageMemoryEstimate() - existingMemoryEstimate;
+-      if (delta > 0) {
+-         PagingStore pageStore = ref.getOwner();
+-         if (pageStore != null) {
+-            pageStore.addSize(delta);
+-         }
+-      }
+-   }
+-
+    @Override
+    public int getDeliveryCount() {
+       return DELIVERY_COUNT_UPDATER.get(this);

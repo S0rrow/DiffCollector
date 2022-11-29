@@ -1,0 +1,58 @@
+diff --git a/src/main/java/org/apache/aries/blueprint/container/BlueprintExtender.java b/src/main/java/org/apache/aries/blueprint/container/BlueprintExtender.java
+index d39ab7b0a..fa53988c6 100644
+--- a/src/main/java/org/apache/aries/blueprint/container/BlueprintExtender.java
++++ b/src/main/java/org/apache/aries/blueprint/container/BlueprintExtender.java
+@@ -57,7 +57,7 @@ import org.slf4j.LoggerFactory;
+  * This is the blueprint extender that listens to blueprint bundles.  it implements the sync
+  * bundle listener but it doesn't register the listener and uses the bundle tracker instead.
+  *
+- * @version $Rev$, $Date$
++ * @version $Rev: 760378 $, $Date: 2009-03-31 11:31:38 +0200 (Tue, 31 Mar 2009) $
+  */
+ public class BlueprintExtender implements BundleActivator, SynchronousBundleListener {
+ 
+@@ -69,6 +69,8 @@ public class BlueprintExtender implements BundleActivator, SynchronousBundleList
+     private BlueprintEventDispatcher eventDispatcher;
+     private NamespaceHandlerRegistry handlers;
+     private BundleTracker bt;
++    
++    // MN adding new bits
+     private ServiceRegistration parserServiceReg;
+ 
+     public void start(BundleContext context) {
+@@ -89,11 +91,6 @@ public class BlueprintExtender implements BundleActivator, SynchronousBundleList
+         }
+         bt.open();
+ 
+-        // Create and publish a ParserService
+-        parserServiceReg = context.registerService(ParserService.class.getName(), 
+-            new ParserServiceImpl (handlers), 
+-            new Hashtable<Object, Object>()); 
+-        
+         LOGGER.debug("Blueprint extender started");
+     }
+ 
+@@ -117,8 +114,15 @@ public class BlueprintExtender implements BundleActivator, SynchronousBundleList
+             }
+         }
+         
++        // Create and publish a ParserService
++        parserServiceReg = context.registerService(ParserService.class.getName(), 
++            new ParserServiceImpl (handlers), 
++            new Hashtable<Object, Object>()); 
++        
++        LOGGER.debug("Blueprint extender started");
+     }
+ 
++
+     public void stop(BundleContext context) {
+         LOGGER.debug("Stopping blueprint extender...");
+         if (bt != null) {
+@@ -127,6 +131,7 @@ public class BlueprintExtender implements BundleActivator, SynchronousBundleList
+         
+         parserServiceReg.unregister();
+ 
++
+         // Orderly shutdown of containers
+         while (!containers.isEmpty()) {
+             for (Bundle bundle : getBundlesToDestroy()) {

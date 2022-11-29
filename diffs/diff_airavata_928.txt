@@ -1,0 +1,319 @@
+diff --git a/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java b/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
+index 572c34fae..489782c08 100644
+--- a/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
++++ b/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
+@@ -23,15 +23,8 @@ package org.apache.airavata.registry.api.impl;
+ 
+ import java.lang.reflect.Constructor;
+ import java.net.URI;
+-import java.net.URL;
+ import java.sql.Timestamp;
+-import java.util.ArrayList;
+-import java.util.Calendar;
+-import java.util.HashMap;
+-import java.util.List;
+-import java.util.Map;
+-import java.util.Observable;
+-import java.util.TimeZone;
++import java.util.*;
+ 
+ import javax.jcr.Credentials;
+ import javax.jcr.Node;
+@@ -52,7 +45,7 @@ import org.apache.airavata.commons.gfac.type.ApplicationDeploymentDescription;
+ import org.apache.airavata.commons.gfac.type.HostDescription;
+ import org.apache.airavata.commons.gfac.type.ServiceDescription;
+ import org.apache.airavata.commons.gfac.type.parameter.AbstractParameter;
+-import org.apache.airavata.commons.gfac.util.SchemaUtil;
++import org.apache.airavata.commons.gfac.type.util.SchemaUtil;
+ import org.apache.airavata.registry.api.Axis2Registry;
+ import org.apache.airavata.registry.api.DataRegistry;
+ import org.apache.airavata.registry.api.exception.DeploymentDescriptionRetrieveException;
+@@ -60,11 +53,10 @@ import org.apache.airavata.registry.api.exception.HostDescriptionRetrieveExcepti
+ import org.apache.airavata.registry.api.exception.ServiceDescriptionRetrieveException;
+ import org.apache.airavata.registry.api.user.UserManager;
+ import org.apache.airavata.registry.api.user.UserManagerFactory;
+-import org.apache.airavata.registry.api.util.WebServiceUtil;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-public class JCRRegistry extends Observable implements Axis2Registry, DataRegistry {
++public class JCRRegistry implements Axis2Registry, DataRegistry {
+ 
+     private static final String OUTPUT_NODE_NAME = "OUTPUTS";
+     private static final String SERVICE_NODE_NAME = "SERVICE_HOST";
+@@ -83,24 +75,25 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+     private Repository repository;
+     private Credentials credentials;
+     private UserManager userManager;
+-    private String username;
+-    private URI repositoryURI;
+ 
+     private static Logger log = LoggerFactory.getLogger(JCRRegistry.class);
+ 
+-    public JCRRegistry(URI repositoryURI, String className, String user, String pass, Map<String, String> map)
+-            throws RepositoryException {
++    public JCRRegistry(String className, String user, String pass, Map<String, String> map) throws RepositoryException {
+         try {
+             /*
+-             * Load the configuration from properties file at this level and create the object
++             * Load the configuration from properties file at this level and
++             * create the object
+              */
+             Class registryRepositoryFactory = Class.forName(className);
+             Constructor c = registryRepositoryFactory.getConstructor();
+             RepositoryFactory repositoryFactory = (RepositoryFactory) c.newInstance();
+-            setRepositoryURI(repositoryURI);
++
+             repository = repositoryFactory.getRepository(map);
+-            setUsername(user);
+-            credentials = new SimpleCredentials(getUsername(), new String(pass).toCharArray());
++            credentials = new SimpleCredentials(user, new String(pass).toCharArray());
++            System.out.println(repository.getDescriptor(Repository.REP_NAME_DESC));
++            setUserManager(UserManagerFactory.getUserManager(repository.getDescriptor(Repository.REP_NAME_DESC)));
++            System.out.println(getUserManager());
++            getUserManager().setRepository(this);
+         } catch (ClassNotFoundException e) {
+             log.error("Error class path settting", e);
+         } catch (RepositoryException e) {
+@@ -178,26 +171,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+         return result;
+     }
+ 
+-    public void deleteServiceDescription(String serviceId) throws ServiceDescriptionRetrieveException,
+-            PathNotFoundException {
+-        Session session = null;
+-        try {
+-            session = getSession();
+-            Node serviceNode = getServiceNode(session);
+-            Node node = serviceNode.getNode(serviceId);
+-            if (node != null) {
+-                node.remove();
+-                session.save();
+-            }
+-        } catch (PathNotFoundException e) {
+-            throw e;
+-        } catch (Exception e) {
+-            throw new ServiceDescriptionRetrieveException(e);
+-        } finally {
+-            closeSession(session);
+-        }
+-    }
+-
+     public ServiceDescription getServiceDescription(String serviceId) throws ServiceDescriptionRetrieveException,
+             PathNotFoundException {
+         Session session = null;
+@@ -208,10 +181,10 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+             Node node = serviceNode.getNode(serviceId);
+             Property prop = node.getProperty(XML_PROPERTY_NAME);
+             result = (ServiceDescription) SchemaUtil.parseFromXML(prop.getString());
+-        } catch (PathNotFoundException e) {
+-            throw e;
+         } catch (Exception e) {
+-            throw new ServiceDescriptionRetrieveException(e);
++            System.out.println(e);
++            e.printStackTrace();
++            // TODO propagate
+         } finally {
+             closeSession(session);
+         }
+@@ -243,25 +216,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+         return result;
+     }
+ 
+-    public void deleteHostDescription(String hostId) throws HostDescriptionRetrieveException, PathNotFoundException {
+-        Session session = null;
+-        try {
+-            session = getSession();
+-            Node hostNode = getHostNode(session);
+-            Node node = hostNode.getNode(hostId);
+-            if (node != null) {
+-                node.remove();
+-                session.save();
+-            }
+-        } catch (PathNotFoundException e) {
+-            throw e;
+-        } catch (Exception e) {
+-            throw new HostDescriptionRetrieveException(e);
+-        } finally {
+-            closeSession(session);
+-        }
+-    }
+-
+     public HostDescription getHostDescription(String hostId) throws HostDescriptionRetrieveException,
+             PathNotFoundException {
+         Session session = null;
+@@ -302,7 +256,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+             session.save();
+ 
+             result = node.getIdentifier();
+-            triggerObservers(this);
+         } catch (Exception e) {
+             System.out.println(e);
+             e.printStackTrace();
+@@ -324,7 +277,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+             session.save();
+ 
+             result = node.getIdentifier();
+-            triggerObservers(this);
+         } catch (Exception e) {
+             System.out.println(e);
+             e.printStackTrace();
+@@ -348,7 +300,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+             session.save();
+ 
+             result = appName.getIdentifier();
+-            triggerObservers(this);
+         } catch (Exception e) {
+             System.out.println(e);
+             e.printStackTrace();
+@@ -485,34 +436,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+         return result;
+     }
+ 
+-    public void deleteDeploymentDescription(String serviceName, String hostName, String applicationName)
+-            throws PathNotFoundException, DeploymentDescriptionRetrieveException {
+-        Session session = null;
+-        try {
+-            session = getSession();
+-            Node deploymentNode = getDeploymentNode(session);
+-            Node serviceNode = deploymentNode.getNode(serviceName);
+-            Node hostNode = serviceNode.getNode(hostName);
+-            NodeIterator nodes = hostNode.getNodes();
+-            for (; nodes.hasNext();) {
+-                Node app = nodes.nextNode();
+-                Property prop = app.getProperty(XML_PROPERTY_NAME);
+-                ApplicationDeploymentDescription appDesc = (ApplicationDeploymentDescription) SchemaUtil
+-                        .parseFromXML(prop.getString());
+-                if (appDesc.getId().matches(applicationName)) {
+-                    app.remove();
+-                }
+-            }
+-            session.save();
+-        } catch (PathNotFoundException e) {
+-            throw e;
+-        } catch (Exception e) {
+-            throw new DeploymentDescriptionRetrieveException(e);
+-        } finally {
+-            closeSession(session);
+-        }
+-    }
+-
+     public List<ApplicationDeploymentDescription> searchDeploymentDescription(String serviceName, String hostName,
+             String applicationName) throws PathNotFoundException, DeploymentDescriptionRetrieveException {
+         Session session = null;
+@@ -567,18 +490,17 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+         return result;
+     }
+ 
+-    public String saveWSDL(ServiceDescription service, String WSDL) {
++    public String saveWSDL(String name, String WSDL) {
+         Session session = null;
+         String result = null;
+         try {
+             session = getSession();
+             Node serviceNode = getServiceNode(session);
+-            Node node = getOrAddNode(serviceNode, service.getId());
++            Node node = getOrAddNode(serviceNode, name);
+             node.setProperty(WSDL_PROPERTY_NAME, WSDL);
+             session.save();
+ 
+             result = node.getIdentifier();
+-            triggerObservers(this);
+         } catch (Exception e) {
+             System.out.println(e);
+             e.printStackTrace();
+@@ -589,8 +511,9 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+         return result;
+     }
+ 
+-    public String saveWSDL(ServiceDescription service) {
+-        return saveWSDL(service, WebServiceUtil.generateWSDL(service));
++    public String saveWSDL(String serviceName, ServiceDescription service) {
++        // TODO Auto-generated method stub
++        return null;
+     }
+ 
+     public String getWSDL(String serviceName) {
+@@ -629,14 +552,13 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+                 gfacDataNode.setProperty(propertyName, gfacURL + ";" + timestamp.getTime());
+                 session.save();
+             }
+-            triggerObservers(this);
+         } catch (Exception e) {
+             System.out.println(e);
+             e.printStackTrace();
+             return false;
+             // TODO propagate
+         } finally {
+-            closeSession(session);
++            closeSession(session);            
+         }
+         return true;
+     }
+@@ -657,7 +579,7 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+             return false;
+             // TODO propagate
+         } finally {
+-            closeSession(session);
++            closeSession(session);            
+         }
+         return true;
+     }
+@@ -709,7 +631,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+             session.save();
+ 
+             result = node.getIdentifier();
+-            triggerObservers(this);
+         } catch (Exception e) {
+             System.out.println(e);
+             e.printStackTrace();
+@@ -743,7 +664,7 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+         return result;
+     }
+ 
+-    public Map<QName, Node> getWorkflows(String userName) {
++    public Map<QName, Node> getAvailableWorkflows(String userName) {
+         Session session = null;
+         Map<QName, Node> workflowList = new HashMap<QName, Node>();
+         try {
+@@ -800,7 +721,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+             workflowNode.setProperty("Description", resourceDesc);
+             workflowNode.setProperty("Type", REGISTRY_TYPE_WORKFLOW);
+             session.save();
+-            triggerObservers(this);
+         } catch (Exception e) {
+             e.printStackTrace();
+         } finally {
+@@ -822,31 +742,6 @@ public class JCRRegistry extends Observable implements Axis2Registry, DataRegist
+         } finally {
+             closeSession(session);
+         }
+-        return false;
+-    }
+-
+-    public String getUsername() {
+-        return username;
+-    }
+-
+-    public void setUsername(String username) {
+-        this.username = username;
+-    }
+-
+-    public URI getRepositoryURI() {
+-        return repositoryURI;
+-    }
+-
+-    private void setRepositoryURI(URI repositoryURI) {
+-        this.repositoryURI = repositoryURI;
+-    }
+-
+-    protected void triggerObservers(Object o) {
+-        setChanged();
+-        notifyObservers(o);
+-    }
+-
+-    public String getName() {
+-        return repository.getDescriptor(Repository.REP_NAME_DESC);
++        return false; 
+     }
+ }

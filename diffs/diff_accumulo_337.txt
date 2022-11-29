@@ -1,0 +1,51 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/BalanceFasterIT.java b/test/src/main/java/org/apache/accumulo/test/BalanceFasterIT.java
+index 6e01cea9c4..15a19a3174 100644
+--- a/test/src/main/java/org/apache/accumulo/test/BalanceFasterIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/BalanceFasterIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertTrue;
+ import static org.junit.Assume.assumeFalse;
+ 
+@@ -36,8 +35,6 @@ import org.apache.accumulo.core.metadata.MetadataTable;
+ import org.apache.accumulo.core.metadata.schema.MetadataSchema;
+ import org.apache.accumulo.core.security.Authorizations;
+ import org.apache.accumulo.minicluster.impl.MiniAccumuloConfigImpl;
+-import org.apache.accumulo.test.categories.MiniClusterOnlyTests;
+-import org.apache.accumulo.test.categories.PerformanceTests;
+ import org.apache.accumulo.test.functional.ConfigurableMacBase;
+ import org.apache.accumulo.test.mrit.IntegrationTestMapReduce;
+ import org.apache.hadoop.conf.Configuration;
+@@ -46,8 +43,10 @@ import org.junit.BeforeClass;
+ import org.junit.Test;
+ import org.junit.experimental.categories.Category;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ // ACCUMULO-2952
+-@Category({MiniClusterOnlyTests.class, PerformanceTests.class})
++@Category(PerformanceTest.class)
+ public class BalanceFasterIT extends ConfigurableMacBase {
+ 
+   @Override
+@@ -66,7 +65,7 @@ public class BalanceFasterIT extends ConfigurableMacBase {
+     String tableName = getUniqueNames(1)[0];
+     Connector conn = getConnector();
+     conn.tableOperations().create(tableName);
+-    SortedSet<Text> splits = new TreeSet<>();
++    SortedSet<Text> splits = new TreeSet<Text>();
+     for (int i = 0; i < 1000; i++) {
+       splits.add(new Text("" + i));
+     }
+@@ -77,7 +76,7 @@ public class BalanceFasterIT extends ConfigurableMacBase {
+     Scanner s = conn.createScanner(MetadataTable.NAME, Authorizations.EMPTY);
+     s.fetchColumnFamily(MetadataSchema.TabletsSection.CurrentLocationColumnFamily.NAME);
+     s.setRange(MetadataSchema.TabletsSection.getRange());
+-    Map<String,Integer> counts = new HashMap<>();
++    Map<String,Integer> counts = new HashMap<String,Integer>();
+     while (true) {
+       int total = 0;
+       counts.clear();

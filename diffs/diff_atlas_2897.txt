@@ -1,0 +1,69 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasEntityGraphDiscoveryV1.java b/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasEntityGraphDiscoveryV1.java
+index 739d61026..12e8bb1f2 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasEntityGraphDiscoveryV1.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/AtlasEntityGraphDiscoveryV1.java
+@@ -286,7 +286,7 @@ public class AtlasEntityGraphDiscoveryV1 implements EntityGraphDiscovery {
+             return;
+         }
+ 
+-        final AtlasStruct struct;
++        AtlasStruct struct;
+ 
+         if (val instanceof AtlasStruct) {
+             struct = (AtlasStruct) val;
+@@ -298,38 +298,6 @@ public class AtlasEntityGraphDiscoveryV1 implements EntityGraphDiscovery {
+             throw new AtlasBaseException(AtlasErrorCode.INVALID_STRUCT_VALUE, val.toString());
+         }
+ 
+-        visitStruct(structType, struct);
+-    }
+-
+-    void visitEntity(AtlasEntityType entityType, AtlasEntity entity) throws AtlasBaseException {
+-        List<String> visitedAttributes = new ArrayList<>();
+-
+-        // visit relationship attributes
+-        for (AtlasAttribute attribute : entityType.getRelationshipAttributes().values()) {
+-            AtlasType attrType = attribute.getAttributeType();
+-            String    attrName = attribute.getName();
+-            Object    attrVal  = entity.getRelationshipAttribute(attrName);
+-
+-            if (entity.hasRelationshipAttribute(attrName)) {
+-                visitAttribute(attrType, attrVal);
+-
+-                visitedAttributes.add(attrName);
+-            }
+-        }
+-
+-        // visit struct attributes
+-        for (AtlasAttribute attribute : entityType.getAllAttributes().values()) {
+-            AtlasType attrType = attribute.getAttributeType();
+-            String    attrName = attribute.getName();
+-            Object    attrVal  = entity.getAttribute(attrName);
+-
+-            if (entity.hasAttribute(attrName) && !visitedAttributes.contains(attrName)) {
+-                visitAttribute(attrType, attrVal);
+-            }
+-        }
+-    }
+-
+-    void visitStruct(AtlasStructType structType, AtlasStruct struct) throws AtlasBaseException {
+         for (AtlasAttribute attribute : structType.getAllAttributes().values()) {
+             AtlasType attrType = attribute.getAttributeType();
+             Object    attrVal  = struct.getAttribute(attribute.getName());
+@@ -338,6 +306,7 @@ public class AtlasEntityGraphDiscoveryV1 implements EntityGraphDiscovery {
+         }
+     }
+ 
++
+     void walkEntityGraph(AtlasEntity entity) throws AtlasBaseException {
+         if (entity == null) {
+             return;
+@@ -347,7 +316,7 @@ public class AtlasEntityGraphDiscoveryV1 implements EntityGraphDiscovery {
+ 
+         recordObjectReference(entity.getGuid());
+ 
+-        visitEntity(type, entity);
++        visitStruct(type, entity);
+     }
+ 
+ 

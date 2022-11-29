@@ -1,0 +1,179 @@
+diff --git a/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/JobEntity.java b/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/JobEntity.java
+index 7e1e7383d..763f5daff 100644
+--- a/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/JobEntity.java
++++ b/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/JobEntity.java
+@@ -21,64 +21,29 @@
+ package org.apache.airavata.registry.core.entities.expcatalog;
+ 
+ import javax.persistence.*;
+-import java.io.Serializable;
+-import java.sql.Timestamp;
+ import java.util.List;
+ 
+-/**
+- * The persistent class for the job database table.
+- */
+ @Entity
+-@Table(name = "JOB")
+-public class JobEntity implements Serializable {
+-    private static final long serialVersionUID = 1L;
+-
+-    @Id
+-    @Column(name = "JOB_ID")
++@Table(name = "EXPCAT_JOB")
++public class JobEntity {
+     private String jobId;
+-
+-    @Column(name = "TASK_ID")
+     private String taskId;
+-
+-    @Column(name = "PROCESS_ID")
+     private String processId;
+-
+-    @Column(name = "JOB_DESCRIPTION")
+     private String jobDescription;
+-
+-    @Column(name = "CREATION_TIME")
+-    private Timestamp creationTime;
+-
+-    @Column(name = "COMPUTE_RESOURCE_CONSUMED")
++    private long creationTime;
+     private String computeResourceConsumed;
+-
+-    @Column(name = "JOB_NAME")
+     private String jobName;
+-
+-    @Column(name = "WORKING_DIR")
+     private String workingDir;
+-
+-    @Lob
+-    @Column(name = "STDOUT")
+     private String stdOut;
+-
+-    @Lob
+-    @Column(name = "STDERR")
+     private String stdErr;
+-
+-    @Column(name = "EXIT_CODE")
+     private int exitCode;
+ 
+-    @OneToMany(targetEntity = JobStatusEntity.class, cascade = CascadeType.ALL, mappedBy = "job")
+     private List<JobStatusEntity> jobStatuses;
+ 
+-    @ManyToOne(targetEntity = TaskEntity.class, cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+-    @JoinColumn(name = "TASK_ID", referencedColumnName = "TASK_ID")
+     private TaskEntity task;
+ 
+-    public JobEntity() {
+-    }
+-
++    @Id
++    @Column(name = "JOB_ID")
+     public String getJobId() {
+         return jobId;
+     }
+@@ -87,6 +52,7 @@ public class JobEntity implements Serializable {
+         this.jobId = jobId;
+     }
+ 
++    @Column(name = "TASK_ID")
+     public String getTaskId() {
+         return taskId;
+     }
+@@ -95,6 +61,7 @@ public class JobEntity implements Serializable {
+         this.taskId = taskId;
+     }
+ 
++    @Column(name = "PROCESS_ID")
+     public String getProcessId() {
+         return processId;
+     }
+@@ -103,6 +70,7 @@ public class JobEntity implements Serializable {
+         this.processId = processId;
+     }
+ 
++    @Column(name = "JOB_DESCRIPTION")
+     public String getJobDescription() {
+         return jobDescription;
+     }
+@@ -111,14 +79,16 @@ public class JobEntity implements Serializable {
+         this.jobDescription = jobDescription;
+     }
+ 
+-    public Timestamp getCreationTime() {
++    @Column(name = "CREATION_TIME")
++    public long getCreationTime() {
+         return creationTime;
+     }
+ 
+-    public void setCreationTime(Timestamp creationTime) {
++    public void setCreationTime(long creationTime) {
+         this.creationTime = creationTime;
+     }
+ 
++    @Column(name = "COMPUTE_RESOURCE_CONSUMED")
+     public String getComputeResourceConsumed() {
+         return computeResourceConsumed;
+     }
+@@ -127,6 +97,7 @@ public class JobEntity implements Serializable {
+         this.computeResourceConsumed = computeResourceConsumed;
+     }
+ 
++    @Column(name = "JOB_NAME")
+     public String getJobName() {
+         return jobName;
+     }
+@@ -135,6 +106,7 @@ public class JobEntity implements Serializable {
+         this.jobName = jobName;
+     }
+ 
++    @Column(name = "WORKING_DIR")
+     public String getWorkingDir() {
+         return workingDir;
+     }
+@@ -143,6 +115,8 @@ public class JobEntity implements Serializable {
+         this.workingDir = workingDir;
+     }
+ 
++    @Lob
++    @Column(name = "STDOUT")
+     public String getStdOut() {
+         return stdOut;
+     }
+@@ -151,6 +125,8 @@ public class JobEntity implements Serializable {
+         this.stdOut = stdOut;
+     }
+ 
++    @Lob
++    @Column(name = "STDERR")
+     public String getStdErr() {
+         return stdErr;
+     }
+@@ -159,6 +135,7 @@ public class JobEntity implements Serializable {
+         this.stdErr = stdErr;
+     }
+ 
++    @Column(name = "EXIT_CODE")
+     public int getExitCode() {
+         return exitCode;
+     }
+@@ -167,14 +144,17 @@ public class JobEntity implements Serializable {
+         this.exitCode = exitCode;
+     }
+ 
++    @OneToMany(targetEntity = JobStatusEntity.class, cascade = CascadeType.ALL, mappedBy = "job")
+     public List<JobStatusEntity> getJobStatuses() {
+         return jobStatuses;
+     }
+ 
+-    public void setJobStatuses(List<JobStatusEntity> jobStatuses) {
+-        this.jobStatuses = jobStatuses;
++    public void setJobStatuses(List<JobStatusEntity> jobStatus) {
++        this.jobStatuses = jobStatus;
+     }
+ 
++    @ManyToOne(targetEntity = TaskEntity.class, cascade = CascadeType.ALL, fetch = FetchType.LAZY)
++    @JoinColumn(name = "TASK_ID", referencedColumnName = "TASK_ID")
+     public TaskEntity getTask() {
+         return task;
+     }

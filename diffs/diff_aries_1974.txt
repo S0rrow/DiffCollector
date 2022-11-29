@@ -1,0 +1,117 @@
+diff --git a/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/namespace/NamespaceHandlerRegistryImpl.java b/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/namespace/NamespaceHandlerRegistryImpl.java
+index 0da90c930..3174824b0 100644
+--- a/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/namespace/NamespaceHandlerRegistryImpl.java
++++ b/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/namespace/NamespaceHandlerRegistryImpl.java
+@@ -51,7 +51,6 @@ import javax.xml.validation.Schema;
+ import javax.xml.validation.SchemaFactory;
+ 
+ import org.apache.aries.blueprint.NamespaceHandler;
+-import org.apache.aries.blueprint.NamespaceHandler2;
+ import org.apache.aries.blueprint.container.NamespaceHandlerRegistry;
+ import org.apache.aries.blueprint.parser.NamespaceHandlerSet;
+ import org.osgi.framework.Bundle;
+@@ -123,13 +122,8 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+                 LOGGER.warn("Error registering NamespaceHandler", e);
+             }
+         } else {
+-            Bundle bundle = reference.getBundle();
+-            // If bundle is null, the service has already been unregistered,
+-            // so do nothing in that case
+-            if (bundle != null) {
+-                LOGGER.warn("Error resolving NamespaceHandler, null Service obtained from tracked ServiceReference {} for bundle {}/{}",
+-                        reference.toString(), reference.getBundle().getSymbolicName(), reference.getBundle().getVersion());
+-            }
++            LOGGER.warn("Error resolving NamespaceHandler, null Service obtained from tracked ServiceReference {} for bundle {}/{}",
++                    reference.toString(), reference.getBundle().getSymbolicName(), reference.getBundle().getVersion());
+         }
+         return handler;
+     }
+@@ -357,7 +351,7 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+                 }
+             }
+             synchronized (schemaFactory) {
+-                schemaFactory.setResourceResolver(new BundleResourceResolver(handlers, schemaMap, bundle, schemaSources));
++                schemaFactory.setResourceResolver(new BundleResourceResolver(schemaMap, bundle, schemaSources));
+                 return schemaFactory.newSchema(schemaSources.toArray(new Source[schemaSources.size()]));
+             }
+         } finally {
+@@ -378,13 +372,11 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+     }
+ 
+     private class BundleResourceResolver implements LSResourceResolver {
+-        private final Map<URI, NamespaceHandler> handlers;
+         private final Properties schemaMap;
+         private final Bundle bundle;
+         private final List<StreamSource> schemaSources;
+ 
+-        public BundleResourceResolver(Map<URI, NamespaceHandler> handlers, Properties schemaMap, Bundle bundle, List<StreamSource> schemaSources) {
+-            this.handlers = handlers;
++        public BundleResourceResolver(Properties schemaMap, Bundle bundle, List<StreamSource> schemaSources) {
+             this.schemaMap = schemaMap;
+             this.bundle = bundle;
+             this.schemaSources = schemaSources;
+@@ -419,45 +411,31 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+             }
+             URI uri = URI.create(namespaceURI);
+             Set<NamespaceHandler> hs = NamespaceHandlerRegistryImpl.this.handlers.get(uri);
+-            // first check registered handlers
+-            if (hs != null) {
+-                for (NamespaceHandler h : hs) {
+-                    URL url = h.getSchemaLocation(namespaceURI);
+-                    if (url != null) {
+-                        return createLSInput(publicId, systemId, url);
+-                    }
+-                }
++            if (hs == null) {
++                return null;
+             }
+-            // then check if some handler may resolve the namespace
+-            for (NamespaceHandler h : handlers.values()) {
+-                if (h instanceof NamespaceHandler2 && ((NamespaceHandler2) h).mayResolve(namespaceURI)) {
+-                    URL url = h.getSchemaLocation(namespaceURI);
+-                    if (url != null) {
+-                        return createLSInput(publicId, systemId, url);
+-
++            for (NamespaceHandler h : hs) {
++                URL url = h.getSchemaLocation(namespaceURI);
++                if (url != null) {
++                    // handling include-relative-path case
++                    if (systemId != null && !systemId.matches("^[a-z][-+.0-9a-z]*:.*")) {
++                        try {
++                            url = new URL(url, systemId);
++                        } catch (Exception e) {
++                            // ignore and use the given systemId
++                        }
++                    }
++                    try {
++                        final StreamSource source = new StreamSource(url.openStream(), url.toExternalForm());
++                        schemaSources.add(source);
++                        return new SourceLSInput(source, publicId, url);
++                    } catch (IOException e) {
++                        throw new RuntimeException(e);
+                     }
+                 }
+             }
+             return null;
+         }
+-
+-        private LSInput createLSInput(String publicId, String systemId, URL url) {
+-            // handling include-relative-path case
+-            if (systemId != null && !systemId.matches("^[a-z][-+.0-9a-z]*:.*")) {
+-                try {
+-                    url = new URL(url, systemId);
+-                } catch (Exception e) {
+-                    // ignore and use the given systemId
+-                }
+-            }
+-            try {
+-                final StreamSource source = new StreamSource(url.openStream(), url.toExternalForm());
+-                schemaSources.add(source);
+-                return new SourceLSInput(source, publicId, url);
+-            } catch (IOException e) {
+-                throw new RuntimeException(e);
+-            }
+-        }
+     }
+ 
+     private class SourceLSInput implements LSInput {

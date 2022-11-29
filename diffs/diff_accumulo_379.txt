@@ -1,0 +1,84 @@
+diff --git a/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java b/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java
+index d8ae94c2bd..f42d4a4674 100644
+--- a/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java
++++ b/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java
+@@ -16,8 +16,7 @@
+  */
+ package org.apache.accumulo.tserver;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-import static java.util.Objects.requireNonNull;
++import static com.google.common.base.Preconditions.checkNotNull;
+ 
+ import java.io.IOException;
+ import java.util.ArrayList;
+@@ -64,6 +63,7 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.annotations.VisibleForTesting;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ /**
+  * ResourceManager is responsible for managing the resources of all tablets within a tablet server.
+@@ -84,7 +84,7 @@ public class TabletServerResourceManager {
+   private final ExecutorService assignMetaDataPool;
+   private final ExecutorService readAheadThreadPool;
+   private final ExecutorService defaultReadAheadThreadPool;
+-  private final Map<String,ExecutorService> threadPools = new TreeMap<>();
++  private final Map<String,ExecutorService> threadPools = new TreeMap<String,ExecutorService>();
+ 
+   private final ConcurrentHashMap<KeyExtent,RunnableStartedAt> activeAssignments;
+ 
+@@ -167,13 +167,7 @@ public class TabletServerResourceManager {
+     _dCache = new LruBlockCache(dCacheSize, blockSize);
+ 
+     Runtime runtime = Runtime.getRuntime();
+-    if (usingNativeMap) {
+-      // Still check block cache sizes when using native maps.
+-      if (dCacheSize + iCacheSize + totalQueueSize > runtime.maxMemory()) {
+-        throw new IllegalArgumentException(String.format("Block cache sizes %,d and mutation queue size %,d is too large for this JVM configuration %,d",
+-            dCacheSize + iCacheSize, totalQueueSize, runtime.maxMemory()));
+-      }
+-    } else if (maxMemory + dCacheSize + iCacheSize + totalQueueSize > runtime.maxMemory()) {
++    if (!usingNativeMap && maxMemory + dCacheSize + iCacheSize + totalQueueSize > runtime.maxMemory()) {
+       throw new IllegalArgumentException(String.format(
+           "Maximum tablet server map memory %,d block cache sizes %,d and mutation queue size %,d is too large for this JVM configuration %,d", maxMemory,
+           dCacheSize + iCacheSize, totalQueueSize, runtime.maxMemory()));
+@@ -207,7 +201,7 @@ public class TabletServerResourceManager {
+ 
+     assignMetaDataPool = createEs(0, 1, 60, "metadata tablet assignment");
+ 
+-    activeAssignments = new ConcurrentHashMap<>();
++    activeAssignments = new ConcurrentHashMap<KeyExtent,RunnableStartedAt>();
+ 
+     readAheadThreadPool = createEs(Property.TSERV_READ_AHEAD_MAXCONCURRENT, "tablet read ahead");
+     defaultReadAheadThreadPool = createEs(Property.TSERV_METADATA_READ_AHEAD_MAXCONCURRENT, "metadata tablets read ahead");
+@@ -332,7 +326,7 @@ public class TabletServerResourceManager {
+ 
+     MemoryManagementFramework() {
+       tabletReports = Collections.synchronizedMap(new HashMap<KeyExtent,TabletStateImpl>());
+-      memUsageReports = new LinkedBlockingQueue<>();
++      memUsageReports = new LinkedBlockingQueue<TabletStateImpl>();
+       maxMem = conf.getConfiguration().getMemoryInBytes(Property.TSERV_MAXMEM);
+ 
+       Runnable r1 = new Runnable() {
+@@ -408,7 +402,7 @@ public class TabletServerResourceManager {
+         Map<KeyExtent,TabletStateImpl> tabletReportsCopy = null;
+         try {
+           synchronized (tabletReports) {
+-            tabletReportsCopy = new HashMap<>(tabletReports);
++            tabletReportsCopy = new HashMap<KeyExtent,TabletStateImpl>(tabletReports);
+           }
+           ArrayList<TabletState> tabletStates = new ArrayList<TabletState>(tabletReportsCopy.values());
+           mma = memoryManager.getMemoryManagementActions(tabletStates);
+@@ -548,8 +542,8 @@ public class TabletServerResourceManager {
+     private final AccumuloConfiguration tableConf;
+ 
+     TabletResourceManager(KeyExtent extent, AccumuloConfiguration tableConf) {
+-      requireNonNull(extent, "extent is null");
+-      requireNonNull(tableConf, "tableConf is null");
++      checkNotNull(extent, "extent is null");
++      checkNotNull(tableConf, "tableConf is null");
+       this.extent = extent;
+       this.tableConf = tableConf;
+     }

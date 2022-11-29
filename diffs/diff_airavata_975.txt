@@ -1,0 +1,127 @@
+diff --git a/modules/gfac-core/src/main/java/org/apache/airavata/gfac/handler/GridFTPOutputHandler.java b/modules/gfac-core/src/main/java/org/apache/airavata/gfac/handler/GridFTPOutputHandler.java
+index e8491b185..f39b32b83 100644
+--- a/modules/gfac-core/src/main/java/org/apache/airavata/gfac/handler/GridFTPOutputHandler.java
++++ b/modules/gfac-core/src/main/java/org/apache/airavata/gfac/handler/GridFTPOutputHandler.java
+@@ -27,6 +27,7 @@ import org.apache.airavata.gfac.context.GSISecurityContext;
+ import org.apache.airavata.gfac.context.JobExecutionContext;
+ import org.apache.airavata.gfac.context.MessageContext;
+ import org.apache.airavata.gfac.external.GridFtp;
++import org.apache.airavata.gfac.notification.events.ExecutionFailEvent;
+ import org.apache.airavata.gfac.provider.GFacProviderException;
+ import org.apache.airavata.gfac.utils.GFacUtils;
+ import org.apache.airavata.gfac.utils.GramJobSubmissionListener;
+@@ -41,24 +42,19 @@ import java.net.URI;
+ import java.net.URISyntaxException;
+ import java.util.*;
+ 
+-public class GridFTPOutputHandler implements GFacHandler {
++public class GridFTPOutputHandler implements GFacHandler{
+     private static final Logger log = LoggerFactory.getLogger(GramJobSubmissionListener.class);
+ 
+     public void invoke(JobExecutionContext jobExecutionContext) throws GFacHandlerException {
+-        log.info("Invoking GridFTPOutputHandler ...");
+-        GlobusHostType host = (GlobusHostType) jobExecutionContext.getApplicationContext().getHostDescription().getType();
++           GlobusHostType host = (GlobusHostType) jobExecutionContext.getApplicationContext().getHostDescription().getType();
+         ApplicationDeploymentDescriptionType app = jobExecutionContext.getApplicationContext().getApplicationDeploymentDescription().getType();
+         GridFtp ftp = new GridFtp();
+         File localStdErrFile = null;
+         Map<String, ActualParameter> stringMap = null;
+         try {
+-            if (jobExecutionContext.getSecurityContext() == null ||
+-                    !(jobExecutionContext.getSecurityContext() instanceof GSISecurityContext))
+-            {
+-                GSISecurityContext gssContext = new GSISecurityContext(jobExecutionContext.getGFacConfiguration());
+-                jobExecutionContext.setSecurityContext(gssContext);
+-            }
+-            GSSCredential gssCred = ((GSISecurityContext)jobExecutionContext.getSecurityContext()).getGssCredentails();
++            GSISecurityContext gssContext = new GSISecurityContext(jobExecutionContext.getGFacConfiguration());
++            GSSCredential gssCred = gssContext.getGssCredentails();
++
+             String[] hostgridFTP = host.getGridFTPEndPointArray();
+             if (hostgridFTP == null || hostgridFTP.length == 0) {
+                 hostgridFTP = new String[]{host.getHostAddress()};
+@@ -97,43 +93,36 @@ public class GridFTPOutputHandler implements GFacHandler {
+                             ((URIArrayType) actualParameter.getType()).setValueArray(valueList);
+                             stringMap = new HashMap<String, ActualParameter>();
+                             stringMap.put(paramName, actualParameter);
+-                        }else if ("StringArray".equals(actualParameter.getType().getType().toString())) {
++                        }
++                        if ("StringArray".equals(actualParameter.getType().getType().toString())) {
+                             String[] valueList = OutputUtils.parseStdoutArray(stdout, paramName);
+                             ((StringArrayType) actualParameter.getType()).setValueArray(valueList);
+                             stringMap = new HashMap<String, ActualParameter>();
+                             stringMap.put(paramName, actualParameter);
+-                        } else if ("URI".equals(actualParameter.getType().getType().toString())) {
+-                            URI outputURI = GFacUtils.createGsiftpURI(endpoint, app.getOutputDataDirectory());
+-                            List<String> outputList = ftp.listDir(outputURI, gssCred);
+-                            String valueList = outputList.get(0);
+-                            ((URIParameterType) actualParameter.getType()).setValue(valueList);
+-                            stringMap = new HashMap<String, ActualParameter>();
+-                            stringMap.put(paramName, actualParameter);
+-                        }
+-                        else {
++                        } else {
+                             // This is to handle exception during the output parsing.
+                             stringMap = OutputUtils.fillOutputFromStdout(jobExecutionContext, stdout, stderr);
+                         }
+                     }
+                     if (stringMap == null || stringMap.isEmpty()) {
+-                        throw new GFacHandlerException("Empty Output returned from the Application, Double check the application" +
+-                                "and ApplicationDescriptor output Parameter Names");
++                        jobExecutionContext.getNotifier().publish(new ExecutionFailEvent(new Throwable("Empty Output returned from the Application, Double check the application" +
++                                "and ApplicationDescriptor output Parameter Names")));
++//                    	GFacProviderException exception = new GFacProviderException("Gram provider: Error creating job output", jobExecutionContext);
++//                    	 jobExecutionContext.getExecutionContext().getNotifier().executionFail(jobExecutionContext,exception,exception.getLocalizedMessage());
++//                         throw exception;
+                     }
+                     //todo check the workflow context header and run the stateOutputFiles method to stage the output files in to a user defined location
+-//                    stageOutputFiles(jobExecutionContext, app.getOutputDataDirectory());
++                    stageOutputFiles(jobExecutionContext,app.getOutputDataDirectory());
+                 } catch (ToolsException e) {
+-                    log.error(e.getMessage());
+                     throw new GFacHandlerException(e.getMessage(), jobExecutionContext, e, readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+                 } catch (URISyntaxException e) {
+-                    log.error(e.getMessage());
+                     throw new GFacHandlerException("URI is malformatted:" + e.getMessage(), jobExecutionContext, e, readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+                 } catch (NullPointerException e) {
+-                    log.error(e.getMessage());
+                     throw new GFacHandlerException("Output is not produced in stdout:" + e.getMessage(), jobExecutionContext, e, readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+                 }
+             }
+         } catch (Exception e) {
+-            log.error(e.getMessage());
++//            jobExecutionContext.getExecutionContext().getNotifier().executionFail(jobExecutionContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+             throw new GFacHandlerException(e.getMessage(), jobExecutionContext, e, readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+         }
+     }
+@@ -188,13 +177,13 @@ public class GridFTPOutputHandler implements GFacHandler {
+             GlobusHostType host = (GlobusHostType) jobExecutionContext.getApplicationContext().getHostDescription().getType();
+             GridFtp ftp = new GridFtp();
+ 
+-            if (jobExecutionContext.getSecurityContext() == null ||
+-                    !(jobExecutionContext.getSecurityContext() instanceof GSISecurityContext))
+-            {
+-                GSISecurityContext gssContext = new GSISecurityContext(jobExecutionContext.getGFacConfiguration());
+-                jobExecutionContext.setSecurityContext(gssContext);
++            GSISecurityContext gssContext = new GSISecurityContext(jobExecutionContext.getGFacConfiguration());
++            GSSCredential gssCred = null;
++            try {
++                gssCred = gssContext.getGssCredentails();
++            } catch (SecurityException e) {
++                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+             }
+-            GSSCredential gssCred = ((GSISecurityContext)jobExecutionContext.getSecurityContext()).getGssCredentails();
+             try {
+                 if ("URI".equals(actualParameter.getType().getType().toString())) {
+                     for (String endpoint : host.getGridFTPEndPointArray()) {
+@@ -213,10 +202,8 @@ public class GridFTPOutputHandler implements GFacHandler {
+ 
+                 }
+             } catch (URISyntaxException e) {
+-                log.error(e.getMessage());
+                 throw new GFacProviderException(e.getMessage(), e, jobExecutionContext);
+             } catch (ToolsException e) {
+-                log.error(e.getMessage());
+                 throw new GFacProviderException(e.getMessage(), e, jobExecutionContext);
+             }
+             outputNew.getParameters().put(paramName, actualParameter);

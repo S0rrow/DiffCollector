@@ -1,0 +1,55 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/converter/message/JMSMappingOutboundTransformer.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/converter/message/JMSMappingOutboundTransformer.java
+index 99fb7c39fb..7babcf36fc 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/converter/message/JMSMappingOutboundTransformer.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/converter/message/JMSMappingOutboundTransformer.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.activemq.artemis.core.protocol.proton.converter.message;
+ 
+-import org.apache.activemq.artemis.jms.client.ActiveMQMessage;
+ import org.apache.qpid.proton.amqp.Binary;
+ import org.apache.qpid.proton.amqp.Symbol;
+ import org.apache.qpid.proton.amqp.UnsignedByte;
+@@ -49,7 +48,6 @@ import javax.jms.TemporaryTopic;
+ import javax.jms.TextMessage;
+ import javax.jms.Topic;
+ import java.io.UnsupportedEncodingException;
+-import java.nio.charset.StandardCharsets;
+ import java.util.ArrayList;
+ import java.util.Date;
+ import java.util.Enumeration;
+@@ -127,14 +125,7 @@ public class JMSMappingOutboundTransformer extends OutboundTransformer {
+          }
+          catch (MessageEOFException e) {
+          }
+-
+-         String amqpType = msg.getStringProperty(AMQPMessageTypes.AMQP_TYPE_KEY);
+-         if (amqpType.equals(AMQPMessageTypes.AMQP_LIST)) {
+-            body = new AmqpValue(list);
+-         }
+-         else {
+-            body = new AmqpSequence(list);
+-         }
++         body = new AmqpSequence(list);
+       }
+       if (msg instanceof ObjectMessage) {
+          body = new AmqpValue(((ObjectMessage) msg).getObject());
+@@ -216,7 +207,7 @@ public class JMSMappingOutboundTransformer extends OutboundTransformer {
+          }
+          else if (key.startsWith("JMSXUserID")) {
+             String value = msg.getStringProperty(key);
+-            props.setUserId(new Binary(value.getBytes(StandardCharsets.UTF_8)));
++            props.setUserId(new Binary(value.getBytes("UTF-8")));
+          }
+          else if (key.startsWith("JMSXGroupID")) {
+             String value = msg.getStringProperty(key);
+@@ -264,9 +255,6 @@ public class JMSMappingOutboundTransformer extends OutboundTransformer {
+             String name = key.substring(prefixFooterKey.length());
+             footerMap.put(name, msg.getObjectProperty(key));
+          }
+-         else if (key.equals(AMQPMessageTypes.AMQP_TYPE_KEY)) {
+-            // skip
+-         }
+          else {
+             if (apMap == null) {
+                apMap = new HashMap();

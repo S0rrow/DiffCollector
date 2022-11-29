@@ -1,0 +1,213 @@
+diff --git a/asterix-om/src/main/java/edu/uci/ics/asterix/om/types/BuiltinType.java b/asterix-om/src/main/java/edu/uci/ics/asterix/om/types/BuiltinType.java
+index ca13f393a6..4099c40f37 100644
+--- a/asterix-om/src/main/java/edu/uci/ics/asterix/om/types/BuiltinType.java
++++ b/asterix-om/src/main/java/edu/uci/ics/asterix/om/types/BuiltinType.java
+@@ -1,17 +1,3 @@
+-/*
+- * Copyright 2009-2013 by The Regents of the University of California
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * you may obtain a copy of the License from
+- *
+- *     http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+ package edu.uci.ics.asterix.om.types;
+ 
+ import org.json.JSONException;
+@@ -445,85 +431,6 @@ public abstract class BuiltinType implements IAType {
+         }
+     };
+ 
+-    public final static BuiltinType AYEARMONTHDURATION = new LowerCaseConstructorType() {
+-
+-        private static final long serialVersionUID = 1L;
+-
+-        @Override
+-        public String getDisplayName() {
+-            return "AYearMonthDuration";
+-        }
+-
+-        @Override
+-        public ATypeTag getTypeTag() {
+-            return ATypeTag.YEARMONTHDURATION;
+-        }
+-
+-        @Override
+-        public String getTypeName() {
+-            return "year-month-duration";
+-        }
+-
+-        @Override
+-        public JSONObject toJSON() throws JSONException {
+-            JSONObject type = new JSONObject();
+-            type.put("type", "AYearMonthDuration");
+-            return type;
+-        }
+-    };
+-
+-    public final static BuiltinType ADAYTIMEDURATION = new LowerCaseConstructorType() {
+-
+-        private static final long serialVersionUID = 1L;
+-
+-        @Override
+-        public String getDisplayName() {
+-            return "ADayTimeDuration";
+-        }
+-
+-        @Override
+-        public ATypeTag getTypeTag() {
+-            return ATypeTag.DAYTIMEDURATION;
+-        }
+-
+-        @Override
+-        public String getTypeName() {
+-            return "day-time-duration";
+-        }
+-
+-        @Override
+-        public JSONObject toJSON() throws JSONException {
+-            JSONObject type = new JSONObject();
+-            type.put("type", "ADayTimeDuration");
+-            return type;
+-        }
+-    };
+-
+-    public final static BuiltinType AINTERVAL = new LowerCaseConstructorType() {
+-
+-        private static final long serialVersionUID = 1L;
+-
+-        @Override
+-        public String getDisplayName() {
+-            return "AInterval";
+-        }
+-
+-        @Override
+-        public ATypeTag getTypeTag() {
+-            return ATypeTag.INTERVAL;
+-        }
+-
+-        @Override
+-        public String getTypeName() {
+-            return "interval";
+-        }
+-
+-        @Override
+-        public JSONObject toJSON() throws JSONException {
+-            return null;
+-        }
+-    };
+-
+     public final static BuiltinType APOINT = new LowerCaseConstructorType() {
+ 
+         private static final long serialVersionUID = 1L;
+@@ -713,58 +620,6 @@ public abstract class BuiltinType implements IAType {
+         }
+     };
+ 
+-    public static final BuiltinType AUUID = new LowerCaseConstructorType() {
+-
+-        @Override
+-        public ATypeTag getTypeTag() {
+-            return ATypeTag.UUID;
+-        }
+-
+-        @Override
+-        public String getDisplayName() {
+-            return "UUID";
+-        }
+-
+-        @Override
+-        public String getTypeName() {
+-            return "uuid";
+-        }
+-
+-        @Override
+-        public JSONObject toJSON() throws JSONException {
+-            JSONObject type = new JSONObject();
+-            type.put("type", getDisplayName());
+-            return type;
+-        }
+-    };
+-
+-    // AUUID_STRING is used when converting between the string representation of
+-    // UUID and corresponding a UUID instance
+-    public static final BuiltinType AUUID_STRING = new LowerCaseConstructorType() {
+-
+-        @Override
+-        public ATypeTag getTypeTag() {
+-            return ATypeTag.UUID_STRING;
+-        }
+-
+-        @Override
+-        public String getDisplayName() {
+-            return "UUID_STRING";
+-        }
+-
+-        @Override
+-        public String getTypeName() {
+-            return "uuid_string";
+-        }
+-
+-        @Override
+-        public JSONObject toJSON() throws JSONException {
+-            JSONObject type = new JSONObject();
+-            type.put("type", getDisplayName());
+-            return type;
+-        }
+-    };
+-
+     public static final IAType ANY = new BuiltinType() {
+ 
+         private static final long serialVersionUID = 1L;
+@@ -797,38 +652,6 @@ public abstract class BuiltinType implements IAType {
+         }
+     };
+ 
+-    public static final BuiltinType SHORTWITHOUTTYPEINFO = new BuiltinType() {
+-
+-        private static final long serialVersionUID = 1L;
+-
+-        @Override
+-        public ATypeTag getTypeTag() {
+-            return ATypeTag.SHORTWITHOUTTYPEINFO;
+-        }
+-
+-        @Override
+-        public String getTypeName() {
+-            return "shortwithouttypeinfo";
+-        }
+-
+-        @Override
+-        public String getDisplayName() {
+-            return "SHORTWITHOUTTYPEINFO";
+-        }
+-
+-        @Override
+-        public String getConstructor() {
+-            return null;
+-        }
+-
+-        @Override
+-        public JSONObject toJSON() throws JSONException {
+-            JSONObject type = new JSONObject();
+-            type.put("type", "SHORTWITHOUTTYPEINFO");
+-            return type;
+-        }
+-    };
+-
+     public abstract String getConstructor();
+ 
+     @Override
+@@ -898,4 +721,4 @@ public abstract class BuiltinType implements IAType {
+         throw new AsterixException("No string translation for type: " + str + " .");
+     }
+ 
+-}
++}
+\ No newline at end of file

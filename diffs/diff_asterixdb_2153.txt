@@ -1,0 +1,40 @@
+diff --git a/asterix-om/src/main/java/org/apache/asterix/dataflow/data/nontagged/comparators/ListItemBinaryComparatorFactory.java b/asterix-om/src/main/java/org/apache/asterix/dataflow/data/nontagged/comparators/ListItemBinaryComparatorFactory.java
+index 8907bcac2a..767a34385a 100644
+--- a/asterix-om/src/main/java/org/apache/asterix/dataflow/data/nontagged/comparators/ListItemBinaryComparatorFactory.java
++++ b/asterix-om/src/main/java/org/apache/asterix/dataflow/data/nontagged/comparators/ListItemBinaryComparatorFactory.java
+@@ -29,8 +29,8 @@ import org.apache.hyracks.data.std.primitive.ByteArrayPointable;
+ import org.apache.hyracks.data.std.primitive.DoublePointable;
+ import org.apache.hyracks.data.std.primitive.FloatPointable;
+ import org.apache.hyracks.data.std.primitive.IntegerPointable;
+-import org.apache.hyracks.data.std.primitive.UTF8StringLowercasePointable;
+ import org.apache.hyracks.data.std.primitive.UTF8StringPointable;
++import org.apache.hyracks.data.std.primitive.UTF8StringLowercasePointable;
+ 
+ public class ListItemBinaryComparatorFactory implements IBinaryComparatorFactory {
+ 
+@@ -67,7 +67,7 @@ public class ListItemBinaryComparatorFactory implements IBinaryComparatorFactory
+                     .createBinaryComparator();
+             final IBinaryComparator ascDurationComp = ADurationPartialBinaryComparatorFactory.INSTANCE
+                     .createBinaryComparator();
+-            final IBinaryComparator ascIntervalComp = AIntervalAscPartialBinaryComparatorFactory.INSTANCE
++            final IBinaryComparator ascIntervalComp = AIntervalPartialBinaryComparatorFactory.INSTANCE
+                     .createBinaryComparator();
+             final IBinaryComparator ascLineComp = ALinePartialBinaryComparatorFactory.INSTANCE.createBinaryComparator();
+             final IBinaryComparator ascPointComp = APointPartialBinaryComparatorFactory.INSTANCE
+@@ -84,13 +84,13 @@ public class ListItemBinaryComparatorFactory implements IBinaryComparatorFactory
+             @Override
+             public int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) throws HyracksDataException {
+ 
+-                if (b1[s1] == ATypeTag.SERIALIZED_NULL_TYPE_TAG) {
+-                    if (b2[s2] == ATypeTag.SERIALIZED_NULL_TYPE_TAG)
++                if (b1[s1] == ATypeTag.NULL.serialize()) {
++                    if (b2[s2] == ATypeTag.NULL.serialize())
+                         return 0;
+                     else
+                         return -1;
+                 } else {
+-                    if (b2[s2] == ATypeTag.SERIALIZED_NULL_TYPE_TAG)
++                    if (b2[s2] == ATypeTag.NULL.serialize())
+                         return 1;
+                 }
+ 

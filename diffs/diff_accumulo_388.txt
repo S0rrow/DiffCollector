@@ -1,0 +1,20 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/MetaGetsReadersIT.java b/test/src/main/java/org/apache/accumulo/test/MetaGetsReadersIT.java
+index 9785f8ab50..73714c52b3 100644
+--- a/test/src/main/java/org/apache/accumulo/test/MetaGetsReadersIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/MetaGetsReadersIT.java
+@@ -17,7 +17,6 @@
+ 
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertFalse;
+ import static org.junit.Assert.assertTrue;
+ 
+@@ -44,6 +43,7 @@ import org.apache.hadoop.conf.Configuration;
+ import org.junit.Test;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class MetaGetsReadersIT extends ConfigurableMacBase {
+ 

@@ -1,0 +1,61 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ScanSessionTimeOutIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ScanSessionTimeOutIT.java
+index 586415574f..78262ef7a2 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ScanSessionTimeOutIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ScanSessionTimeOutIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.util.Iterator;
+@@ -45,13 +44,15 @@ import org.junit.Test;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class ScanSessionTimeOutIT extends AccumuloClusterHarness {
+   private static final Logger log = LoggerFactory.getLogger(ScanSessionTimeOutIT.class);
+ 
+   @Override
+   public void configureMiniCluster(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
+     Map<String,String> siteConfig = cfg.getSiteConfig();
+-    siteConfig.put(Property.TSERV_SESSION_MAXIDLE.getKey(), getMaxIdleTimeString());
++    siteConfig.put(Property.TSERV_SESSION_MAXIDLE.getKey(), "3");
+     cfg.setSiteConfig(siteConfig);
+   }
+ 
+@@ -66,21 +67,12 @@ public class ScanSessionTimeOutIT extends AccumuloClusterHarness {
+   public void reduceSessionIdle() throws Exception {
+     InstanceOperations ops = getConnector().instanceOperations();
+     sessionIdle = ops.getSystemConfiguration().get(Property.TSERV_SESSION_MAXIDLE.getKey());
+-    ops.setProperty(Property.TSERV_SESSION_MAXIDLE.getKey(), getMaxIdleTimeString());
++    ops.setProperty(Property.TSERV_SESSION_MAXIDLE.getKey(), "3");
+     log.info("Waiting for existing session idle time to expire");
+     Thread.sleep(AccumuloConfiguration.getTimeInMillis(sessionIdle));
+     log.info("Finished waiting");
+   }
+ 
+-  /**
+-   * Returns the max idle time as a string.
+-   *
+-   * @return new max idle time
+-   */
+-  protected String getMaxIdleTimeString() {
+-    return "3";
+-  }
+-
+   @After
+   public void resetSessionIdle() throws Exception {
+     if (null != sessionIdle) {
+@@ -120,7 +112,7 @@ public class ScanSessionTimeOutIT extends AccumuloClusterHarness {
+ 
+   }
+ 
+-  protected void verify(Iterator<Entry<Key,Value>> iter, int start, int stop) throws Exception {
++  private void verify(Iterator<Entry<Key,Value>> iter, int start, int stop) throws Exception {
+     for (int i = start; i < stop; i++) {
+ 
+       Text er = new Text(String.format("%08d", i));

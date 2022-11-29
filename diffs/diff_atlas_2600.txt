@@ -1,0 +1,23 @@
+diff --git a/intg/src/main/java/org/apache/atlas/type/AtlasEnumType.java b/intg/src/main/java/org/apache/atlas/type/AtlasEnumType.java
+index 5b41e71d5..34f5d4992 100644
+--- a/intg/src/main/java/org/apache/atlas/type/AtlasEnumType.java
++++ b/intg/src/main/java/org/apache/atlas/type/AtlasEnumType.java
+@@ -22,7 +22,6 @@ import java.util.Collections;
+ import java.util.HashMap;
+ import java.util.Map;
+ 
+-import org.apache.atlas.exception.AtlasBaseException;
+ import org.apache.atlas.model.typedef.AtlasEnumDef;
+ import org.apache.atlas.model.typedef.AtlasEnumDef.AtlasEnumElementDef;
+ 
+@@ -59,10 +58,6 @@ public class AtlasEnumType extends AtlasType {
+         this.defaultValue = d;
+     }
+ 
+-    @Override
+-    public void resolveReferences(AtlasTypeRegistry typeRegistry) throws AtlasBaseException {
+-    }
+-
+     @Override
+     public Object createDefaultValue() {
+         return defaultValue;

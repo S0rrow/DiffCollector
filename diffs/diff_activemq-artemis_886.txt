@@ -1,0 +1,77 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
+index b9385bc3e8..eac0f10a54 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
+@@ -62,6 +62,7 @@ import org.apache.qpid.proton.amqp.Symbol;
+ import org.apache.qpid.proton.amqp.messaging.Accepted;
+ import org.apache.qpid.proton.amqp.messaging.Modified;
+ import org.apache.qpid.proton.amqp.messaging.Outcome;
++import org.apache.qpid.proton.amqp.messaging.Rejected;
+ import org.apache.qpid.proton.amqp.messaging.Source;
+ import org.apache.qpid.proton.amqp.messaging.TerminusDurability;
+ import org.apache.qpid.proton.amqp.messaging.TerminusExpiryPolicy;
+@@ -629,7 +630,16 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+             // this can happen in the twice ack mode, that is the receiver accepts and settles separately
+             // acking again would show an exception but would have no negative effect but best to handle anyway.
+             if (!delivery.isSettled()) {
+-               inSessionACK(delivery, message);
++               // we have to individual ack as we can't guarantee we will get the delivery updates
++               // (including acks) in order from dealer, a performance hit but a must
++               try {
++                  sessionSPI.ack(null, brokerConsumer, message);
++               } catch (Exception e) {
++                  log.warn(e.toString(), e);
++                  throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.errorAcknowledgingMessage(message.toString(), e.getMessage());
++               }
++
++               delivery.settle();
+             }
+          } else {
+             handleExtendedDeliveryOutcomes(message, delivery, remoteState);
+@@ -644,37 +654,6 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+       }
+    }
+ 
+-   private void inSessionACK(Delivery delivery, Message message) throws ActiveMQAMQPIllegalStateException {
+-      OperationContext oldContext = sessionSPI.recoverContext();
+-      try {
+-         // we have to individual ack as we can't guarantee we will get the delivery updates
+-         // (including acks) in order from dealer, a performance hit but a must
+-         try {
+-            sessionSPI.ack(null, brokerConsumer, message);
+-         } catch (Exception e) {
+-            log.warn(e.toString(), e);
+-            throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.errorAcknowledgingMessage(message.toString(), e.getMessage());
+-         }
+-
+-         sessionSPI.afterIO(new IOCallback() {
+-            @Override
+-            public void done() {
+-               connection.runLater(() -> {
+-                  delivery.settle();
+-                  connection.instantFlush();
+-               });
+-            }
+-
+-            @Override
+-            public void onError(int errorCode, String errorMessage) {
+-
+-            }
+-         });
+-      } finally {
+-         sessionSPI.resetContext(oldContext);
+-      }
+-   }
+-
+    private boolean handleExtendedDeliveryOutcomes(Message message, Delivery delivery, DeliveryState remoteState) throws ActiveMQAMQPException {
+       boolean settleImmediate = true;
+       boolean handled = true;
+@@ -1045,7 +1024,7 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+    public void reportDrained() {
+       connection.requireInHandler();
+       sender.drained();
+-      connection.instantFlush();
++      connection.flush();
+    }
+ 
+    public AMQPSessionContext getSessionContext() {

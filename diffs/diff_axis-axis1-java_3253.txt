@@ -1,0 +1,652 @@
+diff --git a/src/org/apache/axis/message/SOAPEnvelope.java b/src/org/apache/axis/message/SOAPEnvelope.java
+index f8f069259..5fdf4da23 100644
+--- a/src/org/apache/axis/message/SOAPEnvelope.java
++++ b/src/org/apache/axis/message/SOAPEnvelope.java
+@@ -1,8 +1,10 @@
++package org.apache.axis.message;
++
+ /*
+  * The Apache Software License, Version 1.1
+  *
+  *
+- * Copyright (c) 2001 The Apache Software Foundation.  All rights
++ * Copyright (c) 2001 The Apache Software Foundation.  All rights 
+  * reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+@@ -10,7 +12,7 @@
+  * are met:
+  *
+  * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
++ *    notice, this list of conditions and the following disclaimer. 
+  *
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in
+@@ -18,7 +20,7 @@
+  *    distribution.
+  *
+  * 3. The end-user documentation included with the redistribution,
+- *    if any, must include the following acknowledgment:
++ *    if any, must include the following acknowledgment:  
+  *       "This product includes software developed by the
+  *        Apache Software Foundation (http://www.apache.org/)."
+  *    Alternately, this acknowledgment may appear in the software itself,
+@@ -26,7 +28,7 @@
+  *
+  * 4. The names "Axis" and "Apache Software Foundation" must
+  *    not be used to endorse or promote products derived from this
+- *    software without prior written permission. For written
++ *    software without prior written permission. For written 
+  *    permission, please contact apache@apache.org.
+  *
+  * 5. Products derived from this software may not be called "Apache",
+@@ -52,411 +54,288 @@
+  * information on the Apache Software Foundation, please see
+  * <http://www.apache.org/>.
+  */
+-package org.apache.axis.message;
+ 
+-import org.apache.axis.AxisFault;
+-import org.apache.axis.AxisProperties;
++import java.io.*;
++import java.util.*;
++import org.apache.axis.encoding.*;
+ import org.apache.axis.Constants;
+-import org.apache.axis.Message;
+-import org.apache.axis.MessageContext;
+-import org.apache.axis.soap.SOAPConstants;
+-import org.apache.axis.configuration.NullProvider;
+-import org.apache.axis.client.AxisClient;
+-import org.apache.axis.encoding.DeserializationContext;
+-import org.apache.axis.encoding.DeserializationContextImpl;
+-import org.apache.axis.encoding.SerializationContext;
+-import org.apache.axis.utils.JavaUtils;
+-import org.apache.axis.utils.Mapping;
+-
+-import org.apache.axis.components.logger.LogFactory;
+-import org.apache.commons.logging.Log;
+-
++import org.apache.axis.utils.QName;
+ import org.xml.sax.InputSource;
+-import org.xml.sax.SAXException;
+-
+-import javax.xml.soap.SOAPException;
+-import javax.xml.namespace.QName;
+-
+-import java.io.InputStream;
+-import java.util.ArrayList;
+-import java.util.Enumeration;
+-import java.util.Iterator;
+-import java.util.Vector;
++import org.xml.sax.helpers.AttributesImpl;
+ 
+-
+-public class SOAPEnvelope extends MessageElement
+-    implements javax.xml.soap.SOAPEnvelope
++public class SOAPEnvelope
+ {
+-    protected static Log log =
+-        LogFactory.getLog(SOAPEnvelope.class.getName());
+-
+-    private SOAPHeader header;
+-    private SOAPBody body;
+-
+-    public Vector trailers = new Vector();
+-    private SOAPConstants soapConstants;
+-
++    private static boolean DEBUG_LOG = false;
++    
++    public Vector headers = new Vector();
++    public Vector bodyElements = new Vector();
++    public Vector independentElements = new Vector();
++    public Hashtable idMapping = new Hashtable();
++    public String encodingStyleURI = null;
++    public Hashtable nsDecls = new Hashtable();
++                                            
++    public SOAPSAXHandler handler;
++    
+     // This is a hint to any service description to tell it what
+     // "type" of message we are.  This might be "request", "response",
+     // or anything else your particular service descripton requires.
+     //
+     // This gets passed back into the service description during
+-    // deserialization
++    // deserialization 
+     public String messageType;
+-
++    // Our service description, if we know it...
++    protected ServiceDescription serviceDesc;
++  
+     public SOAPEnvelope()
+     {
+-        this(true, SOAPConstants.SOAP11_CONSTANTS);
++        nsDecls.put(Constants.URI_SOAP_ENV, Constants.NSPREFIX_SOAP_ENV);
++        nsDecls.put(Constants.URI_SCHEMA_XSD, Constants.NSPREFIX_SCHEMA_XSD);
++        nsDecls.put(Constants.URI_SCHEMA_XSI, Constants.NSPREFIX_SCHEMA_XSI);
++        handler = null;
+     }
+-
+-    public SOAPEnvelope(SOAPConstants soapConstants)
++    
++    SOAPEnvelope(SOAPSAXHandler handler)
+     {
+-        this(true, soapConstants);
+-    }
+-
+-    public SOAPEnvelope(boolean registerPrefixes, SOAPConstants soapConstants)
+-    {
+-        this.soapConstants = soapConstants;
+-        header = new SOAPHeader(this, soapConstants);
+-        body = new SOAPBody(this, soapConstants);
+-
+-        if (registerPrefixes) {
+-            if (namespaces == null)
+-                namespaces = new ArrayList();
+-
+-            namespaces.add(new Mapping(soapConstants.getEnvelopeURI(),
+-                                       Constants.NS_PREFIX_SOAP_ENV));
+-            namespaces.add(new Mapping(Constants.URI_DEFAULT_SCHEMA_XSD,
+-                                       Constants.NS_PREFIX_SCHEMA_XSD));
+-            namespaces.add(new Mapping(Constants.URI_DEFAULT_SCHEMA_XSI,
+-                                       Constants.NS_PREFIX_SCHEMA_XSI));
+-        }
+-
+-        setDirty(true);
+-    }
+-
+-    public SOAPEnvelope(InputStream input) throws SAXException {
+-        InputSource is = new InputSource(input);
+-        header = new SOAPHeader(this, soapConstants); // soapConstants = null!
+-        DeserializationContext dser = null ;
+-        AxisClient     tmpEngine = new AxisClient(new NullProvider());
+-        MessageContext msgContext = new MessageContext(tmpEngine);
+-        dser = new DeserializationContextImpl(is, msgContext,
+-                                              Message.REQUEST, this );
+-        dser.parse();
++        this.handler = handler;
+     }
+ 
+     public String getMessageType()
+     {
+         return messageType;
+     }
+-
++    
+     public void setMessageType(String messageType)
+     {
+         this.messageType = messageType;
+     }
+-
+-    public Vector getBodyElements() throws AxisFault
++    
++    public ServiceDescription getServiceDescription()
+     {
+-        if (body != null) {
+-            return body.getBodyElements();
+-        } else {
+-            return new Vector();
+-        }
++        return serviceDesc;
+     }
+-
+-    public Vector getTrailers()
++    
++    public void setServiceDescription(ServiceDescription serviceDesc)
+     {
+-        return trailers;
++        this.serviceDesc = serviceDesc;
+     }
+-
+-    public SOAPBodyElement getFirstBody() throws AxisFault
++    
++    public void setEncodingStyleURI(String uri)
+     {
+-        if (body == null) {
+-            return null;
+-        } else {
+-            return body.getFirstBody();
+-        }
++        encodingStyleURI = uri;
+     }
+-
+-    public Vector getHeaders() throws AxisFault
++    
++    public String getAsString()
+     {
+-        if (header != null) {
+-            return header.getHeaders();
+-        } else {
+-            return new Vector();
+-        }
++        // !!! NOT IMPLEMENTED YET
++        return null;
+     }
+-
+-    /**
+-     * Get all the headers targeted at a list of actors.
+-     */
+-    public Vector getHeadersByActor(ArrayList actors)
++    
++    public Vector getBodyElements()
+     {
+-        if (header != null) {
+-            return header.getHeadersByActor(actors);
+-        } else {
+-            return new Vector();
++        if ((handler != null) && !handler.hasParsedBody()) {
++            handler.parseToEnd();
+         }
++        
++        return bodyElements;
+     }
+-
+-    public void addHeader(SOAPHeaderElement hdr)
++    
++    public SOAPBodyElement getFirstBody()
+     {
+-        if (header == null) {
+-            header = new SOAPHeader(this, soapConstants);
++        if ((handler != null) && !handler.hasParsedBody()) {
++            handler.parseToEnd();
+         }
+-        hdr.setEnvelope(this);
+-        header.addHeader(hdr);
+-        _isDirty = true;
++        
++        return (SOAPBodyElement)bodyElements.elementAt(0);
+     }
+-
+-    public void addBodyElement(SOAPBodyElement element)
++    
++    public Vector getHeaders()
+     {
+-        if (body == null) {
+-            body = new SOAPBody(this, soapConstants);
++        if ((handler != null) && !handler.hasParsedHeaders()) {
++            handler.parse();
+         }
+-        element.setEnvelope(this);
+-        body.addBodyElement(element);
+-
+-        _isDirty = true;
++        
++        return headers;
+     }
+-
+-    public void removeHeaders() {
+-        header = null;
+-    }
+-
+-    public void setHeader(SOAPHeader hdr) {
+-        header = hdr;
+-        try {
+-            header.setParentElement(this);
+-        } catch (SOAPException ex) {
+-            // class cast should never fail when parent is a SOAPEnvelope
+-            log.fatal(JavaUtils.getMessage("exception00"), ex);
+-        }
+-    }
+-
+-    public void removeHeader(SOAPHeaderElement hdr)
++    
++    void processID(MessageElement element)
+     {
+-        if (header != null) {
+-            header.removeHeader(hdr);
+-            _isDirty = true;
++        String id = element.getID();
++        if (id != null) {
++            idMapping.put(id, element);
+         }
+     }
+-
+-    public void removeBody() {
+-        body = null;
+-    }
+-
+-    public void setBody(SOAPBody body) {
+-        this.body = body;
+-        try {
+-            body.setParentElement(this);
+-        } catch (SOAPException ex) {
+-            // class cast should never fail when parent is a SOAPEnvelope
+-            log.fatal(JavaUtils.getMessage("exception00"), ex);
+-        }
+-    }
+-
+-    public void removeBodyElement(SOAPBodyElement element)
++    
++    public void addHeader(SOAPHeader header)
+     {
+-        if (body != null) {
+-            body.removeBodyElement(element);
+-            _isDirty = true;
+-        }
++        if (DEBUG_LOG)
++            System.out.println("Adding header to message...");
++        header.setEnvelope(this);
++        headers.addElement(header);
++        processID(header); // Can headers have IDs?
+     }
+-
+-    public void removeTrailer(MessageElement element)
++    
++    public void addBodyElement(SOAPBodyElement element)
+     {
+-        if (log.isDebugEnabled())
+-            log.debug(JavaUtils.getMessage("removeTrailer00"));
+-        trailers.removeElement(element);
+-        _isDirty = true;
++        if (DEBUG_LOG)
++            System.out.println("Adding body element to message...");
++        element.setEnvelope(this);
++        bodyElements.addElement(element);
++        processID(element); // Can body elements have IDs?
+     }
+-
+-    public void clearBody()
++    
++    public void addIndependentElement(MessageElement element)
+     {
+-        if (body != null) {
+-            body.clearBody();
+-            _isDirty = true;
+-        }
++        if (DEBUG_LOG)
++            System.out.println("Adding independent element to message...");
++        element.setEnvelope(this);
++        independentElements.addElement(element);
++        processID(element);
+     }
+ 
+-    public void addTrailer(MessageElement element)
++    public void parseToEnd()
+     {
+-        if (log.isDebugEnabled())
+-            log.debug(JavaUtils.getMessage("removeTrailer00"));
+-        element.setEnvelope(this);
+-        trailers.addElement(element);
+-        _isDirty = true;
++        if (handler != null)
++            handler.parseToEnd();
+     }
+-
+-    /**
+-     * Get a header by name (always respecting the currently in-scope
+-     * actors list)
+-     */
+-    public SOAPHeaderElement getHeaderByName(String namespace,
+-                                             String localPart)
+-        throws AxisFault
++    
++    public SOAPHeader getHeaderByName(String namespace, String localPart)
+     {
+-        return getHeaderByName(namespace, localPart, false);
++        SOAPHeader header = (SOAPHeader)findElement(headers, namespace, localPart);
++        
++        if ((header == null) && (handler != null))
++            return handler.parseForHeader(namespace, localPart);
++        
++        return header;
+     }
+ 
+-    /**
+-     * Get a header by name, filtering for headers targeted at this
+-     * engine depending on the accessAllHeaders parameter.
+-     */
+-    public SOAPHeaderElement getHeaderByName(String namespace,
+-                                             String localPart,
+-                                             boolean accessAllHeaders)
+-        throws AxisFault
++    public SOAPBodyElement getBodyByName(String namespace, String localPart)
+     {
+-        if (header != null) {
+-            return header.getHeaderByName(namespace,
+-                                          localPart,
+-                                          accessAllHeaders);
+-        } else {
+-            return null;
++        if ((handler != null) && !handler.hasParsedBody()) {
++            return handler.parseForBody(namespace, localPart);
+         }
++        
++        return (SOAPBodyElement)findElement(bodyElements, namespace, localPart);
+     }
+-
+-    public SOAPBodyElement getBodyByName(String namespace, String localPart)
+-        throws AxisFault
++    
++    public MessageElement findElement(Vector vec, String namespace,
++                                  String localPart)
+     {
+-        if (body == null) {
++        if (vec.isEmpty())
+             return null;
+-        } else {
+-            return body.getBodyByName(namespace, localPart);
++        
++        Enumeration e = vec.elements();
++        MessageElement element;
++        while (e.hasMoreElements()) {
++            element = (MessageElement)e.nextElement();
++            if (element.getNamespaceURI().equals(namespace) &&
++                element.getName().equals(localPart))
++                return element;
+         }
++        
++        return null;
+     }
+-
++    
+     public Enumeration getHeadersByName(String namespace, String localPart)
+-        throws AxisFault
+     {
+-        return getHeadersByName(namespace, localPart, false);
+-    }
+-
+-    /**
+-     * Return an Enumeration of headers which match the given namespace
+-     * and localPart.  Depending on the value of the accessAllHeaders
+-     * parameter, we will attempt to filter on the current engine's list
+-     * of actors.
+-     *
+-     * !!! NOTE THAT RIGHT NOW WE ALWAYS ASSUME WE'RE THE "ULTIMATE
+-     * DESTINATION" (i.e. we match on null actor).  IF WE WANT TO FULLY SUPPORT
+-     * INTERMEDIARIES WE'LL NEED TO FIX THIS.
+-     */
+-    public Enumeration getHeadersByName(String namespace, String localPart,
+-                                        boolean accessAllHeaders)
+-        throws AxisFault
+-    {
+-        if (header != null) {
+-            return header.getHeadersByName(namespace,
+-                                           localPart,
+-                                           accessAllHeaders);
+-        } else {
+-            return new Vector().elements();
++        /** This might be optimizable by creating a custom Enumeration
++         * which moves through the headers list (parsing on demand, again),
++         * returning only the next one each time.... this is Q&D for now.
++         */
++        if ((handler != null) && !handler.hasParsedHeaders()) {
++            handler.parse();
++        }
++        
++        Vector v = new Vector();
++        Enumeration e = headers.elements();
++        SOAPHeader header;
++        while (e.hasMoreElements()) {
++            header = (SOAPHeader)e.nextElement();
++            if (header.getNamespaceURI().equals(namespace) &&
++                header.getName().equals(localPart))
++                v.addElement(header);
+         }
++        
++        return v.elements();
+     }
+-
++    
+     /** Should make SOAPSerializationException?
+      */
+-    public void outputImpl(SerializationContext context)
++    public void output(SerializationContext context)
+         throws Exception
+     {
+-        boolean oldPretty = context.getPretty();
+-        context.setPretty(true);
+-
++        Enumeration enum;
++        
++        /** !!! Since we want this as SAX events, we need to
++         * finish parsing our input stream.  There should be a way
++         * for us to get the input stream itself, though, if we
++         * haven't started parsing yet....
++         */
++        if ((handler != null) && !handler.hasFinished()) {
++            handler.parseToEnd();
++        }
++        
+         // Register namespace prefixes.
+-        if (namespaces != null) {
+-            for (Iterator i = namespaces.iterator(); i.hasNext(); ) {
+-                Mapping mapping = (Mapping)i.next();
+-                context.registerPrefixForURI(mapping.getPrefix(),
+-                                             mapping.getNamespaceURI());
+-            }
++        enum = nsDecls.keys();
++        while (enum.hasMoreElements()) {
++            String uri = (String)enum.nextElement();
++            context.registerPrefixForURI((String)nsDecls.get(uri), uri);
+         }
+-
+-        Enumeration enum;
+-
+-        // Output <SOAP-ENV:Envelope>
+-        context.startElement(new QName(soapConstants.getEnvelopeURI(),
+-                                       Constants.ELEM_ENVELOPE), attributes);
+-
+-        // Output non-SOAPHeader and non-SOAPBody stuff.
+-        Iterator i = getChildElements();
+-        while (i.hasNext()) {
+-            MessageElement element = (MessageElement)i.next();
+-            if(element instanceof SOAPHeader ||
+-               element instanceof SOAPBody)
+-                continue;
+-            element.output(context);
++        
++        AttributesImpl attrs = null;
++        if (encodingStyleURI != null) {
++            attrs = new AttributesImpl();
++            attrs.addAttribute(Constants.URI_SOAP_ENV,
++                               Constants.ATTR_ENCODING_STYLE,
++                               "SOAP-ENV:" + Constants.ATTR_ENCODING_STYLE, "string", encodingStyleURI);
+         }
+-
+-        // Output headers
+-        if (header != null) {
+-            header.outputImpl(context);
++        
++        context.startElement(new QName(Constants.URI_SOAP_ENV,
++                                       Constants.ELEM_ENVELOPE), attrs);
++        
++        if (DEBUG_LOG)
++            System.out.println(headers.size() + " headers");
++        
++        if (!headers.isEmpty()) {
++            // Output <SOAP-ENV:Header>
++            context.startElement(new QName(Constants.URI_SOAP_ENV,
++                                           Constants.ELEM_HEADER), null);
++            enum = headers.elements();
++            while (enum.hasMoreElements()) {
++                SOAPHeader header = (SOAPHeader)enum.nextElement();
++                header.output(context);
++                // Output this header element
++            }
++            // Output </SOAP-ENV:Header>
++            context.endElement();
+         }
+ 
+-        // Output body
+-        if (body != null) {
+-            body.outputImpl(context);
++        if (bodyElements.isEmpty()) {
++            // This is a problem.
++            throw new Exception("No body elements!");
+         }
+ 
+-        // Output trailers
+-        enum = trailers.elements();
++        // Output <SOAP-ENV:Body>
++        context.startElement(new QName(Constants.URI_SOAP_ENV,
++                                       Constants.ELEM_BODY), null);
++        enum = bodyElements.elements();
++        while (enum.hasMoreElements()) {
++            SOAPBodyElement body = (SOAPBodyElement)enum.nextElement();
++            body.output(context);
++            // Output this body element.
++        }
++        
++        // Output </SOAP-ENV:Body>
++        context.endElement();
++        
++        // Output independent elements
++        enum = independentElements.elements();
+         while (enum.hasMoreElements()) {
+             MessageElement element = (MessageElement)enum.nextElement();
+             element.output(context);
+             // Output this independent element
+         }
+-
++        
+         // Output </SOAP-ENV:Envelope>
+         context.endElement();
+-
+-        context.setPretty(oldPretty);
+-    }
+-
+-    SOAPConstants getSOAPConstants() {
+-        return soapConstants;
+-    }
+-
+-    // JAXM methods
+-
+-    public javax.xml.soap.SOAPBody addBody() throws SOAPException {
+-        if (body == null) {
+-            body = new SOAPBody(this, soapConstants);
+-            return body;
+-        } else {
+-            throw new SOAPException(JavaUtils.getMessage("bodyPresent"));
+-        }
+-    }
+-
+-    public javax.xml.soap.SOAPHeader addHeader() throws SOAPException {
+-        if (header == null) {
+-            header = new SOAPHeader(this, soapConstants);
+-            return header;
+-        } else {
+-            throw new SOAPException(JavaUtils.getMessage("headerPresent"));
+-        }
+-    }
+-
+-    public javax.xml.soap.Name createName(String localName)
+-        throws SOAPException {
+-        // Ok to use the SOAP envelope's namespace URI and prefix?
+-        return new PrefixedQName(namespaceURI, localName, prefix);
+-    }
+-
+-    public javax.xml.soap.Name createName(String localName,
+-                                          String prefix,
+-                                          String uri)
+-        throws SOAPException {
+-        return new PrefixedQName(uri, localName, prefix);
+-    }
+-
+-    public javax.xml.soap.SOAPBody getBody() throws SOAPException {
+-        return body;
+-    }
+-
+-    public javax.xml.soap.SOAPHeader getHeader() throws SOAPException {
+-        return header;
+     }
+ }

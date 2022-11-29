@@ -1,0 +1,49 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/IMMLGBenchmark.java b/test/src/main/java/org/apache/accumulo/test/IMMLGBenchmark.java
+index 6bae346644..0f00caf0ad 100644
+--- a/test/src/main/java/org/apache/accumulo/test/IMMLGBenchmark.java
++++ b/test/src/main/java/org/apache/accumulo/test/IMMLGBenchmark.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.HashSet;
+@@ -48,6 +46,7 @@ import org.apache.accumulo.core.util.Stat;
+ import org.apache.hadoop.io.Text;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ /**
+  *
+@@ -59,13 +58,13 @@ public class IMMLGBenchmark {
+ 
+     int numlg = Integer.parseInt(args[0]);
+ 
+-    ArrayList<byte[]> cfset = new ArrayList<>();
++    ArrayList<byte[]> cfset = new ArrayList<byte[]>();
+ 
+     for (int i = 0; i < 32; i++) {
+       cfset.add(String.format("%04x", i).getBytes());
+     }
+ 
+-    Map<String,Stat> stats = new TreeMap<>();
++    Map<String,Stat> stats = new TreeMap<String,Stat>();
+ 
+     for (int i = 0; i < 5; i++) {
+       runTest(conn, numlg, cfset, i > 1 ? stats : null);
+@@ -170,9 +169,9 @@ public class IMMLGBenchmark {
+       int gNum = 0;
+ 
+       Iterator<byte[]> cfiter = cfset.iterator();
+-      Map<String,Set<Text>> groups = new HashMap<>();
++      Map<String,Set<Text>> groups = new HashMap<String,Set<Text>>();
+       while (cfiter.hasNext()) {
+-        HashSet<Text> groupCols = new HashSet<>();
++        HashSet<Text> groupCols = new HashSet<Text>();
+         for (int i = 0; i < numCF && cfiter.hasNext(); i++) {
+           groupCols.add(new Text(cfiter.next()));
+         }

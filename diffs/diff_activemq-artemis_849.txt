@@ -1,0 +1,33 @@
+diff --git a/artemis-commons/src/main/java/org/apache/activemq/artemis/logs/AuditLogger.java b/artemis-commons/src/main/java/org/apache/activemq/artemis/logs/AuditLogger.java
+index e76b3c9678..5bf8bea76f 100644
+--- a/artemis-commons/src/main/java/org/apache/activemq/artemis/logs/AuditLogger.java
++++ b/artemis-commons/src/main/java/org/apache/activemq/artemis/logs/AuditLogger.java
+@@ -2242,13 +2242,6 @@ public interface AuditLogger extends BasicLogger {
+    @Message(id = 601267, value = "User {0} is creating a core session on target resource {1} {2}", format = Message.Format.MESSAGE_FORMAT)
+    void createCoreSession(String user, Object source, Object... args);
+ 
+-   static void getProducedRate(Object source) {
+-      LOGGER.getMessageCount(getCaller(), source);
+-   }
+-
+-   @LogMessage(level = Logger.Level.INFO)
+-   @Message(id = 601268, value = "User {0} is getting produced message rate on target resource: {1} {2}", format = Message.Format.MESSAGE_FORMAT)
+-   void getProducedRate(String user, Object source, Object... args);
+ 
+    //hot path log using a different logger
+    static void coreSendMessage(Object source, String user, Object... args) {
+@@ -2259,14 +2252,4 @@ public interface AuditLogger extends BasicLogger {
+    @Message(id = 601500, value = "User {0} is sending a core message on target resource: {1} {2}", format = Message.Format.MESSAGE_FORMAT)
+    void coreSendMessage(String user, Object source, Object... args);
+ 
+-
+-   static void getAcknowledgeAttempts(Object source) {
+-      LOGGER.getMessagesAcknowledged(getCaller(), source);
+-   }
+-
+-   @LogMessage(level = Logger.Level.INFO)
+-   @Message(id = 601501, value = "User {0} is getting messages acknowledged attemps on target resource: {1} {2}", format = Message.Format.MESSAGE_FORMAT)
+-   void getAcknowledgeAttempts(String user, Object source, Object... args);
+-
+-
+ }

@@ -1,0 +1,1074 @@
+diff --git a/asterix-algebra/src/main/java/org/apache/asterix/translator/LangExpressionToPlanTranslator.java b/asterix-algebra/src/main/java/org/apache/asterix/translator/LangExpressionToPlanTranslator.java
+index 9cbc88ad51..fb4e4f2a1a 100644
+--- a/asterix-algebra/src/main/java/org/apache/asterix/translator/LangExpressionToPlanTranslator.java
++++ b/asterix-algebra/src/main/java/org/apache/asterix/translator/LangExpressionToPlanTranslator.java
+@@ -21,13 +21,8 @@ package org.apache.asterix.translator;
+ import java.io.File;
+ import java.io.IOException;
+ import java.util.ArrayList;
+-import java.util.Collections;
+-import java.util.HashMap;
+-import java.util.HashSet;
+ import java.util.Iterator;
+ import java.util.List;
+-import java.util.Map;
+-import java.util.Set;
+ import java.util.concurrent.atomic.AtomicLong;
+ 
+ import org.apache.asterix.algebra.base.ILangExpressionToPlanTranslator;
+@@ -61,10 +56,8 @@ import org.apache.asterix.lang.common.expression.RecordConstructor;
+ import org.apache.asterix.lang.common.expression.UnaryExpr;
+ import org.apache.asterix.lang.common.expression.UnaryExpr.Sign;
+ import org.apache.asterix.lang.common.expression.VariableExpr;
+-import org.apache.asterix.lang.common.literal.StringLiteral;
+ import org.apache.asterix.lang.common.statement.FunctionDecl;
+ import org.apache.asterix.lang.common.statement.Query;
+-import org.apache.asterix.lang.common.struct.Identifier;
+ import org.apache.asterix.lang.common.struct.OperatorType;
+ import org.apache.asterix.lang.common.struct.QuantifiedPair;
+ import org.apache.asterix.lang.common.util.FunctionUtil;
+@@ -80,22 +73,18 @@ import org.apache.asterix.metadata.declared.ResultSetDataSink;
+ import org.apache.asterix.metadata.declared.ResultSetSinkId;
+ import org.apache.asterix.metadata.entities.Dataset;
+ import org.apache.asterix.metadata.entities.Function;
+-import org.apache.asterix.metadata.entities.InternalDatasetDetails;
+-import org.apache.asterix.metadata.feeds.FeedMetadataUtil;
+ import org.apache.asterix.metadata.functions.ExternalFunctionCompilerUtil;
+ import org.apache.asterix.metadata.utils.DatasetUtils;
++import org.apache.asterix.om.base.AOrderedList;
+ import org.apache.asterix.om.base.AString;
+ import org.apache.asterix.om.constants.AsterixConstantValue;
+ import org.apache.asterix.om.functions.AsterixBuiltinFunctions;
+ import org.apache.asterix.om.functions.AsterixFunctionInfo;
+-import org.apache.asterix.om.types.ARecordType;
+ import org.apache.asterix.om.types.IAType;
+ import org.apache.asterix.om.util.AsterixAppContextInfo;
+ import org.apache.asterix.runtime.formats.FormatUtils;
+ import org.apache.asterix.translator.CompiledStatements.CompiledLoadFromFileStatement;
+-import org.apache.asterix.translator.CompiledStatements.CompiledSubscribeFeedStatement;
+ import org.apache.asterix.translator.CompiledStatements.ICompiledDmlStatement;
+-import org.apache.asterix.translator.util.PlanTranslationUtil;
+ import org.apache.commons.lang3.mutable.Mutable;
+ import org.apache.commons.lang3.mutable.MutableObject;
+ import org.apache.hyracks.algebricks.common.exceptions.AlgebricksException;
+@@ -105,7 +94,6 @@ import org.apache.hyracks.algebricks.core.algebra.base.Counter;
+ import org.apache.hyracks.algebricks.core.algebra.base.ILogicalExpression;
+ import org.apache.hyracks.algebricks.core.algebra.base.ILogicalOperator;
+ import org.apache.hyracks.algebricks.core.algebra.base.ILogicalPlan;
+-import org.apache.hyracks.algebricks.core.algebra.base.LogicalExpressionTag;
+ import org.apache.hyracks.algebricks.core.algebra.base.LogicalOperatorTag;
+ import org.apache.hyracks.algebricks.core.algebra.base.LogicalVariable;
+ import org.apache.hyracks.algebricks.core.algebra.base.OperatorAnnotations;
+@@ -123,14 +111,13 @@ import org.apache.hyracks.algebricks.core.algebra.functions.AlgebricksBuiltinFun
+ import org.apache.hyracks.algebricks.core.algebra.functions.FunctionIdentifier;
+ import org.apache.hyracks.algebricks.core.algebra.functions.IFunctionInfo;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.AbstractLogicalOperator;
+-import org.apache.hyracks.algebricks.core.algebra.operators.logical.AbstractOperatorWithNestedPlans;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.AggregateOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.AssignOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.DataSourceScanOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.DistributeResultOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.EmptyTupleSourceOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.GroupByOperator;
+-import org.apache.hyracks.algebricks.core.algebra.operators.logical.InsertDeleteUpsertOperator;
++import org.apache.hyracks.algebricks.core.algebra.operators.logical.InsertDeleteOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.LimitOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.NestedTupleSourceOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.OrderOperator;
+@@ -141,13 +128,9 @@ import org.apache.hyracks.algebricks.core.algebra.operators.logical.SelectOperat
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.SinkOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.SubplanOperator;
+ import org.apache.hyracks.algebricks.core.algebra.operators.logical.UnnestOperator;
+-import org.apache.hyracks.algebricks.core.algebra.operators.logical.visitors.LogicalOperatorDeepCopyWithNewVariablesVisitor;
+-import org.apache.hyracks.algebricks.core.algebra.operators.logical.visitors.VariableUtilities;
+ import org.apache.hyracks.algebricks.core.algebra.plan.ALogicalPlanImpl;
+-import org.apache.hyracks.algebricks.core.algebra.properties.INodeDomain;
+ import org.apache.hyracks.algebricks.core.algebra.properties.LocalOrderProperty;
+ import org.apache.hyracks.algebricks.core.algebra.properties.OrderColumn;
+-import org.apache.hyracks.algebricks.core.algebra.util.OperatorPropertiesUtil;
+ import org.apache.hyracks.api.io.FileReference;
+ import org.apache.hyracks.dataflow.std.file.FileSplit;
+ 
+@@ -166,8 +149,9 @@ class LangExpressionToPlanTranslator
+ 
+     protected final AqlMetadataProvider metadataProvider;
+     protected final TranslationContext context;
+-    private static final AtomicLong outputFileID = new AtomicLong(0);
++    private static AtomicLong outputFileID = new AtomicLong(0);
+     private static final String OUTPUT_FILE_PREFIX = "OUTPUT_";
++    private static LogicalVariable METADATA_DUMMY_VAR = new LogicalVariable(-1);
+ 
+     public LangExpressionToPlanTranslator(AqlMetadataProvider metadataProvider, int currentVarCounter)
+             throws AlgebricksException {
+@@ -190,20 +174,14 @@ class LangExpressionToPlanTranslator
+             throw new AlgebricksException(
+                     "Unable to load dataset " + clffs.getDatasetName() + " since it does not exist");
+         }
+-        IAType itemType = metadataProvider.findType(dataset.getItemTypeDataverseName(), dataset.getItemTypeName());
+-        IAType metaItemType = metadataProvider.findType(dataset.getMetaItemTypeDataverseName(),
+-                dataset.getMetaItemTypeName());
++        IAType itemType = metadataProvider.findType(clffs.getDataverseName(), dataset.getItemTypeName());
+         DatasetDataSource targetDatasource = validateDatasetInfo(metadataProvider, stmt.getDataverseName(),
+                 stmt.getDatasetName());
+         List<List<String>> partitionKeys = DatasetUtils.getPartitioningKeys(targetDatasource.getDataset());
+-        if (dataset.hasMetaPart()) {
+-            throw new AlgebricksException(
+-                    dataset.getDatasetName() + ": load dataset is not supported on Datasets with Meta records");
+-        }
+ 
+         LoadableDataSource lds;
+         try {
+-            lds = new LoadableDataSource(dataset, itemType, metaItemType, clffs.getAdapter(), clffs.getProperties());
++            lds = new LoadableDataSource(dataset, itemType, clffs.getAdapter(), clffs.getProperties());
+         } catch (IOException e) {
+             throw new AlgebricksException(e);
+         }
+@@ -230,8 +208,7 @@ class LangExpressionToPlanTranslator
+         List<Mutable<ILogicalExpression>> varRefsForLoading = new ArrayList<Mutable<ILogicalExpression>>();
+         LogicalVariable payloadVar = payloadVars.get(0);
+         for (List<String> keyFieldName : partitionKeys) {
+-            PlanTranslationUtil.prepareVarAndExpression(keyFieldName, payloadVar, pkVars, pkExprs, varRefsForLoading,
+-                    context);
++            prepareVarAndExpression(keyFieldName, payloadVar, pkVars, pkExprs, varRefsForLoading);
+         }
+ 
+         AssignOperator assign = new AssignOperator(pkVars, pkExprs);
+@@ -255,14 +232,14 @@ class LangExpressionToPlanTranslator
+             additionalFilteringVars = new ArrayList<LogicalVariable>();
+             additionalFilteringAssignExpressions = new ArrayList<Mutable<ILogicalExpression>>();
+             additionalFilteringExpressions = new ArrayList<Mutable<ILogicalExpression>>();
+-            PlanTranslationUtil.prepareVarAndExpression(additionalFilteringField, payloadVar, additionalFilteringVars,
+-                    additionalFilteringAssignExpressions, additionalFilteringExpressions, context);
++            prepareVarAndExpression(additionalFilteringField, payloadVar, additionalFilteringVars,
++                    additionalFilteringAssignExpressions, additionalFilteringExpressions);
+             additionalFilteringAssign = new AssignOperator(additionalFilteringVars,
+                     additionalFilteringAssignExpressions);
+         }
+ 
+-        InsertDeleteUpsertOperator insertOp = new InsertDeleteUpsertOperator(targetDatasource, payloadRef,
+-                varRefsForLoading, InsertDeleteUpsertOperator.Kind.INSERT, true);
++        InsertDeleteOperator insertOp = new InsertDeleteOperator(targetDatasource, payloadRef, varRefsForLoading,
++                InsertDeleteOperator.Kind.INSERT, true);
+         insertOp.setAdditionalFilteringExpressions(additionalFilteringExpressions);
+ 
+         if (additionalFilteringAssign != null) {
+@@ -277,7 +254,6 @@ class LangExpressionToPlanTranslator
+         return new ALogicalPlanImpl(new MutableObject<ILogicalOperator>(leafOperator));
+     }
+ 
+-    @SuppressWarnings("unchecked")
+     @Override
+     public ILogicalPlan translate(Query expr, String outputDatasetName, ICompiledDmlStatement stmt)
+             throws AlgebricksException, AsterixException {
+@@ -286,7 +262,6 @@ class LangExpressionToPlanTranslator
+         ArrayList<Mutable<ILogicalOperator>> globalPlanRoots = new ArrayList<Mutable<ILogicalOperator>>();
+         ILogicalOperator topOp = p.first;
+         ProjectOperator project = (ProjectOperator) topOp;
+-        LogicalVariable unnestVar = project.getVariables().get(0);
+         LogicalVariable resVar = project.getVariables().get(0);
+ 
+         if (outputDatasetName == null) {
+@@ -311,10 +286,11 @@ class LangExpressionToPlanTranslator
+             }
+         } else {
+             /**
+-             * add the collection-to-sequence right before the project,
++             * add the collection-to-sequence right before the final project,
+              * because dataset only accept non-collection records
+              */
+             LogicalVariable seqVar = context.newVar();
++            @SuppressWarnings("unchecked")
+             /** This assign adds a marker function collection-to-sequence: if the input is a singleton collection, unnest it; otherwise do nothing. */
+             AssignOperator assignCollectionToSequence = new AssignOperator(seqVar,
+                     new MutableObject<ILogicalExpression>(new ScalarFunctionCallExpression(
+@@ -325,28 +301,17 @@ class LangExpressionToPlanTranslator
+             project.getInputs().get(0).setValue(assignCollectionToSequence);
+             project.getVariables().set(0, seqVar);
+             resVar = seqVar;
++
+             DatasetDataSource targetDatasource = validateDatasetInfo(metadataProvider, stmt.getDataverseName(),
+                     stmt.getDatasetName());
+-            List<Integer> keySourceIndicator = ((InternalDatasetDetails) targetDatasource.getDataset()
+-                    .getDatasetDetails()).getKeySourceIndicator();
+             ArrayList<LogicalVariable> vars = new ArrayList<LogicalVariable>();
+             ArrayList<Mutable<ILogicalExpression>> exprs = new ArrayList<Mutable<ILogicalExpression>>();
+             List<Mutable<ILogicalExpression>> varRefsForLoading = new ArrayList<Mutable<ILogicalExpression>>();
+             List<List<String>> partitionKeys = DatasetUtils.getPartitioningKeys(targetDatasource.getDataset());
+-            int numOfPrimaryKeys = partitionKeys.size();
+-            for (int i = 0; i < numOfPrimaryKeys; i++) {
+-                if (keySourceIndicator == null || keySourceIndicator.get(i).intValue() == 0) {
+-                    // record part
+-                    PlanTranslationUtil.prepareVarAndExpression(partitionKeys.get(i), resVar, vars, exprs,
+-                            varRefsForLoading, context);
+-                } else {
+-                    // meta part
+-                    PlanTranslationUtil.prepareMetaKeyAccessExpression(partitionKeys.get(i), unnestVar, exprs, vars,
+-                            varRefsForLoading, context);
+-                }
++            for (List<String> keyFieldName : partitionKeys) {
++                prepareVarAndExpression(keyFieldName, resVar, vars, exprs, varRefsForLoading);
+             }
+ 
+-            AssignOperator assign = new AssignOperator(vars, exprs);
+             List<String> additionalFilteringField = DatasetUtils.getFilterField(targetDatasource.getDataset());
+             List<LogicalVariable> additionalFilteringVars = null;
+             List<Mutable<ILogicalExpression>> additionalFilteringAssignExpressions = null;
+@@ -357,11 +322,16 @@ class LangExpressionToPlanTranslator
+                 additionalFilteringAssignExpressions = new ArrayList<Mutable<ILogicalExpression>>();
+                 additionalFilteringExpressions = new ArrayList<Mutable<ILogicalExpression>>();
+ 
+-                PlanTranslationUtil.prepareVarAndExpression(additionalFilteringField, resVar, additionalFilteringVars,
+-                        additionalFilteringAssignExpressions, additionalFilteringExpressions, context);
++                prepareVarAndExpression(additionalFilteringField, resVar, additionalFilteringVars,
++                        additionalFilteringAssignExpressions, additionalFilteringExpressions);
+ 
+                 additionalFilteringAssign = new AssignOperator(additionalFilteringVars,
+                         additionalFilteringAssignExpressions);
++            }
++
++            AssignOperator assign = new AssignOperator(vars, exprs);
++
++            if (additionalFilteringAssign != null) {
+                 additionalFilteringAssign.getInputs().add(new MutableObject<ILogicalOperator>(project));
+                 assign.getInputs().add(new MutableObject<ILogicalOperator>(additionalFilteringAssign));
+             } else {
+@@ -374,46 +344,17 @@ class LangExpressionToPlanTranslator
+ 
+             switch (stmt.getKind()) {
+                 case INSERT: {
+-                    if (targetDatasource.getDataset().hasMetaPart()) {
+-                        throw new AlgebricksException(targetDatasource.getDataset().getDatasetName()
+-                                + ": insert into dataset is not supported on Datasets with Meta records");
+-                    }
+-                    InsertDeleteUpsertOperator insertOp = new InsertDeleteUpsertOperator(targetDatasource, varRef,
+-                            varRefsForLoading, InsertDeleteUpsertOperator.Kind.INSERT, false);
++                    InsertDeleteOperator insertOp = new InsertDeleteOperator(targetDatasource, varRef,
++                            varRefsForLoading, InsertDeleteOperator.Kind.INSERT, false);
+                     insertOp.setAdditionalFilteringExpressions(additionalFilteringExpressions);
+                     insertOp.getInputs().add(new MutableObject<ILogicalOperator>(assign));
+                     leafOperator = new SinkOperator();
+                     leafOperator.getInputs().add(new MutableObject<ILogicalOperator>(insertOp));
+                     break;
+                 }
+-                case UPSERT: {
+-                    if (targetDatasource.getDataset().hasMetaPart()) {
+-                        throw new AlgebricksException(targetDatasource.getDataset().getDatasetName()
+-                                + ": upsert into dataset is not supported on Datasets with Meta records");
+-                    }
+-                    InsertDeleteUpsertOperator upsertOp = new InsertDeleteUpsertOperator(targetDatasource, varRef,
+-                            varRefsForLoading, InsertDeleteUpsertOperator.Kind.UPSERT, false);
+-                    upsertOp.setAdditionalFilteringExpressions(additionalFilteringExpressions);
+-                    upsertOp.getInputs().add(new MutableObject<ILogicalOperator>(assign));
+-                    // Create and add a new variable used for representing the original record
+-                    ARecordType recordType = (ARecordType) targetDatasource.getItemType();
+-                    upsertOp.setPrevRecordVar(context.newVar());
+-                    upsertOp.setPrevRecordType(recordType);
+-                    if (additionalFilteringField != null) {
+-                        upsertOp.setPrevFilterVar(context.newVar());
+-                        upsertOp.setPrevFilterType(recordType.getFieldType(additionalFilteringField.get(0)));
+-                    }
+-                    leafOperator = new SinkOperator();
+-                    leafOperator.getInputs().add(new MutableObject<ILogicalOperator>(upsertOp));
+-                    break;
+-                }
+                 case DELETE: {
+-                    if (targetDatasource.getDataset().hasMetaPart()) {
+-                        throw new AlgebricksException(targetDatasource.getDataset().getDatasetName()
+-                                + ": delete from dataset is not supported on Datasets with Meta records");
+-                    }
+-                    InsertDeleteUpsertOperator deleteOp = new InsertDeleteUpsertOperator(targetDatasource, varRef,
+-                            varRefsForLoading, InsertDeleteUpsertOperator.Kind.DELETE, false);
++                    InsertDeleteOperator deleteOp = new InsertDeleteOperator(targetDatasource, varRef,
++                            varRefsForLoading, InsertDeleteOperator.Kind.DELETE, false);
+                     deleteOp.setAdditionalFilteringExpressions(additionalFilteringExpressions);
+                     deleteOp.getInputs().add(new MutableObject<ILogicalOperator>(assign));
+                     leafOperator = new SinkOperator();
+@@ -421,8 +362,8 @@ class LangExpressionToPlanTranslator
+                     break;
+                 }
+                 case CONNECT_FEED: {
+-                    InsertDeleteUpsertOperator insertOp = new InsertDeleteUpsertOperator(targetDatasource, varRef,
+-                            varRefsForLoading, InsertDeleteUpsertOperator.Kind.INSERT, false);
++                    InsertDeleteOperator insertOp = new InsertDeleteOperator(targetDatasource, varRef,
++                            varRefsForLoading, InsertDeleteOperator.Kind.INSERT, false);
+                     insertOp.setAdditionalFilteringExpressions(additionalFilteringExpressions);
+                     insertOp.getInputs().add(new MutableObject<ILogicalOperator>(assign));
+                     leafOperator = new SinkOperator();
+@@ -430,77 +371,11 @@ class LangExpressionToPlanTranslator
+                     break;
+                 }
+                 case SUBSCRIBE_FEED: {
+-                    // if the feed is a change feed (i.e, performs different operations), we need to project op variable
+-                    CompiledSubscribeFeedStatement sfs = (CompiledSubscribeFeedStatement) stmt;
+-                    InsertDeleteUpsertOperator feedModificationOp;
+-                    AssignOperator metaAndKeysAssign = null;
+-                    List<LogicalVariable> metaAndKeysVars = null;
+-                    List<Mutable<ILogicalExpression>> metaAndKeysExprs = null;
+-                    List<Mutable<ILogicalExpression>> metaExpSingletonList = null;
+-                    boolean isChangeFeed = FeedMetadataUtil.isChangeFeed(metadataProvider, sfs.getDataverseName(),
+-                            sfs.getFeedName());
+-                    if (targetDatasource.getDataset().hasMetaPart() || isChangeFeed) {
+-                        metaAndKeysVars = new ArrayList<>();
+-                        metaAndKeysExprs = new ArrayList<>();
+-                    }
+-                    if (targetDatasource.getDataset().hasMetaPart()) {
+-                        // add the meta function
+-                        IFunctionInfo finfoMeta = FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.META);
+-                        ScalarFunctionCallExpression metaFunction = new ScalarFunctionCallExpression(finfoMeta,
+-                                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(unnestVar)));
+-                        // create assign for the meta part
+-                        LogicalVariable metaVar = context.newVar();
+-                        metaExpSingletonList = new ArrayList<>(1);
+-                        metaExpSingletonList
+-                                .add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(metaVar)));
+-                        metaAndKeysVars.add(metaVar);
+-                        metaAndKeysExprs.add(new MutableObject<ILogicalExpression>(metaFunction));
+-                        project.getVariables().add(metaVar);
+-                    }
+-                    if (isChangeFeed) {
+-                        varRefsForLoading.clear();
+-                        for (Mutable<ILogicalExpression> assignExpr : exprs) {
+-                            if (assignExpr.getValue().getExpressionTag() == LogicalExpressionTag.FUNCTION_CALL) {
+-                                AbstractFunctionCallExpression funcCall = (AbstractFunctionCallExpression) assignExpr
+-                                        .getValue();
+-                                funcCall.substituteVar(resVar, unnestVar);
+-                                LogicalVariable pkVar = context.newVar();
+-                                metaAndKeysVars.add(pkVar);
+-                                metaAndKeysExprs.add(new MutableObject<ILogicalExpression>(assignExpr.getValue()));
+-                                project.getVariables().add(pkVar);
+-                                varRefsForLoading.add(
+-                                        new MutableObject<ILogicalExpression>(new VariableReferenceExpression(pkVar)));
+-                            }
+-                        }
+-                        // A change feed, we don't need the assign to access PKs
+-                        feedModificationOp = new InsertDeleteUpsertOperator(targetDatasource, varRef, varRefsForLoading,
+-                                metaExpSingletonList, InsertDeleteUpsertOperator.Kind.UPSERT, false);
+-                        // Create and add a new variable used for representing the original record
+-                        feedModificationOp.setPrevRecordVar(context.newVar());
+-                        feedModificationOp.setPrevRecordType(targetDatasource.getItemType());
+-                        if (additionalFilteringField != null) {
+-                            feedModificationOp.setPrevFilterVar(context.newVar());
+-                            feedModificationOp.setPrevFilterType(((ARecordType) targetDatasource.getItemType())
+-                                    .getFieldType(additionalFilteringField.get(0)));
+-                            additionalFilteringAssign.getInputs().clear();
+-                            additionalFilteringAssign.getInputs().add(assign.getInputs().get(0));
+-                            feedModificationOp.getInputs().add(new MutableObject<>(additionalFilteringAssign));
+-                        } else {
+-                            feedModificationOp.getInputs().add(assign.getInputs().get(0));
+-                        }
+-                    } else {
+-                        feedModificationOp = new InsertDeleteUpsertOperator(targetDatasource, varRef, varRefsForLoading,
+-                                metaExpSingletonList, InsertDeleteUpsertOperator.Kind.INSERT, false);
+-                        feedModificationOp.getInputs().add(new MutableObject<ILogicalOperator>(assign));
+-                    }
+-                    if (targetDatasource.getDataset().hasMetaPart() || isChangeFeed) {
+-                        metaAndKeysAssign = new AssignOperator(metaAndKeysVars, metaAndKeysExprs);
+-                        metaAndKeysAssign.getInputs().add(project.getInputs().get(0));
+-                        project.getInputs().set(0, new MutableObject<ILogicalOperator>(metaAndKeysAssign));
+-                    }
+-                    feedModificationOp.setAdditionalFilteringExpressions(additionalFilteringExpressions);
++                    ILogicalOperator insertOp = new InsertDeleteOperator(targetDatasource, varRef, varRefsForLoading,
++                            InsertDeleteOperator.Kind.INSERT, false);
++                    insertOp.getInputs().add(new MutableObject<ILogicalOperator>(assign));
+                     leafOperator = new SinkOperator();
+-                    leafOperator.getInputs().add(new MutableObject<ILogicalOperator>(feedModificationOp));
++                    leafOperator.getInputs().add(new MutableObject<ILogicalOperator>(insertOp));
+                     break;
+                 }
+                 default:
+@@ -510,10 +385,36 @@ class LangExpressionToPlanTranslator
+         }
+         globalPlanRoots.add(new MutableObject<ILogicalOperator>(topOp));
+         ILogicalPlan plan = new ALogicalPlanImpl(globalPlanRoots);
+-        eliminateSharedOperatorReferenceForPlan(plan);
+         return plan;
+     }
+ 
++    @SuppressWarnings("unchecked")
++    private void prepareVarAndExpression(List<String> field, LogicalVariable resVar,
++            List<LogicalVariable> additionalFilteringVars,
++            List<Mutable<ILogicalExpression>> additionalFilteringAssignExpressions,
++            List<Mutable<ILogicalExpression>> varRefs) {
++        IFunctionInfo finfoAccess;
++        ScalarFunctionCallExpression f;
++        if (field.size() > 1) {
++            finfoAccess = FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.FIELD_ACCESS_NESTED);
++            f = new ScalarFunctionCallExpression(finfoAccess,
++                    new MutableObject<ILogicalExpression>(new VariableReferenceExpression(METADATA_DUMMY_VAR)),
++                    new MutableObject<ILogicalExpression>(
++                            new ConstantExpression(new AsterixConstantValue(new AOrderedList(field)))));
++        } else {
++            finfoAccess = FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.FIELD_ACCESS_BY_NAME);
++            f = new ScalarFunctionCallExpression(finfoAccess,
++                    new MutableObject<ILogicalExpression>(new VariableReferenceExpression(METADATA_DUMMY_VAR)),
++                    new MutableObject<ILogicalExpression>(
++                            new ConstantExpression(new AsterixConstantValue(new AString(field.get(0))))));
++        }
++        f.substituteVar(METADATA_DUMMY_VAR, resVar);
++        additionalFilteringAssignExpressions.add(new MutableObject<ILogicalExpression>(f));
++        LogicalVariable v = context.newVar();
++        additionalFilteringVars.add(v);
++        varRefs.add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(v)));
++    }
++
+     private DatasetDataSource validateDatasetInfo(AqlMetadataProvider metadataProvider, String dataverseName,
+             String datasetName) throws AlgebricksException {
+         Dataset dataset = metadataProvider.findDataset(dataverseName, datasetName);
+@@ -524,12 +425,11 @@ class LangExpressionToPlanTranslator
+             throw new AlgebricksException("Cannot write output to an external dataset.");
+         }
+         AqlSourceId sourceId = new AqlSourceId(dataverseName, datasetName);
+-        IAType itemType = metadataProvider.findType(dataset.getItemTypeDataverseName(), dataset.getItemTypeName());
+-        IAType metaItemType = metadataProvider.findType(dataset.getMetaItemTypeDataverseName(),
+-                dataset.getMetaItemTypeName());
+-        INodeDomain domain = metadataProvider.findNodeDomain(dataset.getNodeGroupName());
+-        DatasetDataSource dataSource = new DatasetDataSource(sourceId, dataset, itemType, metaItemType,
+-                AqlDataSourceType.INTERNAL_DATASET, dataset.getDatasetDetails(), domain);
++        String itemTypeName = dataset.getItemTypeName();
++        IAType itemType = metadataProvider.findType(dataverseName, itemTypeName);
++        DatasetDataSource dataSource = new DatasetDataSource(sourceId, dataset.getDataverseName(),
++                dataset.getDatasetName(), itemType, AqlDataSourceType.INTERNAL_DATASET);
++
+         return dataSource;
+     }
+ 
+@@ -558,7 +458,7 @@ class LangExpressionToPlanTranslator
+             }
+             default: {
+                 v = context.newVar(lc.getVarExpr());
+-                Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = langExprToAlgExpression(lc.getBindingExpr(),
++                Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = aqlExprToAlgExpression(lc.getBindingExpr(),
+                         tupSource);
+                 returnedOp = new AssignOperator(v, new MutableObject<ILogicalExpression>(eo.first));
+                 returnedOp.getInputs().add(eo.second);
+@@ -571,7 +471,7 @@ class LangExpressionToPlanTranslator
+     @Override
+     public Pair<ILogicalOperator, LogicalVariable> visit(FieldAccessor fa, Mutable<ILogicalOperator> tupSource)
+             throws AsterixException {
+-        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = langExprToAlgExpression(fa.getExpr(), tupSource);
++        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = aqlExprToAlgExpression(fa.getExpr(), tupSource);
+         LogicalVariable v = context.newVar();
+         AbstractFunctionCallExpression fldAccess = new ScalarFunctionCallExpression(
+                 FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.FIELD_ACCESS_BY_NAME));
+@@ -587,7 +487,7 @@ class LangExpressionToPlanTranslator
+     @Override
+     public Pair<ILogicalOperator, LogicalVariable> visit(IndexAccessor ia, Mutable<ILogicalOperator> tupSource)
+             throws AsterixException {
+-        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = langExprToAlgExpression(ia.getExpr(), tupSource);
++        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = aqlExprToAlgExpression(ia.getExpr(), tupSource);
+         LogicalVariable v = context.newVar();
+         AbstractFunctionCallExpression f;
+         if (ia.isAny()) {
+@@ -595,7 +495,7 @@ class LangExpressionToPlanTranslator
+                     FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.ANY_COLLECTION_MEMBER));
+             f.getArguments().add(new MutableObject<ILogicalExpression>(p.first));
+         } else {
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> indexPair = langExprToAlgExpression(ia.getIndexExpr(),
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> indexPair = aqlExprToAlgExpression(ia.getIndexExpr(),
+                     tupSource);
+             f = new ScalarFunctionCallExpression(FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.GET_ITEM));
+             f.getArguments().add(new MutableObject<ILogicalExpression>(p.first));
+@@ -628,7 +528,7 @@ class LangExpressionToPlanTranslator
+                     break;
+                 }
+                 default: {
+-                    Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = langExprToAlgExpression(expr, topOp);
++                    Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = aqlExprToAlgExpression(expr, topOp);
+                     AbstractLogicalOperator o1 = (AbstractLogicalOperator) eo.second.getValue();
+                     args.add(new MutableObject<ILogicalExpression>(eo.first));
+                     if (o1 != null && !(o1.getOperatorTag() == LogicalOperatorTag.ASSIGN && hasOnlyChild(o1, topOp))) {
+@@ -721,98 +621,58 @@ class LangExpressionToPlanTranslator
+         throw new IllegalStateException("Function declarations should be inlined at AST rewriting phase.");
+     }
+ 
+-    @SuppressWarnings("unchecked")
+     @Override
+     public Pair<ILogicalOperator, LogicalVariable> visit(GroupbyClause gc, Mutable<ILogicalOperator> tupSource)
+             throws AsterixException {
++        GroupByOperator gOp = new GroupByOperator();
+         Mutable<ILogicalOperator> topOp = tupSource;
+-        if (gc.hasGroupVar()) {
+-            List<Pair<Expression, Identifier>> groupFieldList = gc.getGroupFieldList();
+-            List<Mutable<ILogicalExpression>> groupRecordConstructorArgList = new ArrayList<>();
+-            for (Pair<Expression, Identifier> groupField : groupFieldList) {
+-                ILogicalExpression groupFieldNameExpr = langExprToAlgExpression(
+-                        new LiteralExpr(new StringLiteral(groupField.second.getValue())), topOp).first;
+-                groupRecordConstructorArgList.add(new MutableObject<ILogicalExpression>(groupFieldNameExpr));
+-                ILogicalExpression groupFieldExpr = langExprToAlgExpression(groupField.first, topOp).first;
+-                groupRecordConstructorArgList.add(new MutableObject<ILogicalExpression>(groupFieldExpr));
++        for (GbyVariableExpressionPair ve : gc.getGbyPairList()) {
++            LogicalVariable v;
++            VariableExpr vexpr = ve.getVar();
++            if (vexpr != null) {
++                v = context.newVar(vexpr);
++            } else {
++                v = context.newVar();
+             }
+-            LogicalVariable groupVar = context.newVar(gc.getGroupVar());
+-            AssignOperator groupVarAssignOp = new AssignOperator(groupVar,
+-                    new MutableObject<ILogicalExpression>(new ScalarFunctionCallExpression(
+-                            FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.OPEN_RECORD_CONSTRUCTOR),
+-                            groupRecordConstructorArgList)));
+-            groupVarAssignOp.getInputs().add(topOp);
+-            topOp = new MutableObject<ILogicalOperator>(groupVarAssignOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = aqlExprToAlgExpression(ve.getExpr(), topOp);
++            gOp.addGbyExpression(v, eo.first);
++            topOp = eo.second;
+         }
+-        if (gc.isGroupAll()) {
+-            List<LogicalVariable> aggVars = new ArrayList<>();
+-            List<Mutable<ILogicalExpression>> aggFuncs = new ArrayList<>();
+-            for (VariableExpr var : gc.getWithVarList()) {
+-                LogicalVariable aggVar = context.newVar();
+-                LogicalVariable oldVar = context.getVar(var);
+-                List<Mutable<ILogicalExpression>> flArgs = new ArrayList<Mutable<ILogicalExpression>>();
+-                flArgs.add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(oldVar)));
+-                AggregateFunctionCallExpression fListify = AsterixBuiltinFunctions
+-                        .makeAggregateFunctionExpression(AsterixBuiltinFunctions.LISTIFY, flArgs);
+-                aggVars.add(aggVar);
+-                aggFuncs.add(new MutableObject<ILogicalExpression>(fListify));
+-                // Hide the variable that was part of the "with", replacing it with
+-                // the one bound by the aggregation op.
+-                context.setVar(var, aggVar);
+-            }
+-            AggregateOperator aggOp = new AggregateOperator(aggVars, aggFuncs);
+-            aggOp.getInputs().add(topOp);
+-            return new Pair<ILogicalOperator, LogicalVariable>(aggOp, null);
+-        } else {
+-            GroupByOperator gOp = new GroupByOperator();
+-            for (GbyVariableExpressionPair ve : gc.getGbyPairList()) {
+-                LogicalVariable v;
+-                VariableExpr vexpr = ve.getVar();
+-                if (vexpr != null) {
+-                    v = context.newVar(vexpr);
+-                } else {
+-                    v = context.newVar();
+-                }
+-                Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = langExprToAlgExpression(ve.getExpr(), topOp);
+-                gOp.addGbyExpression(v, eo.first);
+-                topOp = eo.second;
+-            }
+-            for (GbyVariableExpressionPair ve : gc.getDecorPairList()) {
+-                LogicalVariable v;
+-                VariableExpr vexpr = ve.getVar();
+-                if (vexpr != null) {
+-                    v = context.newVar(vexpr);
+-                } else {
+-                    v = context.newVar();
+-                }
+-                Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = langExprToAlgExpression(ve.getExpr(), topOp);
+-                gOp.addDecorExpression(v, eo.first);
+-                topOp = eo.second;
+-            }
+-
+-            gOp.getInputs().add(topOp);
+-            for (VariableExpr var : gc.getWithVarList()) {
+-                LogicalVariable aggVar = context.newVar();
+-                LogicalVariable oldVar = context.getVar(var);
+-                List<Mutable<ILogicalExpression>> flArgs = new ArrayList<Mutable<ILogicalExpression>>(1);
+-                flArgs.add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(oldVar)));
+-                AggregateFunctionCallExpression fListify = AsterixBuiltinFunctions
+-                        .makeAggregateFunctionExpression(AsterixBuiltinFunctions.LISTIFY, flArgs);
+-                AggregateOperator agg = new AggregateOperator(mkSingletonArrayList(aggVar),
+-                        (List) mkSingletonArrayList(new MutableObject<ILogicalExpression>(fListify)));
+-
+-                agg.getInputs().add(new MutableObject<ILogicalOperator>(
+-                        new NestedTupleSourceOperator(new MutableObject<ILogicalOperator>(gOp))));
+-                ILogicalPlan plan = new ALogicalPlanImpl(new MutableObject<ILogicalOperator>(agg));
+-                gOp.getNestedPlans().add(plan);
+-                // Hide the variable that was part of the "with", replacing it with
+-                // the one bound by the aggregation op.
+-                context.setVar(var, aggVar);
++        for (GbyVariableExpressionPair ve : gc.getDecorPairList()) {
++            LogicalVariable v;
++            VariableExpr vexpr = ve.getVar();
++            if (vexpr != null) {
++                v = context.newVar(vexpr);
++            } else {
++                v = context.newVar();
+             }
+-            gOp.getAnnotations().put(OperatorAnnotations.USE_HASH_GROUP_BY, gc.hasHashGroupByHint());
+-            return new Pair<ILogicalOperator, LogicalVariable>(gOp, null);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = aqlExprToAlgExpression(ve.getExpr(), topOp);
++            gOp.addDecorExpression(v, eo.first);
++            topOp = eo.second;
++        }
++        gOp.getInputs().add(topOp);
++
++        for (VariableExpr var : gc.getWithVarList()) {
++            LogicalVariable aggVar = context.newVar();
++            LogicalVariable oldVar = context.getVar(var);
++            List<Mutable<ILogicalExpression>> flArgs = new ArrayList<Mutable<ILogicalExpression>>(1);
++            flArgs.add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(oldVar)));
++            AggregateFunctionCallExpression fListify = AsterixBuiltinFunctions
++                    .makeAggregateFunctionExpression(AsterixBuiltinFunctions.LISTIFY, flArgs);
++            AggregateOperator agg = new AggregateOperator(mkSingletonArrayList(aggVar),
++                    (List) mkSingletonArrayList(new MutableObject<ILogicalExpression>(fListify)));
++
++            agg.getInputs().add(new MutableObject<ILogicalOperator>(
++                    new NestedTupleSourceOperator(new MutableObject<ILogicalOperator>(gOp))));
++            ILogicalPlan plan = new ALogicalPlanImpl(new MutableObject<ILogicalOperator>(agg));
++            gOp.getNestedPlans().add(plan);
++            // Hide the variable that was part of the "with", replacing it with
++            // the one bound by the aggregation op.
++            context.setVar(var, aggVar);
+         }
+ 
++        gOp.getAnnotations().put(OperatorAnnotations.USE_HASH_GROUP_BY, gc.hasHashGroupByHint());
++        return new Pair<ILogicalOperator, LogicalVariable>(gOp, null);
+     }
+ 
+     @Override
+@@ -826,49 +686,50 @@ class LangExpressionToPlanTranslator
+         // on top of which there is a selection whose condition is varCond.
+         // Similarly, we create one subplan for the "else" branch, in which the
+         // selection is not(varCond).
+-        // Finally, we select the desired result.
++        // Finally, we concatenate the results. (??)
++
+         Pair<ILogicalOperator, LogicalVariable> pCond = ifexpr.getCondExpr().accept(this, tupSource);
++        ILogicalOperator opCond = pCond.first;
+         LogicalVariable varCond = pCond.second;
+ 
+-        //Creates a subplan for the "then" branch.
+-        Pair<ILogicalOperator, LogicalVariable> opAndVarForThen = constructSubplanOperatorForBranch(pCond.first,
+-                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(varCond)), ifexpr.getThenExpr());
++        SubplanOperator sp = new SubplanOperator();
++
++        Mutable<ILogicalOperator> nestedSource = new MutableObject<ILogicalOperator>(
++                new NestedTupleSourceOperator(new MutableObject<ILogicalOperator>(sp)));
++
++        // Enters/exists subplan for the then-expr and the else-expr respectively.
++        context.enterSubplan();
++        Pair<ILogicalOperator, LogicalVariable> pThen = ifexpr.getThenExpr().accept(this, nestedSource);
++        SelectOperator sel1 = new SelectOperator(
++                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(varCond)), false, null);
++        sel1.getInputs().add(new MutableObject<ILogicalOperator>(pThen.first));
++        context.existSubplan();
+ 
+-        // Creates a subplan for the "else" branch.
++        context.enterSubplan();
++        Pair<ILogicalOperator, LogicalVariable> pElse = ifexpr.getElseExpr().accept(this, nestedSource);
+         AbstractFunctionCallExpression notVarCond = new ScalarFunctionCallExpression(
+-                FunctionUtil.getFunctionInfo(AlgebricksBuiltinFunctions.NOT), Collections.singletonList(
+-                        new MutableObject<ILogicalExpression>(new VariableReferenceExpression(varCond))));
+-        Pair<ILogicalOperator, LogicalVariable> opAndVarForElse = constructSubplanOperatorForBranch(
+-                opAndVarForThen.first, new MutableObject<ILogicalExpression>(notVarCond), ifexpr.getElseExpr());
+-
+-        // Uses switch-case function to select the results of two branches.
+-        LogicalVariable selectVar = context.newVar();
+-        List<Mutable<ILogicalExpression>> arguments = new ArrayList<>();
+-        arguments.add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(varCond)));
+-        arguments.add(new MutableObject<ILogicalExpression>(ConstantExpression.TRUE));
+-        arguments.add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(opAndVarForThen.second)));
+-        arguments.add(new MutableObject<ILogicalExpression>(ConstantExpression.FALSE));
+-        arguments.add(new MutableObject<ILogicalExpression>(new VariableReferenceExpression(opAndVarForElse.second)));
+-        AbstractFunctionCallExpression swithCaseExpr = new ScalarFunctionCallExpression(
+-                FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.SWITCH_CASE), arguments);
+-        AssignOperator assignOp = new AssignOperator(selectVar, new MutableObject<ILogicalExpression>(swithCaseExpr));
+-        assignOp.getInputs().add(new MutableObject<ILogicalOperator>(opAndVarForElse.first));
+-
+-        // Unnests the selected ("if" or "else") result.
+-        LogicalVariable unnestVar = context.newVar();
+-        UnnestOperator unnestOp = new UnnestOperator(unnestVar,
+-                new MutableObject<ILogicalExpression>(new UnnestingFunctionCallExpression(
+-                        FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.SCAN_COLLECTION),
+-                        Collections.singletonList(
+-                                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(selectVar))))));
+-        unnestOp.getInputs().add(new MutableObject<ILogicalOperator>(assignOp));
+-
+-        // Produces the final result.
+-        LogicalVariable resultVar = context.newVar();
+-        AssignOperator finalAssignOp = new AssignOperator(resultVar,
+-                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(unnestVar)));
+-        finalAssignOp.getInputs().add(new MutableObject<ILogicalOperator>(unnestOp));
+-        return new Pair<ILogicalOperator, LogicalVariable>(finalAssignOp, resultVar);
++                FunctionUtil.getFunctionInfo(AlgebricksBuiltinFunctions.NOT),
++                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(varCond)));
++        SelectOperator sel2 = new SelectOperator(new MutableObject<ILogicalExpression>(notVarCond), false, null);
++        sel2.getInputs().add(new MutableObject<ILogicalOperator>(pElse.first));
++        context.existSubplan();
++
++        ILogicalPlan p1 = new ALogicalPlanImpl(new MutableObject<ILogicalOperator>(sel1));
++        sp.getNestedPlans().add(p1);
++        ILogicalPlan p2 = new ALogicalPlanImpl(new MutableObject<ILogicalOperator>(sel2));
++        sp.getNestedPlans().add(p2);
++
++        Mutable<ILogicalOperator> opCondRef = new MutableObject<ILogicalOperator>(opCond);
++        sp.getInputs().add(opCondRef);
++
++        LogicalVariable resV = context.newVar();
++        AbstractFunctionCallExpression concatNonNull = new ScalarFunctionCallExpression(
++                FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.CONCAT_NON_NULL),
++                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(pThen.second)),
++                new MutableObject<ILogicalExpression>(new VariableReferenceExpression(pElse.second)));
++        AssignOperator a = new AssignOperator(resV, new MutableObject<ILogicalExpression>(concatNonNull));
++        a.getInputs().add(new MutableObject<ILogicalOperator>(sp));
++        return new Pair<ILogicalOperator, LogicalVariable>(a, resV);
+     }
+ 
+     @Override
+@@ -899,7 +760,7 @@ class LangExpressionToPlanTranslator
+         ILogicalExpression currExpr = null;
+         for (int i = 0; i <= nOps; i++) {
+ 
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = langExprToAlgExpression(exprs.get(i), topOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = aqlExprToAlgExpression(exprs.get(i), topOp);
+             topOp = p.second;
+             ILogicalExpression e = p.first;
+             // now look at the operator
+@@ -953,7 +814,7 @@ class LangExpressionToPlanTranslator
+         }
+ 
+         // Add hints as annotations.
+-        if (op.hasHints() && (currExpr instanceof AbstractFunctionCallExpression)) {
++        if (op.hasHints() && currExpr instanceof AbstractFunctionCallExpression) {
+             AbstractFunctionCallExpression currFuncExpr = (AbstractFunctionCallExpression) currExpr;
+             for (IExpressionAnnotation hint : op.getHints()) {
+                 currFuncExpr.getAnnotations().put(hint, hint);
+@@ -975,7 +836,7 @@ class LangExpressionToPlanTranslator
+         Iterator<OrderModifier> modifIter = oc.getModifierList().iterator();
+         Mutable<ILogicalOperator> topOp = tupSource;
+         for (Expression e : oc.getOrderbyList()) {
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = langExprToAlgExpression(e, topOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = aqlExprToAlgExpression(e, topOp);
+             OrderModifier m = modifIter.next();
+             OrderOperator.IOrder comp = (m == OrderModifier.ASC) ? OrderOperator.ASC_ORDER : OrderOperator.DESC_ORDER;
+             ord.getOrderExpressions().add(new Pair<IOrder, Mutable<ILogicalExpression>>(comp,
+@@ -1007,7 +868,7 @@ class LangExpressionToPlanTranslator
+         Mutable<ILogicalOperator> lastOp = null;
+ 
+         for (QuantifiedPair qt : qe.getQuantifiedList()) {
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo1 = langExprToAlgExpression(qt.getExpr(), topOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo1 = aqlExprToAlgExpression(qt.getExpr(), topOp);
+             topOp = eo1.second;
+             LogicalVariable uVar = context.newVar(qt.getVarExpr());
+             ILogicalOperator u = new UnnestOperator(uVar,
+@@ -1027,7 +888,7 @@ class LangExpressionToPlanTranslator
+         firstOp.getInputs().add(topOp);
+         topOp = lastOp;
+ 
+-        Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo2 = langExprToAlgExpression(qe.getSatisfiesExpr(), topOp);
++        Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo2 = aqlExprToAlgExpression(qe.getSatisfiesExpr(), topOp);
+ 
+         AggregateFunctionCallExpression fAgg;
+         SelectOperator s;
+@@ -1067,10 +928,10 @@ class LangExpressionToPlanTranslator
+         AssignOperator a = new AssignOperator(v1, new MutableObject<ILogicalExpression>(f));
+         Mutable<ILogicalOperator> topOp = tupSource;
+         for (FieldBinding fb : rc.getFbList()) {
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo1 = langExprToAlgExpression(fb.getLeftExpr(), topOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo1 = aqlExprToAlgExpression(fb.getLeftExpr(), topOp);
+             f.getArguments().add(new MutableObject<ILogicalExpression>(eo1.first));
+             topOp = eo1.second;
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo2 = langExprToAlgExpression(fb.getRightExpr(), topOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo2 = aqlExprToAlgExpression(fb.getRightExpr(), topOp);
+             f.getArguments().add(new MutableObject<ILogicalExpression>(eo2.first));
+             topOp = eo2.second;
+         }
+@@ -1088,7 +949,7 @@ class LangExpressionToPlanTranslator
+         AssignOperator a = new AssignOperator(v1, new MutableObject<ILogicalExpression>(f));
+         Mutable<ILogicalOperator> topOp = tupSource;
+         for (Expression expr : lc.getExprList()) {
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = langExprToAlgExpression(expr, topOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = aqlExprToAlgExpression(expr, topOp);
+             f.getArguments().add(new MutableObject<ILogicalExpression>(eo.first));
+             topOp = eo.second;
+         }
+@@ -1100,7 +961,7 @@ class LangExpressionToPlanTranslator
+     public Pair<ILogicalOperator, LogicalVariable> visit(UnaryExpr u, Mutable<ILogicalOperator> tupSource)
+             throws AsterixException {
+         Expression expr = u.getExpr();
+-        Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = langExprToAlgExpression(expr, tupSource);
++        Pair<ILogicalExpression, Mutable<ILogicalOperator>> eo = aqlExprToAlgExpression(expr, tupSource);
+         LogicalVariable v1 = context.newVar();
+         AssignOperator a;
+         if (u.getSign() == Sign.POSITIVE) {
+@@ -1129,7 +990,7 @@ class LangExpressionToPlanTranslator
+     @Override
+     public Pair<ILogicalOperator, LogicalVariable> visit(WhereClause w, Mutable<ILogicalOperator> tupSource)
+             throws AsterixException {
+-        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = langExprToAlgExpression(w.getWhereExpr(), tupSource);
++        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = aqlExprToAlgExpression(w.getWhereExpr(), tupSource);
+         SelectOperator s = new SelectOperator(new MutableObject<ILogicalExpression>(p.first), false, null);
+         s.getInputs().add(p.second);
+         return new Pair<ILogicalOperator, LogicalVariable>(s, null);
+@@ -1138,11 +999,11 @@ class LangExpressionToPlanTranslator
+     @Override
+     public Pair<ILogicalOperator, LogicalVariable> visit(LimitClause lc, Mutable<ILogicalOperator> tupSource)
+             throws AsterixException {
+-        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p1 = langExprToAlgExpression(lc.getLimitExpr(), tupSource);
++        Pair<ILogicalExpression, Mutable<ILogicalOperator>> p1 = aqlExprToAlgExpression(lc.getLimitExpr(), tupSource);
+         LimitOperator opLim;
+         Expression offset = lc.getOffset();
+         if (offset != null) {
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p2 = langExprToAlgExpression(offset, p1.second);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p2 = aqlExprToAlgExpression(offset, p1.second);
+             opLim = new LimitOperator(p1.first, p2.first);
+             opLim.getInputs().add(p2.second);
+         } else {
+@@ -1245,41 +1106,36 @@ class LangExpressionToPlanTranslator
+         return inp.get(0) == childCandidate;
+     }
+ 
+-    protected Pair<ILogicalExpression, Mutable<ILogicalOperator>> langExprToAlgExpression(Expression expr,
+-            Mutable<ILogicalOperator> topOpRef) throws AsterixException {
++    protected Pair<ILogicalExpression, Mutable<ILogicalOperator>> aqlExprToAlgExpression(Expression expr,
++            Mutable<ILogicalOperator> topOp) throws AsterixException {
+         switch (expr.getKind()) {
+             case VARIABLE_EXPRESSION: {
+                 VariableReferenceExpression ve = new VariableReferenceExpression(
+                         context.getVar(((VariableExpr) expr).getVar().getId()));
+-                return new Pair<ILogicalExpression, Mutable<ILogicalOperator>>(ve, topOpRef);
++                return new Pair<ILogicalExpression, Mutable<ILogicalOperator>>(ve, topOp);
+             }
+             case LITERAL_EXPRESSION: {
+                 LiteralExpr val = (LiteralExpr) expr;
+                 return new Pair<ILogicalExpression, Mutable<ILogicalOperator>>(new ConstantExpression(
+-                        new AsterixConstantValue(ConstantHelper.objectFromLiteral(val.getValue()))), topOpRef);
++                        new AsterixConstantValue(ConstantHelper.objectFromLiteral(val.getValue()))), topOp);
+             }
+             default: {
+                 if (expressionNeedsNoNesting(expr)) {
+-                    Pair<ILogicalOperator, LogicalVariable> p = expr.accept(this, topOpRef);
++                    Pair<ILogicalOperator, LogicalVariable> p = expr.accept(this, topOp);
+                     ILogicalExpression exp = ((AssignOperator) p.first).getExpressions().get(0).getValue();
+                     return new Pair<ILogicalExpression, Mutable<ILogicalOperator>>(exp, p.first.getInputs().get(0));
+                 } else {
+-                    Mutable<ILogicalOperator> srcRef = new MutableObject<ILogicalOperator>();
+-                    Pair<ILogicalOperator, LogicalVariable> p = expr.accept(this, srcRef);
+-                    if (p.first.getOperatorTag() == LogicalOperatorTag.SUBPLAN) {
+-                        if (topOpRef.getValue() != null) {
+-                            srcRef.setValue(topOpRef.getValue());
+-                        } else {
+-                            // Re-binds the bottom operator reference to {@code topOpRef}.
+-                            rebindBottomOpRef(p.first, srcRef, topOpRef);
+-                        }
++                    Mutable<ILogicalOperator> src = new MutableObject<ILogicalOperator>();
++                    Pair<ILogicalOperator, LogicalVariable> p = expr.accept(this, src);
++                    if (((AbstractLogicalOperator) p.first).getOperatorTag() == LogicalOperatorTag.SUBPLAN) {
++                        src.setValue(topOp.getValue());
+                         Mutable<ILogicalOperator> top2 = new MutableObject<ILogicalOperator>(p.first);
+                         return new Pair<ILogicalExpression, Mutable<ILogicalOperator>>(
+                                 new VariableReferenceExpression(p.second), top2);
+                     } else {
+                         SubplanOperator s = new SubplanOperator();
+-                        s.getInputs().add(topOpRef);
+-                        srcRef.setValue(new NestedTupleSourceOperator(new MutableObject<ILogicalOperator>(s)));
++                        s.getInputs().add(topOp);
++                        src.setValue(new NestedTupleSourceOperator(new MutableObject<ILogicalOperator>(s)));
+                         Mutable<ILogicalOperator> planRoot = new MutableObject<ILogicalOperator>(p.first);
+                         s.setRootOp(planRoot);
+                         return new Pair<ILogicalExpression, Mutable<ILogicalOperator>>(
+@@ -1288,6 +1144,7 @@ class LangExpressionToPlanTranslator
+                 }
+             }
+         }
++
+     }
+ 
+     protected Pair<ILogicalOperator, LogicalVariable> aggListifyForSubquery(LogicalVariable var,
+@@ -1324,7 +1181,7 @@ class LangExpressionToPlanTranslator
+         AbstractFunctionCallExpression f = createFunctionCallExpressionForBuiltinOperator(opLogical);
+ 
+         for (int i = 0; i <= nOps; i++) {
+-            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = langExprToAlgExpression(exprs.get(i), topOp);
++            Pair<ILogicalExpression, Mutable<ILogicalOperator>> p = aqlExprToAlgExpression(exprs.get(i), topOp);
+             topOp = p.second;
+             // now look at the operator
+             if (i < nOps) {
+@@ -1346,10 +1203,10 @@ class LangExpressionToPlanTranslator
+ 
+     protected boolean expressionNeedsNoNesting(Expression expr) {
+         Kind k = expr.getKind();
+-        return (k == Kind.LITERAL_EXPRESSION) || (k == Kind.LIST_CONSTRUCTOR_EXPRESSION)
+-                || (k == Kind.RECORD_CONSTRUCTOR_EXPRESSION) || (k == Kind.VARIABLE_EXPRESSION)
+-                || (k == Kind.CALL_EXPRESSION) || (k == Kind.OP_EXPRESSION) || (k == Kind.FIELD_ACCESSOR_EXPRESSION)
+-                || (k == Kind.INDEX_ACCESSOR_EXPRESSION) || (k == Kind.UNARY_EXPRESSION) || (k == Kind.IF_EXPRESSION);
++        return k == Kind.LITERAL_EXPRESSION || k == Kind.LIST_CONSTRUCTOR_EXPRESSION
++                || k == Kind.RECORD_CONSTRUCTOR_EXPRESSION || k == Kind.VARIABLE_EXPRESSION || k == Kind.CALL_EXPRESSION
++                || k == Kind.OP_EXPRESSION || k == Kind.FIELD_ACCESSOR_EXPRESSION || k == Kind.INDEX_ACCESSOR_EXPRESSION
++                || k == Kind.UNARY_EXPRESSION || k == Kind.UNION_EXPRESSION;
+     }
+ 
+     protected <T> List<T> mkSingletonArrayList(T item) {
+@@ -1359,12 +1216,11 @@ class LangExpressionToPlanTranslator
+     }
+ 
+     protected ILogicalExpression makeUnnestExpression(ILogicalExpression expr) {
+-        List<Mutable<ILogicalExpression>> argRefs = new ArrayList<>();
+-        argRefs.add(new MutableObject<ILogicalExpression>(expr));
+         switch (expr.getExpressionTag()) {
+             case VARIABLE: {
+                 return new UnnestingFunctionCallExpression(
+-                        FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.SCAN_COLLECTION), argRefs);
++                        FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.SCAN_COLLECTION),
++                        new MutableObject<ILogicalExpression>(expr));
+             }
+             case FUNCTION_CALL: {
+                 AbstractFunctionCallExpression fce = (AbstractFunctionCallExpression) expr;
+@@ -1372,7 +1228,8 @@ class LangExpressionToPlanTranslator
+                     return expr;
+                 } else {
+                     return new UnnestingFunctionCallExpression(
+-                            FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.SCAN_COLLECTION), argRefs);
++                            FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.SCAN_COLLECTION),
++                            new MutableObject<ILogicalExpression>(expr));
+                 }
+             }
+             default: {
+@@ -1381,154 +1238,4 @@ class LangExpressionToPlanTranslator
+         }
+     }
+ 
+-    private boolean rebindBottomOpRef(ILogicalOperator currentOp, Mutable<ILogicalOperator> opRef,
+-            Mutable<ILogicalOperator> replacementOpRef) {
+-        int index = 0;
+-        for (Mutable<ILogicalOperator> childRef : currentOp.getInputs()) {
+-            if (childRef == opRef) {
+-                currentOp.getInputs().set(index, replacementOpRef);
+-                return true;
+-            } else {
+-                if (rebindBottomOpRef(childRef.getValue(), opRef, replacementOpRef)) {
+-                    return true;
+-                }
+-            }
+-            ++index;
+-        }
+-        return false;
+-    }
+-
+-    /**
+-     * Eliminate shared operator references in a query plan.
+-     * Deep copy a new query plan subtree whenever there is a shared operator reference.
+-     *
+-     * @param plan,
+-     *            the query plan.
+-     * @throws AsterixException
+-     */
+-    private void eliminateSharedOperatorReferenceForPlan(ILogicalPlan plan) throws AsterixException {
+-        for (Mutable<ILogicalOperator> opRef : plan.getRoots()) {
+-            Set<Mutable<ILogicalOperator>> opRefSet = new HashSet<>();
+-            eliminateSharedOperatorReference(opRef, opRefSet);
+-        }
+-    }
+-
+-    /**
+-     * Eliminate shared operator references in a query plan rooted at <code>currentOpRef.getValue()</code>.
+-     * Deep copy a new query plan subtree whenever there is a shared operator reference.
+-     *
+-     * @param currentOpRef,
+-     *            the operator reference to consider
+-     * @param opRefSet,
+-     *            the set storing seen operator references so far.
+-     * @return a mapping that maps old variables to new variables, for the ancestors of
+-     *         <code>currentOpRef</code> to replace variables properly.
+-     * @throws AsterixException
+-     */
+-    private Map<LogicalVariable, LogicalVariable> eliminateSharedOperatorReference(
+-            Mutable<ILogicalOperator> currentOpRef, Set<Mutable<ILogicalOperator>> opRefSet) throws AsterixException {
+-        try {
+-            opRefSet.add(currentOpRef);
+-            AbstractLogicalOperator currentOperator = (AbstractLogicalOperator) currentOpRef.getValue();
+-
+-            // Recursively eliminates shared references in nested plans.
+-            if (currentOperator.hasNestedPlans()) {
+-                // Since a nested plan tree itself can never be shared with another nested plan tree in
+-                // another operator, the operation called in the if block does not need to replace
+-                // any variables further for <code>currentOpRef.getValue()</code> nor its ancestor.
+-                AbstractOperatorWithNestedPlans opWithNestedPlan = (AbstractOperatorWithNestedPlans) currentOperator;
+-                for (ILogicalPlan plan : opWithNestedPlan.getNestedPlans()) {
+-                    for (Mutable<ILogicalOperator> rootRef : plan.getRoots()) {
+-                        Set<Mutable<ILogicalOperator>> nestedOpRefSet = new HashSet<>();
+-                        eliminateSharedOperatorReference(rootRef, nestedOpRefSet);
+-                    }
+-                }
+-            }
+-
+-            int childIndex = 0;
+-            Map<LogicalVariable, LogicalVariable> varMap = new HashMap<>();
+-            for (Mutable<ILogicalOperator> childRef : currentOperator.getInputs()) {
+-                if (opRefSet.contains(childRef)) {
+-                    // There is a shared operator reference in the query plan.
+-                    // Deep copies the child plan.
+-                    LogicalOperatorDeepCopyWithNewVariablesVisitor visitor = new LogicalOperatorDeepCopyWithNewVariablesVisitor(
+-                            context, null);
+-                    ILogicalOperator newChild = childRef.getValue().accept(visitor, null);
+-                    Map<LogicalVariable, LogicalVariable> cloneVarMap = visitor.getInputToOutputVariableMapping();
+-
+-                    // Substitute variables according to the deep copy which generates new variables.
+-                    VariableUtilities.substituteVariables(currentOperator, cloneVarMap, null);
+-                    varMap.putAll(cloneVarMap);
+-
+-                    // Sets the new child.
+-                    childRef = new MutableObject<ILogicalOperator>(newChild);
+-                    currentOperator.getInputs().set(childIndex, childRef);
+-                }
+-
+-                // Recursively eliminate shared operator reference for the operator subtree,
+-                // even if it is a deep copy of some other one.
+-                Map<LogicalVariable, LogicalVariable> childVarMap = eliminateSharedOperatorReference(childRef,
+-                        opRefSet);
+-                // Substitute variables according to the new subtree.
+-                VariableUtilities.substituteVariables(currentOperator, childVarMap, null);
+-
+-                // Updates mapping like <$a, $b> in varMap to <$a, $c>, where there is a mapping <$b, $c>
+-                // in childVarMap.
+-                for (Map.Entry<LogicalVariable, LogicalVariable> entry : varMap.entrySet()) {
+-                    LogicalVariable newVar = childVarMap.get(entry.getValue());
+-                    if (newVar != null) {
+-                        entry.setValue(newVar);
+-                    }
+-                }
+-                varMap.putAll(childVarMap);
+-                ++childIndex;
+-            }
+-
+-            // Only retain live variables for parent operators to substitute variables.
+-            Set<LogicalVariable> liveVars = new HashSet<>();
+-            VariableUtilities.getLiveVariables(currentOperator, liveVars);
+-            varMap.values().retainAll(liveVars);
+-            return varMap;
+-        } catch (AlgebricksException e) {
+-            throw new AsterixException(e);
+-        }
+-    }
+-
+-    /**
+-     * Constructs a subplan operator for a branch in a if-else (or case) expression.
+-     *
+-     * @param inputOp,
+-     *            the input operator.
+-     * @param selectExpr,
+-     *            the expression to select tuples that are processed by this branch.
+-     * @param branchExpression,
+-     *            the expression to be evaluated in this branch.
+-     * @return a pair of the constructed subplan operator and the output variable for the branch.
+-     * @throws AsterixException
+-     */
+-    private Pair<ILogicalOperator, LogicalVariable> constructSubplanOperatorForBranch(ILogicalOperator inputOp,
+-            Mutable<ILogicalExpression> selectExpr, Expression branchExpression) throws AsterixException {
+-        context.enterSubplan();
+-        SubplanOperator subplanOp = new SubplanOperator();
+-        subplanOp.getInputs().add(new MutableObject<ILogicalOperator>(inputOp));
+-        Mutable<ILogicalOperator> nestedSource = new MutableObject<ILogicalOperator>(
+-                new NestedTupleSourceOperator(new MutableObject<ILogicalOperator>(subplanOp)));
+-        SelectOperator select = new SelectOperator(selectExpr, false, null);
+-        // The select operator cannot be moved up and down, otherwise it will cause typing issues (ASTERIXDB-1203).
+-        OperatorPropertiesUtil.markMovable(select, false);
+-        select.getInputs().add(nestedSource);
+-        Pair<ILogicalOperator, LogicalVariable> pBranch = branchExpression.accept(this,
+-                new MutableObject<ILogicalOperator>(select));
+-        LogicalVariable branchVar = context.newVar();
+-        AggregateOperator aggOp = new AggregateOperator(Collections.singletonList(branchVar),
+-                Collections.singletonList(new MutableObject<ILogicalExpression>(new AggregateFunctionCallExpression(
+-                        FunctionUtil.getFunctionInfo(AsterixBuiltinFunctions.LISTIFY), false,
+-                        Collections.singletonList(new MutableObject<ILogicalExpression>(
+-                                new VariableReferenceExpression(pBranch.second)))))));
+-        aggOp.getInputs().add(new MutableObject<ILogicalOperator>(pBranch.first));
+-        ILogicalPlan planForBranch = new ALogicalPlanImpl(new MutableObject<ILogicalOperator>(aggOp));
+-        subplanOp.getNestedPlans().add(planForBranch);
+-        context.exitSubplan();
+-        return new Pair<ILogicalOperator, LogicalVariable>(subplanOp, branchVar);
+-    }
+ }

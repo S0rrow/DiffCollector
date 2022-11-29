@@ -1,0 +1,121 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/converter/CoreAmqpConverter.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/converter/CoreAmqpConverter.java
+index abda58a739..111de8c42f 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/converter/CoreAmqpConverter.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/converter/CoreAmqpConverter.java
+@@ -17,40 +17,6 @@
+ 
+ package org.apache.activemq.artemis.protocol.amqp.converter;
+ 
+-import static org.apache.activemq.artemis.api.core.FilterConstants.NATIVE_MESSAGE_ID;
+-import static org.apache.activemq.artemis.api.core.Message.HDR_SCHEDULED_DELIVERY_TIME;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.EMPTY_BINARY;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_CONTENT_ENCODING;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_CONTENT_TYPE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_DELIVERY_ANNOTATION_PREFIX;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_FIRST_ACQUIRER;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_FOOTER_PREFIX;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_HEADER;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_HEADER_DURABLE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_HEADER_PRIORITY;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_MESSAGE_ANNOTATION_PREFIX;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_NATIVE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_PREFIX;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_PROPERTIES;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_REPLYTO_GROUP_ID;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_DEST_TYPE_MSG_ANNOTATION;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_REPLY_TO_TYPE_MSG_ANNOTATION;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.QUEUE_TYPE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.SERIALIZED_JAVA_OBJECT_CONTENT_TYPE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.TEMP_QUEUE_TYPE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.TEMP_TOPIC_TYPE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.TOPIC_TYPE;
+-import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.toAddress;
+-
+-import java.nio.charset.StandardCharsets;
+-import java.util.ArrayList;
+-import java.util.Date;
+-import java.util.Enumeration;
+-import java.util.HashMap;
+-import java.util.LinkedHashMap;
+-import java.util.Map;
+-import java.util.Set;
+-
+ import javax.jms.Destination;
+ import javax.jms.JMSException;
+ import javax.jms.MessageEOFException;
+@@ -59,7 +25,17 @@ import javax.jms.TemporaryQueue;
+ import javax.jms.TemporaryTopic;
+ import javax.jms.TextMessage;
+ import javax.jms.Topic;
++import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.Date;
++import java.util.Enumeration;
++import java.util.HashMap;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.Set;
+ 
++import io.netty.buffer.ByteBuf;
++import io.netty.buffer.PooledByteBufAllocator;
+ import org.apache.activemq.artemis.api.core.ICoreMessage;
+ import org.apache.activemq.artemis.api.core.Message;
+ import org.apache.activemq.artemis.protocol.amqp.broker.AMQPMessage;
+@@ -91,8 +67,30 @@ import org.apache.qpid.proton.codec.EncoderImpl;
+ import org.apache.qpid.proton.codec.WritableBuffer;
+ import org.jboss.logging.Logger;
+ 
+-import io.netty.buffer.ByteBuf;
+-import io.netty.buffer.PooledByteBufAllocator;
++import static org.apache.activemq.artemis.api.core.FilterConstants.NATIVE_MESSAGE_ID;
++import static org.apache.activemq.artemis.api.core.Message.HDR_SCHEDULED_DELIVERY_TIME;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.EMPTY_BINARY;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_CONTENT_ENCODING;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_CONTENT_TYPE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_DELIVERY_ANNOTATION_PREFIX;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_FIRST_ACQUIRER;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_FOOTER_PREFIX;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_HEADER;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_HEADER_DURABLE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_HEADER_PRIORITY;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_MESSAGE_ANNOTATION_PREFIX;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_NATIVE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_PREFIX;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_PROPERTIES;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_AMQP_REPLYTO_GROUP_ID;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_DEST_TYPE_MSG_ANNOTATION;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.JMS_REPLY_TO_TYPE_MSG_ANNOTATION;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.QUEUE_TYPE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.SERIALIZED_JAVA_OBJECT_CONTENT_TYPE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.TEMP_QUEUE_TYPE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.TEMP_TOPIC_TYPE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.TOPIC_TYPE;
++import static org.apache.activemq.artemis.protocol.amqp.converter.AMQPMessageSupport.toAddress;
+ 
+ public class CoreAmqpConverter {
+ 
+@@ -406,8 +404,23 @@ public class CoreAmqpConverter {
+       return new Binary(data);
+    }
+ 
++   private static Binary getBinaryFromMessageBody(ServerJMSTextMessage message) throws JMSException {
++      Binary result = null;
++      String text = message.getText();
++      if (text != null) {
++         result = new Binary(text.getBytes(StandardCharsets.UTF_8));
++      }
++
++      return result;
++   }
++
+    private static Binary getBinaryFromMessageBody(ServerJMSObjectMessage message) throws JMSException {
+-      return message.getSerializedForm();
++      message.getInnerMessage().getBodyBuffer().resetReaderIndex();
++      int size = message.getInnerMessage().getBodyBuffer().readInt();
++      byte[] bytes = new byte[size];
++      message.getInnerMessage().getBodyBuffer().readBytes(bytes);
++
++      return new Binary(bytes);
+    }
+ 
+    private static Map<String, Object> getMapFromMessageBody(ServerJMSMapMessage message) throws JMSException {

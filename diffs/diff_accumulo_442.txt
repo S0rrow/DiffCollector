@@ -1,0 +1,22 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ServerSideErrorIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ServerSideErrorIT.java
+index 37bef1a941..334cf1c2e4 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ServerSideErrorIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ServerSideErrorIT.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.Collections;
+ import java.util.Map.Entry;
+ import java.util.concurrent.TimeUnit;
+@@ -39,6 +37,8 @@ import org.apache.accumulo.harness.AccumuloClusterHarness;
+ import org.apache.hadoop.io.Text;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class ServerSideErrorIT extends AccumuloClusterHarness {
+ 
+   @Override

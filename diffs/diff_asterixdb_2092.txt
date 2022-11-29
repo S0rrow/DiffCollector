@@ -1,0 +1,24 @@
+diff --git a/asterix-algebra/src/main/java/edu/uci/ics/asterix/optimizer/rules/SweepIllegalNonfunctionalFunctions.java b/asterix-algebra/src/main/java/edu/uci/ics/asterix/optimizer/rules/SweepIllegalNonfunctionalFunctions.java
+index cfd25c03c4..d7e3cebd0b 100644
+--- a/asterix-algebra/src/main/java/edu/uci/ics/asterix/optimizer/rules/SweepIllegalNonfunctionalFunctions.java
++++ b/asterix-algebra/src/main/java/edu/uci/ics/asterix/optimizer/rules/SweepIllegalNonfunctionalFunctions.java
+@@ -38,7 +38,6 @@ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.ScriptOpera
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.SelectOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.SinkOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.SubplanOperator;
+-import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.TokenizeOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.UnionAllOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.UnnestMapOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.UnnestOperator;
+@@ -261,11 +260,6 @@ public class SweepIllegalNonfunctionalFunctions extends AbstractExtractExprRule
+             return null;
+         }
+ 
+-        @Override
+-        public Void visitTokenizeOperator(TokenizeOperator op, Void tag) throws AlgebricksException {
+-            return null;
+-        }
+-
+         @Override
+         public Void visitExternalDataLookupOperator(ExternalDataLookupOperator op, Void arg) throws AlgebricksException {
+             return null;

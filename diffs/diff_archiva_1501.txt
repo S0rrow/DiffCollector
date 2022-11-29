@@ -1,0 +1,252 @@
+diff --git a/archiva-modules/archiva-base/archiva-consumers/archiva-metadata-consumer/src/main/java/org/apache/archiva/consumers/metadata/ArchivaMetadataCreationConsumer.java b/archiva-modules/archiva-base/archiva-consumers/archiva-metadata-consumer/src/main/java/org/apache/archiva/consumers/metadata/ArchivaMetadataCreationConsumer.java
+index 5d9af2893..ae967dae8 100644
+--- a/archiva-modules/archiva-base/archiva-consumers/archiva-metadata-consumer/src/main/java/org/apache/archiva/consumers/metadata/ArchivaMetadataCreationConsumer.java
++++ b/archiva-modules/archiva-base/archiva-consumers/archiva-metadata-consumer/src/main/java/org/apache/archiva/consumers/metadata/ArchivaMetadataCreationConsumer.java
+@@ -19,16 +19,20 @@
+  * under the License.
+  */
+ 
++import java.io.File;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.Date;
++import java.util.List;
++
++import org.apache.archiva.checksum.ChecksumAlgorithm;
++import org.apache.archiva.checksum.ChecksummedFile;
+ import org.apache.archiva.metadata.model.ArtifactMetadata;
+ import org.apache.archiva.metadata.model.ProjectMetadata;
+ import org.apache.archiva.metadata.model.ProjectVersionMetadata;
+ import org.apache.archiva.metadata.repository.MetadataRepository;
+-import org.apache.archiva.metadata.repository.MetadataRepositoryException;
+-import org.apache.archiva.metadata.repository.RepositorySession;
+-import org.apache.archiva.metadata.repository.RepositorySessionFactory;
+-import org.apache.archiva.metadata.repository.storage.RepositoryStorage;
+-import org.apache.archiva.metadata.repository.storage.RepositoryStorageMetadataInvalidException;
+-import org.apache.archiva.metadata.repository.storage.RepositoryStorageMetadataNotFoundException;
++import org.apache.archiva.metadata.repository.MetadataResolutionException;
++import org.apache.archiva.metadata.repository.storage.StorageMetadataResolver;
+ import org.apache.maven.archiva.common.utils.VersionUtil;
+ import org.apache.maven.archiva.configuration.ArchivaConfiguration;
+ import org.apache.maven.archiva.configuration.ConfigurationNames;
+@@ -37,6 +41,9 @@
+ import org.apache.maven.archiva.consumers.AbstractMonitoredConsumer;
+ import org.apache.maven.archiva.consumers.ConsumerException;
+ import org.apache.maven.archiva.consumers.KnownRepositoryContentConsumer;
++import org.apache.maven.archiva.model.ArtifactReference;
++import org.apache.maven.archiva.repository.ManagedRepositoryContent;
++import org.apache.maven.archiva.repository.layout.LayoutException;
+ import org.codehaus.plexus.personality.plexus.lifecycle.phase.Initializable;
+ import org.codehaus.plexus.personality.plexus.lifecycle.phase.InitializationException;
+ import org.codehaus.plexus.registry.Registry;
+@@ -44,10 +51,6 @@
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import java.util.ArrayList;
+-import java.util.Date;
+-import java.util.List;
+-
+ /**
+  * Take an artifact off of disk and put it into the metadata repository.
+  *
+@@ -81,27 +84,29 @@
+ 
+     private Date whenGathered;
+ 
++    /**
++     * @plexus.requirement
++     */
++    private ManagedRepositoryContent repository;
++
+     private List<String> includes = new ArrayList<String>();
+ 
+     /**
+-     * FIXME: can be of other types
+-     *
+      * @plexus.requirement
+      */
+-    private RepositorySessionFactory repositorySessionFactory;
++    private MetadataRepository metadataRepository;
+ 
+     /**
+-     * FIXME: this needs to be configurable based on storage type - and could also be instantiated per repo. Change to a
+-     * factory.
++     * FIXME: this needs to be configurable based on storage type, and availability of proxy module
++     * ... could be a different type since we need methods to modify the storage metadata, which would also allow more
++     * appropriate methods to pass in the already determined repository configuration, for example, instead of the ID
+      *
+      * @plexus.requirement role-hint="maven2"
+      */
+-    private RepositoryStorage repositoryStorage;
++    private StorageMetadataResolver storageResolver;
+ 
+     private static final Logger log = LoggerFactory.getLogger( ArchivaMetadataCreationConsumer.class );
+ 
+-    private String repoId;
+-
+     public String getId()
+     {
+         return this.id;
+@@ -130,86 +135,92 @@ public List<String> getIncludes()
+     public void beginScan( ManagedRepositoryConfiguration repo, Date whenGathered )
+         throws ConsumerException
+     {
+-        repoId = repo.getId();
++        this.repository.setRepository( repo );
+         this.whenGathered = whenGathered;
+     }
+ 
+-    public void beginScan( ManagedRepositoryConfiguration repository, Date whenGathered, boolean executeOnEntireRepo )
+-        throws ConsumerException
+-    {
+-        beginScan( repository, whenGathered );
+-    }
+-
+     public void processFile( String path )
+         throws ConsumerException
+     {
+         // note that we do minimal processing including checksums and POM information for performance of
+         // the initial scan. Any request for this information will be intercepted and populated on-demand
+         // or picked up by subsequent scans
++        ArtifactReference artifact;
++        try
++        {
++            artifact = repository.toArtifactReference( path );
++        }
++        catch ( LayoutException e )
++        {
++            throw new ConsumerException( e.getMessage(), e );
++        }
+ 
+-        ArtifactMetadata artifact = repositoryStorage.readArtifactMetadataFromPath( repoId, path );
++        File file = new File( repository.getRepoRoot(), path );
+ 
+         ProjectMetadata project = new ProjectMetadata();
+-        project.setNamespace( artifact.getNamespace() );
+-        project.setId( artifact.getProject() );
++        project.setNamespace( artifact.getGroupId() );
++        project.setId( artifact.getArtifactId() );
+ 
+         String projectVersion = VersionUtil.getBaseVersion( artifact.getVersion() );
++        // TODO: maybe not too efficient since it may have already been read and stored for this artifact
++        ProjectVersionMetadata versionMetadata = null;
++        try
++        {
++            versionMetadata = storageResolver.getProjectVersion( repository.getId(), artifact.getGroupId(), artifact.getArtifactId(),
++                                               projectVersion );
++        }
++        catch ( MetadataResolutionException e )
++        {
++            log.warn( "Error occurred resolving POM for artifact: " + path + "; message: " + e.getMessage() );
++        }
+ 
+-        RepositorySession repositorySession = repositorySessionFactory.createSession();
++        boolean createVersionMetadata = false;
++        if ( versionMetadata == null )
++        {
++            log.warn( "Missing or invalid POM for artifact: " + path + "; creating empty metadata" );
++            versionMetadata = new ProjectVersionMetadata();
++            versionMetadata.setId( projectVersion );
++            createVersionMetadata = true;
++        }
++
++        ArtifactMetadata artifactMeta = new ArtifactMetadata();
++        artifactMeta.setRepositoryId( repository.getId() );
++        artifactMeta.setNamespace( artifact.getGroupId() );
++        artifactMeta.setProject( artifact.getArtifactId() );
++        artifactMeta.setId( file.getName() );
++        artifactMeta.setFileLastModified( file.lastModified() );
++        artifactMeta.setSize( file.length() );
++        artifactMeta.setVersion( artifact.getVersion() );
++        artifactMeta.setWhenGathered( whenGathered );
++
++        ChecksummedFile checksummedFile = new ChecksummedFile( file );
+         try
+         {
+-            MetadataRepository metadataRepository = repositorySession.getRepository();
+-
+-            boolean createVersionMetadata = false;
+-
+-            // FIXME: maybe not too efficient since it may have already been read and stored for this artifact
+-            ProjectVersionMetadata versionMetadata = null;
+-            try
+-            {
+-                versionMetadata = repositoryStorage.readProjectVersionMetadata( repoId, artifact.getNamespace(),
+-                                                                                artifact.getProject(), projectVersion );
+-            }
+-            catch ( RepositoryStorageMetadataNotFoundException e )
+-            {
+-                log.warn( "Missing or invalid POM for artifact: " + path + "; creating empty metadata" );
+-
+-                versionMetadata = new ProjectVersionMetadata();
+-                versionMetadata.setId( projectVersion );
+-                versionMetadata.setIncomplete( true );
+-                createVersionMetadata = true;
+-            }
+-            catch ( RepositoryStorageMetadataInvalidException e )
+-            {
+-                log.warn( "Error occurred resolving POM for artifact: " + path + "; message: " + e.getMessage() );
+-            }
+-
+-            // read the metadata and update it if it is newer or doesn't exist
+-            artifact.setWhenGathered( whenGathered );
+-            metadataRepository.updateArtifact( repoId, project.getNamespace(), project.getId(), projectVersion,
+-                                               artifact );
+-            if ( createVersionMetadata )
+-            {
+-                metadataRepository.updateProjectVersion( repoId, project.getNamespace(), project.getId(),
+-                                                         versionMetadata );
+-            }
+-            metadataRepository.updateProject( repoId, project );
+-            repositorySession.save();
++            artifactMeta.setMd5( checksummedFile.calculateChecksum( ChecksumAlgorithm.MD5 ) );
+         }
+-        catch ( MetadataRepositoryException e )
++        catch ( IOException e )
+         {
+-            log.warn( "Error occurred persisting metadata for artifact: " + path + "; message: " + e.getMessage(), e );
+-            repositorySession.revert();
++            log.error( "Error attempting to get MD5 checksum for " + file + ": " + e.getMessage() );
+         }
+-        finally
++        try
+         {
+-            repositorySession.close();
++            artifactMeta.setSha1( checksummedFile.calculateChecksum( ChecksumAlgorithm.SHA1 ) );
++        }
++        catch ( IOException e )
++        {
++            log.error( "Error attempting to get SHA-1 checksum for " + file + ": " + e.getMessage() );
+         }
+-    }
+ 
+-    public void processFile( String path, boolean executeOnEntireRepo )
+-        throws ConsumerException
+-    {
+-        processFile( path );
++        // TODO: transaction
++        // read the metadata and update it if it is newer or doesn't exist
++        metadataRepository.updateArtifact( repository.getId(), project.getNamespace(), project.getId(), projectVersion,
++                                           artifactMeta );
++        if ( createVersionMetadata )
++        {
++            metadataRepository.updateProjectVersion( repository.getId(), project.getNamespace(), project.getId(),
++                                                     versionMetadata );
++        }
++        metadataRepository.updateProject( repository.getId(), project );
+     }
+ 
+     public void completeScan()
+@@ -217,11 +228,6 @@ public void completeScan()
+         /* do nothing */
+     }
+ 
+-    public void completeScan( boolean executeOnEntireRepo )
+-    {
+-        completeScan();
+-    }
+-
+     public void afterConfigurationChange( Registry registry, String propertyName, Object propertyValue )
+     {
+         if ( ConfigurationNames.isRepositoryScanning( propertyName ) )

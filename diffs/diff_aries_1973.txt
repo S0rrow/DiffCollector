@@ -1,0 +1,65 @@
+diff --git a/blueprint/blueprint-cm/src/main/java/org/apache/aries/blueprint/compendium/cm/CmNamespaceHandler.java b/blueprint/blueprint-cm/src/main/java/org/apache/aries/blueprint/compendium/cm/CmNamespaceHandler.java
+index 442366bb6..315de6151 100644
+--- a/blueprint/blueprint-cm/src/main/java/org/apache/aries/blueprint/compendium/cm/CmNamespaceHandler.java
++++ b/blueprint/blueprint-cm/src/main/java/org/apache/aries/blueprint/compendium/cm/CmNamespaceHandler.java
+@@ -29,7 +29,6 @@ import java.util.Set;
+ 
+ import org.apache.aries.blueprint.ComponentDefinitionRegistry;
+ import org.apache.aries.blueprint.NamespaceHandler;
+-import org.apache.aries.blueprint.NamespaceHandler2;
+ import org.apache.aries.blueprint.ParserContext;
+ import org.apache.aries.blueprint.ext.PlaceholdersUtils;
+ import org.apache.aries.blueprint.mutable.MutableBeanMetadata;
+@@ -41,8 +40,6 @@ import org.apache.aries.blueprint.mutable.MutableRefMetadata;
+ import org.apache.aries.blueprint.mutable.MutableReferenceMetadata;
+ import org.apache.aries.blueprint.mutable.MutableValueMetadata;
+ import org.apache.aries.blueprint.utils.ServiceListener;
+-import org.osgi.framework.Bundle;
+-import org.osgi.framework.FrameworkUtil;
+ import org.osgi.service.blueprint.container.ComponentDefinitionException;
+ import org.osgi.service.blueprint.reflect.BeanMetadata;
+ import org.osgi.service.blueprint.reflect.BeanProperty;
+@@ -78,7 +75,7 @@ import org.w3c.dom.NodeList;
+  *
+  * @version $Rev$, $Date$
+  */
+-public class CmNamespaceHandler implements NamespaceHandler2 {
++public class CmNamespaceHandler implements NamespaceHandler {
+ 
+     public static final String BLUEPRINT_NAMESPACE = "http://www.osgi.org/xmlns/blueprint/v1.0.0";
+     public static final String BLUEPRINT_CM_NAMESPACE_1_0 = "http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0";
+@@ -151,17 +148,7 @@ public class CmNamespaceHandler implements NamespaceHandler2 {
+     }
+ 
+     public void setConfigAdmin(ConfigurationAdmin configAdmin) {
+-        CmNamespaceHandler.configAdmin = configAdmin;
+-    }
+-
+-    public boolean usePsvi() {
+-        return false;
+-    }
+-
+-    public boolean mayResolve(String namespace) {
+-        return namespace != null
+-                && (namespace.startsWith("http://aries.apache.org/blueprint/xmlns/blueprint-cm")
+-                || namespace.startsWith("http://aries.apache.org/blueprint/xmlns/blueprint-ext"));
++        this.configAdmin = configAdmin;
+     }
+ 
+     public URL getSchemaLocation(String namespace) {
+@@ -173,15 +160,6 @@ public class CmNamespaceHandler implements NamespaceHandler2 {
+             return getClass().getResource("blueprint-cm-1.1.0.xsd");
+         } else if (BLUEPRINT_CM_NAMESPACE_1_0.equals(namespace)) {
+             return getClass().getResource("blueprint-cm-1.0.0.xsd");
+-        } else if (namespace.startsWith("http://aries.apache.org/blueprint/xmlns/blueprint-ext")) {
+-            try {
+-                Bundle extBundle = FrameworkUtil.getBundle(PlaceholdersUtils.class);
+-                Class<?> extNsHandlerClazz = extBundle.loadClass("org.apache.aries.blueprint.ext.impl.ExtNamespaceHandler");
+-                return ((NamespaceHandler) extNsHandlerClazz.newInstance()).getSchemaLocation(namespace);
+-            } catch (Throwable t) {
+-                LOGGER.warn("Could not locate ext namespace schema", t);
+-                return null;
+-            }
+         } else {
+             return null;
+         }

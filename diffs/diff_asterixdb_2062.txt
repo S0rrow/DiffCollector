@@ -1,0 +1,104 @@
+diff --git a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/logging/LogReader.java b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/logging/LogReader.java
+index 173088c11d..70ae71135c 100644
+--- a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/logging/LogReader.java
++++ b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/logging/LogReader.java
+@@ -17,7 +17,6 @@ package edu.uci.ics.asterix.transaction.management.service.logging;
+ import java.io.IOException;
+ import java.nio.ByteBuffer;
+ import java.nio.channels.FileChannel;
+-import java.util.logging.Logger;
+ 
+ import edu.uci.ics.asterix.common.exceptions.ACIDException;
+ import edu.uci.ics.asterix.common.transactions.ILogReader;
+@@ -26,8 +25,6 @@ import edu.uci.ics.asterix.common.transactions.MutableLong;
+ 
+ public class LogReader implements ILogReader {
+ 
+-    public static final boolean IS_DEBUG_MODE = false;//true
+-    private static final Logger LOGGER = Logger.getLogger(LogReader.class.getName());
+     private final LogManager logMgr;
+     private final long logFileSize;
+     private final int logPageSize;
+@@ -39,11 +36,6 @@ public class LogReader implements ILogReader {
+     private long bufferBeginLSN;
+     private long fileBeginLSN;
+     private FileChannel fileChannel;
+-    
+-    private enum ReturnState {
+-        FLUSH,
+-        EOF
+-    };
+ 
+     public LogReader(LogManager logMgr, long logFileSize, int logPageSize, MutableLong flushLSN, boolean isRecoveryMode) {
+         this.logMgr = logMgr;
+@@ -58,48 +50,46 @@ public class LogReader implements ILogReader {
+     @Override
+     public void initializeScan(long beginLSN) throws ACIDException {
+         readLSN = beginLSN;
+-        if (waitForFlushOrReturnIfEOF() == ReturnState.EOF) {
+-            return;
++        synchronized (flushLSN) {
++            while (readLSN >= flushLSN.get()) {
++                if (isRecoveryMode) {
++                    return;
++                }
++                try {
++                    flushLSN.wait();
++                } catch (InterruptedException e) {
++                    //ignore.
++                }
++            }
+         }
+         getFileChannel();
+         readPage();
+     }
+-    
++
+     //for scanning
+     @Override
+     public ILogRecord next() throws ACIDException {
+-        if (waitForFlushOrReturnIfEOF() == ReturnState.EOF) {
+-            return null;
+-        }
+-        if (readBuffer.position() == readBuffer.limit() || !logRecord.readLogRecord(readBuffer)) {
+-            readNextPage();
+-            if (!logRecord.readLogRecord(readBuffer)) {
+-                throw new IllegalStateException();
+-            }
+-        }
+-        logRecord.setLSN(readLSN);
+-        readLSN += logRecord.getLogSize();
+-        return logRecord;
+-    }
+-    
+-    private ReturnState waitForFlushOrReturnIfEOF() {
+         synchronized (flushLSN) {
+             while (readLSN >= flushLSN.get()) {
+                 if (isRecoveryMode) {
+-                    return ReturnState.EOF;
++                    return null;
+                 }
+                 try {
+-                    if (IS_DEBUG_MODE) {
+-                        LOGGER.info("waitForFlushOrReturnIfEOF()| flushLSN: " + flushLSN.get() + ", readLSN: "
+-                                + readLSN);
+-                    }
+                     flushLSN.wait();
+                 } catch (InterruptedException e) {
+                     //ignore
+                 }
+             }
+-            return ReturnState.FLUSH;
+         }
++        if (readBuffer.position() == readBuffer.limit() || !logRecord.readLogRecord(readBuffer)) {
++            readNextPage();
++            if (!logRecord.readLogRecord(readBuffer)) {
++                throw new IllegalStateException();
++            }
++        }
++        logRecord.setLSN(readLSN);
++        readLSN += logRecord.getLogSize();
++        return logRecord;
+     }
+ 
+     private void readNextPage() throws ACIDException {

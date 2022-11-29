@@ -1,0 +1,247 @@
+diff --git a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/protocol/core/impl/ChannelImpl.java b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/protocol/core/impl/ChannelImpl.java
+index 9f36d81935..9cb2a8351d 100644
+--- a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/protocol/core/impl/ChannelImpl.java
++++ b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/protocol/core/impl/ChannelImpl.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.activemq.artemis.core.protocol.core.impl;
+ 
+-import java.io.RandomAccessFile;
+-import java.nio.channels.FileChannel;
+ import java.util.EnumSet;
+ import java.util.List;
+ import java.util.concurrent.ConcurrentLinkedQueue;
+@@ -27,7 +25,6 @@ import java.util.concurrent.locks.Condition;
+ import java.util.concurrent.locks.Lock;
+ import java.util.concurrent.locks.ReentrantLock;
+ 
+-import io.netty.channel.ChannelFutureListener;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
+ import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.api.core.ActiveMQInterruptedException;
+@@ -256,10 +253,6 @@ public final class ChannelImpl implements Channel {
+       this.transferring = transferring;
+    }
+ 
+-   protected ResponseCache getCache() {
+-      return responseAsyncCache;
+-   }
+-
+    /**
+     * @param timeoutMsg message to log on blocking call failover timeout
+     */
+@@ -277,104 +270,67 @@ public final class ChannelImpl implements Channel {
+       }
+    }
+ 
+-   private ActiveMQBuffer beforeSend(final Packet packet, final int reconnectID) {
+-      packet.setChannelID(id);
+-
+-      if (responseAsyncCache != null && packet.isRequiresResponse() && packet.isResponseAsync()) {
+-         packet.setCorrelationID(responseAsyncCache.nextCorrelationID());
+-      }
+-
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("RemotingConnectionID=" + (connection == null ? "NULL" : connection.getID()) + " Sending packet nonblocking " + packet + " on channelID=" + id);
++   // This must never called by more than one thread concurrently
++   private boolean send(final Packet packet, final int reconnectID, final boolean flush, final boolean batch) {
++      if (invokeInterceptors(packet, interceptors, connection) != null) {
++         return false;
+       }
+ 
+-      ActiveMQBuffer buffer = packet.encode(connection);
+-
+-      lock.lock();
++      synchronized (sendLock) {
++         packet.setChannelID(id);
+ 
+-      try {
+-         if (failingOver) {
+-            waitForFailOver("RemotingConnectionID=" + (connection == null ? "NULL" : connection.getID()) + " timed-out waiting for fail-over condition on non-blocking send");
++         if (responseAsyncCache != null && packet.isRequiresResponse() && packet.isResponseAsync()) {
++            packet.setCorrelationID(responseAsyncCache.nextCorrelationID());
+          }
+ 
+-         // Sanity check
+-         if (transferring) {
+-            throw ActiveMQClientMessageBundle.BUNDLE.cannotSendPacketDuringFailover();
++         if (logger.isTraceEnabled()) {
++            logger.trace("RemotingConnectionID=" + (connection == null ? "NULL" : connection.getID()) + " Sending packet nonblocking " + packet + " on channelID=" + id);
+          }
+ 
+-         if (resendCache != null && packet.isRequiresConfirmations()) {
+-            addResendPacket(packet);
+-         }
++         ActiveMQBuffer buffer = packet.encode(connection);
+ 
+-      } finally {
+-         lock.unlock();
+-      }
++         lock.lock();
+ 
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("RemotingConnectionID=" + (connection == null ? "NULL" : connection.getID()) + " Writing buffer for channelID=" + id);
+-      }
++         try {
++            if (failingOver) {
++               waitForFailOver("RemotingConnectionID=" + (connection == null ? "NULL" : connection.getID()) + " timed-out waiting for fail-over condition on non-blocking send");
++            }
+ 
+-      checkReconnectID(reconnectID);
++            // Sanity check
++            if (transferring) {
++               throw ActiveMQClientMessageBundle.BUNDLE.cannotSendPacketDuringFailover();
++            }
+ 
+-      //We do this outside the lock as ResponseCache is threadsafe and allows responses to come in,
+-      //As the send could block if the response cache cannot add, preventing responses to be handled.
+-      if (responseAsyncCache != null && packet.isRequiresResponse() && packet.isResponseAsync()) {
+-         while (!responseAsyncCache.add(packet)) {
+-            try {
+-               Thread.sleep(1);
+-            } catch (Exception e) {
+-               // Ignore
++            if (resendCache != null && packet.isRequiresConfirmations()) {
++               addResendPacket(packet);
+             }
+-         }
+-      }
+ 
+-      return buffer;
+-   }
++         } finally {
++            lock.unlock();
++         }
+ 
+-   // This must never called by more than one thread concurrently
+-   private boolean send(final Packet packet, final int reconnectID, final boolean flush, final boolean batch) {
+-      if (invokeInterceptors(packet, interceptors, connection) != null) {
+-         return false;
+-      }
++         if (logger.isTraceEnabled()) {
++            logger.trace("RemotingConnectionID=" + (connection == null ? "NULL" : connection.getID()) + " Writing buffer for channelID=" + id);
++         }
+ 
+-      synchronized (sendLock) {
+-         ActiveMQBuffer buffer = beforeSend(packet, reconnectID);
++         checkReconnectID(reconnectID);
+ 
+-         // The actual send must be outside the lock, or with OIO transport, the write can block if the tcp
+-         // buffer is full, preventing any incoming buffers being handled and blocking failover
+-         try {
+-            connection.getTransportConnection().write(buffer, flush, batch);
+-         } catch (Throwable t) {
+-            //If runtime exception, we must remove from the cache to avoid filling up the cache causing it to be full.
+-            //The client would get still know about this as the exception bubbles up the call stack instead.
+-            if (responseAsyncCache != null && packet.isRequiresResponse() && packet.isResponseAsync()) {
+-               responseAsyncCache.remove(packet.getCorrelationID());
++         //We do this outside the lock as ResponseCache is threadsafe and allows responses to come in,
++         //As the send could block if the response cache is cannot add, preventing responses to be handled.
++         if (responseAsyncCache != null && packet.isRequiresResponse() && packet.isResponseAsync()) {
++            while (!responseAsyncCache.add(packet)) {
++               try {
++                  Thread.sleep(1);
++               } catch (Exception e) {
++                  // Ignore
++               }
+             }
+-            throw t;
+          }
+-         return true;
+-      }
+-   }
+-
+-   @Override
+-   public boolean send(Packet packet,
+-                       RandomAccessFile raf,
+-                       FileChannel fileChannel,
+-                       long offset,
+-                       int dataSize,
+-                       Callback callback) {
+-      if (invokeInterceptors(packet, interceptors, connection) != null) {
+-         return false;
+-      }
+-
+-      synchronized (sendLock) {
+-         ActiveMQBuffer buffer = beforeSend(packet, -1);
+ 
+          // The actual send must be outside the lock, or with OIO transport, the write can block if the tcp
+          // buffer is full, preventing any incoming buffers being handled and blocking failover
+          try {
+-            connection.getTransportConnection().write(buffer);
+-            connection.getTransportConnection().write(raf, fileChannel, offset, dataSize, callback == null ? null : (ChannelFutureListener) future -> callback.done(future == null || future.isSuccess()));
++            connection.getTransportConnection().write(buffer, flush, batch);
+          } catch (Throwable t) {
+             //If runtime exception, we must remove from the cache to avoid filling up the cache causing it to be full.
+             //The client would get still know about this as the exception bubbles up the call stack instead.
+@@ -470,7 +426,7 @@ public final class ChannelImpl implements Channel {
+                   throw new ActiveMQInterruptedException(e);
+                }
+ 
+-               if (response != null && response.getType() != PacketImpl.EXCEPTION && response.getType() != expectedPacket && !response.isResponseAsync()) {
++               if (response != null && response.getType() != PacketImpl.EXCEPTION && response.getType() != expectedPacket) {
+                   ActiveMQClientLogger.LOGGER.packetOutOfOrder(response, new Exception("trace"));
+                }
+ 
+@@ -491,9 +447,7 @@ public final class ChannelImpl implements Channel {
+             }
+ 
+             if (response == null) {
+-               ActiveMQException e = ActiveMQClientMessageBundle.BUNDLE.timedOutSendingPacket(connection.getBlockingCallTimeout(), packet.getType());
+-               connection.fail(e);
+-               throw e;
++               throw ActiveMQClientMessageBundle.BUNDLE.timedOutSendingPacket(connection.getBlockingCallTimeout(), packet.getType());
+             }
+ 
+             if (response.getType() == PacketImpl.EXCEPTION) {
+@@ -613,9 +567,11 @@ public final class ChannelImpl implements Channel {
+ 
+          // And switch it
+ 
+-         newConnection.putChannel(id, this);
++         final CoreRemotingConnection rnewConnection = newConnection;
++
++         rnewConnection.putChannel(id, this);
+ 
+-         connection = newConnection;
++         connection = rnewConnection;
+ 
+          transferring = true;
+       }
+@@ -686,7 +642,7 @@ public final class ChannelImpl implements Channel {
+       }
+    }
+ 
+-   public void handleAsyncResponse(Packet packet) {
++   public void handleResponse(Packet packet) {
+       if (responseAsyncCache != null && packet.isResponseAsync()) {
+          responseAsyncCache.handleResponse(packet);
+       }
+@@ -735,7 +691,7 @@ public final class ChannelImpl implements Channel {
+             clearUpTo(msg.getCommandID());
+          }
+ 
+-         if (!connection.isClient() && handler != null) {
++         if (!connection.isClient()) {
+             handler.handlePacket(packet);
+          }
+ 
+@@ -744,7 +700,7 @@ public final class ChannelImpl implements Channel {
+          if (packet.isResponse()) {
+             confirm(packet);
+ 
+-            handleAsyncResponse(packet);
++            handleResponse(packet);
+             lock.lock();
+ 
+             try {
+@@ -796,9 +752,6 @@ public final class ChannelImpl implements Channel {
+          if (commandConfirmationHandler != null) {
+             commandConfirmationHandler.commandConfirmed(packet);
+          }
+-         if (responseAsyncCache != null) {
+-            responseAsyncCache.handleResponse(packet);
+-         }
+       }
+ 
+       firstStoredCommandID += numberToClear;

@@ -1,0 +1,107 @@
+diff --git a/server/base/src/main/java/org/apache/accumulo/server/util/MasterMetadataUtil.java b/server/base/src/main/java/org/apache/accumulo/server/util/MasterMetadataUtil.java
+index 5aa61bc587..5d84ee40dc 100644
+--- a/server/base/src/main/java/org/apache/accumulo/server/util/MasterMetadataUtil.java
++++ b/server/base/src/main/java/org/apache/accumulo/server/util/MasterMetadataUtil.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.server.util;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.io.IOException;
+@@ -62,6 +61,8 @@ import org.apache.zookeeper.KeeperException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ /**
+  *
+  */
+@@ -135,12 +136,12 @@ public class MasterMetadataUtil {
+ 
+     Text metadataPrevEndRow = KeyExtent.decodePrevEndRow(prevEndRowIBW);
+ 
+-    String table = (new KeyExtent(metadataEntry, (Text) null)).getTableId();
++    Text table = (new KeyExtent(metadataEntry, (Text) null)).getTableId();
+ 
+     return fixSplit(context, table, metadataEntry, metadataPrevEndRow, oper, splitRatio, tserver, time.toString(), initFlushID, initCompactID, lock);
+   }
+ 
+-  private static KeyExtent fixSplit(ClientContext context, String table, Text metadataEntry, Text metadataPrevEndRow, Value oper, double splitRatio,
++  private static KeyExtent fixSplit(ClientContext context, Text table, Text metadataEntry, Text metadataPrevEndRow, Value oper, double splitRatio,
+       TServerInstance tserver, String time, long initFlushID, long initCompactID, ZooLock lock) throws AccumuloException, IOException {
+     if (metadataPrevEndRow == null)
+       // something is wrong, this should not happen... if a tablet is split, it will always have a
+@@ -150,44 +151,42 @@ public class MasterMetadataUtil {
+     // check to see if prev tablet exist in metadata tablet
+     Key prevRowKey = new Key(new Text(KeyExtent.getMetadataEntry(table, metadataPrevEndRow)));
+ 
+-    try (ScannerImpl scanner2 = new ScannerImpl(context, MetadataTable.ID, Authorizations.EMPTY)) {
+-      scanner2.setRange(new Range(prevRowKey, prevRowKey.followingKey(PartialKey.ROW)));
+-
+-      VolumeManager fs = VolumeManagerImpl.get();
+-      if (!scanner2.iterator().hasNext()) {
+-        log.info("Rolling back incomplete split " + metadataEntry + " " + metadataPrevEndRow);
+-        MetadataTableUtil.rollBackSplit(metadataEntry, KeyExtent.decodePrevEndRow(oper), context, lock);
+-        return new KeyExtent(metadataEntry, KeyExtent.decodePrevEndRow(oper));
+-      } else {
+-        log.info("Finishing incomplete split " + metadataEntry + " " + metadataPrevEndRow);
++    ScannerImpl scanner2 = new ScannerImpl(context, MetadataTable.ID, Authorizations.EMPTY);
++    scanner2.setRange(new Range(prevRowKey, prevRowKey.followingKey(PartialKey.ROW)));
+ 
+-        List<FileRef> highDatafilesToRemove = new ArrayList<FileRef>();
++    VolumeManager fs = VolumeManagerImpl.get();
++    if (!scanner2.iterator().hasNext()) {
++      log.info("Rolling back incomplete split " + metadataEntry + " " + metadataPrevEndRow);
++      MetadataTableUtil.rollBackSplit(metadataEntry, KeyExtent.decodePrevEndRow(oper), context, lock);
++      return new KeyExtent(metadataEntry, KeyExtent.decodePrevEndRow(oper));
++    } else {
++      log.info("Finishing incomplete split " + metadataEntry + " " + metadataPrevEndRow);
+ 
+-        SortedMap<FileRef,DataFileValue> origDatafileSizes = new TreeMap<FileRef,DataFileValue>();
+-        SortedMap<FileRef,DataFileValue> highDatafileSizes = new TreeMap<FileRef,DataFileValue>();
+-        SortedMap<FileRef,DataFileValue> lowDatafileSizes = new TreeMap<FileRef,DataFileValue>();
++      List<FileRef> highDatafilesToRemove = new ArrayList<FileRef>();
+ 
+-        try (Scanner scanner3 = new ScannerImpl(context, MetadataTable.ID, Authorizations.EMPTY)) {
+-          Key rowKey = new Key(metadataEntry);
++      Scanner scanner3 = new ScannerImpl(context, MetadataTable.ID, Authorizations.EMPTY);
++      Key rowKey = new Key(metadataEntry);
+ 
+-          scanner3.fetchColumnFamily(DataFileColumnFamily.NAME);
+-          scanner3.setRange(new Range(rowKey, rowKey.followingKey(PartialKey.ROW)));
++      SortedMap<FileRef,DataFileValue> origDatafileSizes = new TreeMap<FileRef,DataFileValue>();
++      SortedMap<FileRef,DataFileValue> highDatafileSizes = new TreeMap<FileRef,DataFileValue>();
++      SortedMap<FileRef,DataFileValue> lowDatafileSizes = new TreeMap<FileRef,DataFileValue>();
++      scanner3.fetchColumnFamily(DataFileColumnFamily.NAME);
++      scanner3.setRange(new Range(rowKey, rowKey.followingKey(PartialKey.ROW)));
+ 
+-          for (Entry<Key,Value> entry : scanner3) {
+-            if (entry.getKey().compareColumnFamily(DataFileColumnFamily.NAME) == 0) {
+-              origDatafileSizes.put(new FileRef(fs, entry.getKey()), new DataFileValue(entry.getValue().get()));
+-            }
+-          }
++      for (Entry<Key,Value> entry : scanner3) {
++        if (entry.getKey().compareColumnFamily(DataFileColumnFamily.NAME) == 0) {
++          origDatafileSizes.put(new FileRef(fs, entry.getKey()), new DataFileValue(entry.getValue().get()));
+         }
++      }
+ 
+-        MetadataTableUtil.splitDatafiles(table, metadataPrevEndRow, splitRatio, new HashMap<FileRef,FileUtil.FileInfo>(), origDatafileSizes, lowDatafileSizes,
+-            highDatafileSizes, highDatafilesToRemove);
++      MetadataTableUtil.splitDatafiles(table, metadataPrevEndRow, splitRatio, new HashMap<FileRef,FileUtil.FileInfo>(), origDatafileSizes, lowDatafileSizes,
++          highDatafileSizes, highDatafilesToRemove);
+ 
+-        MetadataTableUtil.finishSplit(metadataEntry, highDatafileSizes, highDatafilesToRemove, context, lock);
++      MetadataTableUtil.finishSplit(metadataEntry, highDatafileSizes, highDatafilesToRemove, context, lock);
+ 
+-        return new KeyExtent(metadataEntry, KeyExtent.encodePrevEndRow(metadataPrevEndRow));
+-      }
++      return new KeyExtent(metadataEntry, KeyExtent.encodePrevEndRow(metadataPrevEndRow));
+     }
++
+   }
+ 
+   private static TServerInstance getTServerInstance(String address, ZooLock zooLock) {

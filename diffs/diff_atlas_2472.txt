@@ -1,0 +1,52 @@
+diff --git a/webapp/src/main/java/org/apache/atlas/web/resources/BaseService.java b/webapp/src/main/java/org/apache/atlas/web/resources/BaseService.java
+index d43c8cc64..83bbd22ea 100644
+--- a/webapp/src/main/java/org/apache/atlas/web/resources/BaseService.java
++++ b/webapp/src/main/java/org/apache/atlas/web/resources/BaseService.java
+@@ -40,7 +40,6 @@ import java.util.Map;
+ public abstract class BaseService {
+     private static final Gson gson = new Gson();
+     private final Logger LOG = LoggerFactory.getLogger(getClass());
+-    private final static JsonSerializer serializer = new JsonSerializer();
+ 
+     protected Result getResource(ResourceProvider provider, Request request)
+             throws ResourceNotFoundException {
+@@ -73,15 +72,6 @@ public abstract class BaseService {
+         }
+     }
+ 
+-    protected void updateResource(ResourceProvider provider, Request request) throws CatalogException {
+-        initializeGraphTransaction();
+-        try {
+-            provider.updateResourceById(request);
+-        } catch (RuntimeException e) {
+-            throw wrapRuntimeException(e);
+-        }
+-    }
+-
+     protected void deleteResource(ResourceProvider provider, Request request) throws CatalogException {
+         initializeGraphTransaction();
+         try {
+@@ -128,20 +118,16 @@ public abstract class BaseService {
+         }
+     }
+ 
+-    protected JsonSerializer getSerializer() {
+-        return serializer;
++    private RuntimeException wrapRuntimeException(RuntimeException e) {
++        return e instanceof CatalogRuntimeException ? e : new CatalogRuntimeException(e);
+     }
+ 
+     //todo: abstract via AtlasTypeSystem
+     // ensure that the thread wasn't re-pooled with an existing transaction
+-    protected void initializeGraphTransaction() {
++    private void initializeGraphTransaction() {
+         TitanGraphProvider.getGraphInstance().rollback();
+     }
+ 
+-    private RuntimeException wrapRuntimeException(RuntimeException e) {
+-        return e instanceof CatalogRuntimeException ? e : new CatalogRuntimeException(e);
+-    }
+-
+     @XmlRootElement
+     // the name of this class is used as the collection name in the returned json when returning a collection
+     public static class Results {

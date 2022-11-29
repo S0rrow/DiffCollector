@@ -1,0 +1,39 @@
+diff --git a/intg/src/main/java/org/apache/atlas/model/instance/EntityMutationResponse.java b/intg/src/main/java/org/apache/atlas/model/instance/EntityMutationResponse.java
+index 874a43ab9..c9b6e9712 100644
+--- a/intg/src/main/java/org/apache/atlas/model/instance/EntityMutationResponse.java
++++ b/intg/src/main/java/org/apache/atlas/model/instance/EntityMutationResponse.java
+@@ -89,34 +89,6 @@ public class EntityMutationResponse {
+         return null;
+     }
+ 
+-    @JsonIgnore
+-    public AtlasEntityHeader getFirstCreatedEntityByTypeName(String typeName) {
+-        final List<AtlasEntityHeader> entitiesByOperation = getEntitiesByOperation(EntityMutations.EntityOperation.CREATE);
+-        if ( entitiesByOperation != null && entitiesByOperation.size() > 0) {
+-            for (AtlasEntityHeader header : entitiesByOperation) {
+-                if ( header.getTypeName().equals(typeName)) {
+-                    return header;
+-                }
+-            }
+-        }
+-
+-        return null;
+-    }
+-
+-    @JsonIgnore
+-    public AtlasEntityHeader getFirstUpdatedEntityByTypeName(String typeName) {
+-        final List<AtlasEntityHeader> entitiesByOperation = getEntitiesByOperation(EntityMutations.EntityOperation.UPDATE);
+-        if ( entitiesByOperation != null && entitiesByOperation.size() > 0) {
+-            for (AtlasEntityHeader header : entitiesByOperation) {
+-                if ( header.getTypeName().equals(typeName)) {
+-                    return header;
+-                }
+-            }
+-        }
+-
+-        return null;
+-    }
+-
+     public void addEntity(EntityMutations.EntityOperation op, AtlasEntityHeader header) {
+         if (entitiesMutated == null) {
+             entitiesMutated = new HashMap<>();

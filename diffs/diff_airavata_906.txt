@@ -1,0 +1,154 @@
+diff --git a/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java b/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
+index 0bed30aff..13524baca 100644
+--- a/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
++++ b/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
+@@ -23,19 +23,15 @@ package org.apache.airavata.registry.api.impl;
+ 
+ import java.lang.reflect.Constructor;
+ import java.net.URI;
+-import java.sql.Timestamp;
+ import java.util.ArrayList;
+-import java.util.Calendar;
+ import java.util.List;
+ import java.util.Map;
+-import java.util.TimeZone;
+ 
+ import javax.jcr.Credentials;
+ import javax.jcr.Node;
+ import javax.jcr.NodeIterator;
+ import javax.jcr.PathNotFoundException;
+ import javax.jcr.Property;
+-import javax.jcr.PropertyIterator;
+ import javax.jcr.Repository;
+ import javax.jcr.RepositoryException;
+ import javax.jcr.RepositoryFactory;
+@@ -43,15 +39,15 @@ import javax.jcr.Session;
+ import javax.jcr.SimpleCredentials;
+ import javax.jcr.Value;
+ 
++import org.apache.airavata.registry.api.Axis2Registry;
++import org.apache.airavata.registry.api.user.UserManager;
++import org.apache.airavata.registry.api.user.UserManagerFactory;
+ import org.apache.airavata.commons.gfac.type.ApplicationDeploymentDescription;
+ import org.apache.airavata.commons.gfac.type.HostDescription;
+ import org.apache.airavata.commons.gfac.type.ServiceDescription;
+ import org.apache.airavata.commons.gfac.type.util.SchemaUtil;
+-import org.apache.airavata.registry.api.Axis2Registry;
+-import org.apache.airavata.registry.api.user.UserManager;
+-import org.apache.airavata.registry.api.user.UserManagerFactory;
+-import org.slf4j.Logger;
+-import org.slf4j.LoggerFactory;
++import org.apache.commons.logging.Log;
++import org.apache.commons.logging.LogFactory;
+ 
+ public class JCRRegistry implements Axis2Registry {
+ 
+@@ -62,14 +58,13 @@ public class JCRRegistry implements Axis2Registry {
+ 	private static final String XML_PROPERTY_NAME = "XML";
+ 	private static final String WSDL_PROPERTY_NAME = "WSDL";
+     private static final String GFAC_URL_PROPERTY_NAME = "GFAC_URL_LIST";
+-    private static final String LINK_NAME = "LINK";
+-    public static final int GFAC_URL_UPDATE_INTERVAL = 1000 * 60 * 60 * 3;
++	private static final String LINK_NAME = "LINK";
+ 
+-    private Repository repository;
++	private Repository repository;
+ 	private Credentials credentials;
+ 	private UserManager userManager;
+ 	
+-	private static Logger log = LoggerFactory.getLogger(JCRRegistry.class);
++	private static Log log = LogFactory.getLog(JCRRegistry.class);
+ 
+ 	public JCRRegistry(String className, String user, String pass,
+ 			Map<String, String> map) {
+@@ -86,10 +81,7 @@ public class JCRRegistry implements Axis2Registry {
+ 			repository = repositoryFactory.getRepository(map);
+ 			credentials = new SimpleCredentials(user,
+ 					new String(pass).toCharArray());
+-			System.out.println(repository.getDescriptor(Repository.REP_NAME_DESC));
+-			setUserManager(UserManagerFactory.getUserManager(repository.getDescriptor(Repository.REP_NAME_DESC)));
+-			System.out.println(getUserManager());
+-			getUserManager().setRepository(this);
++			userManager = UserManagerFactory.getUserManager(className);
+ 		} catch (ClassNotFoundException e) {
+ 			log.error("Error class path settting", e);
+ 		} catch (RepositoryException e) {
+@@ -104,7 +96,7 @@ public class JCRRegistry implements Axis2Registry {
+         this.credentials = credentials;
+     }
+ 
+-	public Session getSession() throws RepositoryException {
++	private Session getSession() throws RepositoryException {
+ 		return repository.login(credentials);
+ 	}
+ 
+@@ -112,8 +104,6 @@ public class JCRRegistry implements Axis2Registry {
+ 		return getOrAddNode(session.getRootNode(), SERVICE_NODE_NAME);
+ 	}
+ 
+-
+-
+ 	private Node getDeploymentNode(Session session) throws RepositoryException {
+ 		return getOrAddNode(session.getRootNode(), DEPLOY_NODE_NAME);
+ 	}
+@@ -438,8 +428,6 @@ public class JCRRegistry implements Axis2Registry {
+     }
+ 
+     public boolean saveGFacDescriptor(String gfacURL) {
+-        java.util.Date today = Calendar.getInstance(TimeZone.getTimeZone("GMT")).getTime();
+-        Timestamp timestamp = new Timestamp(today.getTime());
+         Session session = null;
+         try {
+             URI uri = new URI(gfacURL);
+@@ -448,10 +436,10 @@ public class JCRRegistry implements Axis2Registry {
+             Node gfacDataNode = getOrAddNode(session.getRootNode(), GFAC_INSTANCE_DATA);
+             try {
+                 Property prop = gfacDataNode.getProperty(propertyName);
+-                prop.setValue(gfacURL + ";" + timestamp.getTime());
++                prop.setValue(gfacURL);
+                 session.save();
+             } catch (PathNotFoundException e) {
+-                gfacDataNode.setProperty(propertyName, gfacURL + ";" + timestamp.getTime());
++                gfacDataNode.setProperty(propertyName, gfacURL);
+                 session.save();
+             }
+         } catch (Exception e) {
+@@ -490,38 +478,4 @@ public class JCRRegistry implements Axis2Registry {
+         }
+     }
+ 
+-    public List<String> getGFacDescriptorList() {
+-        Session session = null;
+-        List<String> urlList = new ArrayList<String>();
+-        java.util.Date today = Calendar.getInstance(TimeZone.getTimeZone("GMT")).getTime();
+-        Timestamp timestamp = new Timestamp(today.getTime());
+-        try {
+-            session = getSession();
+-            Node gfacNode = getOrAddNode(session.getRootNode(), GFAC_INSTANCE_DATA);
+-            PropertyIterator propertyIterator = gfacNode.getProperties();
+-            while (propertyIterator.hasNext()) {
+-                Property property = propertyIterator.nextProperty();
+-                if(!"nt:unstructured".equals(property.getString())){
+-                    String x = property.getString();
+-                    Timestamp setTime = new Timestamp(new Long(property.getString().split(";")[1]));
+-                    if(GFAC_URL_UPDATE_INTERVAL > (timestamp.getTime() - setTime.getTime())){
+-                        urlList.add(property.getString().split(";")[0]);
+-                    }
+-                }
+-            }
+-        } catch (RepositoryException e) {
+-            e.printStackTrace();
+-        }
+-        return urlList;
+-    }
+-
+-	public UserManager getUserManager() {
+-		return userManager;
+-	}
+-
+-	public void setUserManager(UserManager userManager) {
+-		this.userManager = userManager;
+-	}
+-
+-
+ }

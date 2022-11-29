@@ -1,0 +1,658 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/graph/TypedInstanceToGraphMapper.java b/repository/src/main/java/org/apache/atlas/repository/graph/TypedInstanceToGraphMapper.java
+index 47ae5e142..a3dc7e5fa 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/graph/TypedInstanceToGraphMapper.java
++++ b/repository/src/main/java/org/apache/atlas/repository/graph/TypedInstanceToGraphMapper.java
+@@ -17,26 +17,15 @@
+  */
+ package org.apache.atlas.repository.graph;
+ 
+-import static org.apache.atlas.repository.graph.GraphHelper.string;
+-
+-import java.security.MessageDigest;
+-import java.util.ArrayList;
+-import java.util.Collection;
+-import java.util.Collections;
+-import java.util.Date;
+-import java.util.HashMap;
+-import java.util.HashSet;
+-import java.util.List;
+-import java.util.Map;
+-import java.util.Set;
+-
++import com.google.inject.Inject;
++import com.thinkaurelius.titan.core.SchemaViolationException;
++import com.tinkerpop.blueprints.Direction;
++import com.tinkerpop.blueprints.Edge;
++import com.tinkerpop.blueprints.Vertex;
+ import org.apache.atlas.AtlasException;
+ import org.apache.atlas.RequestContext;
+ import org.apache.atlas.repository.Constants;
+ import org.apache.atlas.repository.RepositoryException;
+-import org.apache.atlas.repository.graphdb.AtlasEdge;
+-import org.apache.atlas.repository.graphdb.AtlasSchemaViolationException;
+-import org.apache.atlas.repository.graphdb.AtlasVertex;
+ import org.apache.atlas.typesystem.IReferenceableInstance;
+ import org.apache.atlas.typesystem.ITypedInstance;
+ import org.apache.atlas.typesystem.ITypedReferenceableInstance;
+@@ -59,12 +48,23 @@ import org.apache.atlas.utils.MD5Utils;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import com.google.inject.Inject;
++import java.security.MessageDigest;
++import java.util.ArrayList;
++import java.util.Collection;
++import java.util.Collections;
++import java.util.Date;
++import java.util.HashMap;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++
++import static org.apache.atlas.repository.graph.GraphHelper.string;
+ 
+ public final class TypedInstanceToGraphMapper {
+ 
+     private static final Logger LOG = LoggerFactory.getLogger(TypedInstanceToGraphMapper.class);
+-    private final Map<Id, AtlasVertex> idToVertexMap = new HashMap<>();
++    private final Map<Id, Vertex> idToVertexMap = new HashMap<>();
+     private final TypeSystem typeSystem = TypeSystem.getInstance();
+     private static final GraphHelper graphHelper = GraphHelper.getInstance();
+ 
+@@ -96,23 +96,23 @@ public final class TypedInstanceToGraphMapper {
+                     createVerticesAndDiscoverInstances(newInstances);
+             List<ITypedReferenceableInstance> entitiesToCreate = instancesPair.left;
+             List<ITypedReferenceableInstance> entitiesToUpdate = instancesPair.right;
+-            FullTextMapper fulltextMapper = new FullTextMapper(graphToTypedInstanceMapper);
++
+             switch (operation) {
+             case CREATE:
+                 List<String> ids = addOrUpdateAttributesAndTraits(operation, entitiesToCreate);
+-                addFullTextProperty(entitiesToCreate, fulltextMapper);
+-                requestContext.recordEntityCreate(ids);
++                addFullTextProperty(entitiesToCreate);
++                requestContext.recordCreatedEntities(ids);
+                 break;
+ 
+             case UPDATE_FULL:
+             case UPDATE_PARTIAL:
+                 ids = addOrUpdateAttributesAndTraits(Operation.CREATE, entitiesToCreate);
+-                requestContext.recordEntityCreate(ids);
++                requestContext.recordCreatedEntities(ids);
+                 ids = addOrUpdateAttributesAndTraits(operation, entitiesToUpdate);
+-                requestContext.recordEntityUpdate(ids);
++                requestContext.recordUpdatedEntities(ids);
+ 
+-                addFullTextProperty(entitiesToCreate, fulltextMapper);
+-                addFullTextProperty(entitiesToUpdate, fulltextMapper);
++                addFullTextProperty(entitiesToCreate);
++                addFullTextProperty(entitiesToUpdate);
+                 break;
+ 
+             default:
+@@ -143,7 +143,7 @@ public final class TypedInstanceToGraphMapper {
+                 //new vertex, set all the properties
+                 String guid = addOrUpdateAttributesAndTraits(operation, instance);
+                 guids.add(guid);
+-            } catch (AtlasSchemaViolationException e) {
++            } catch (SchemaViolationException e) {
+                 throw new EntityExistsException(instance, e);
+             }
+         }
+@@ -159,7 +159,7 @@ public final class TypedInstanceToGraphMapper {
+             throw new RepositoryException("id cannot be null");
+         }
+ 
+-        AtlasVertex instanceVertex = idToVertexMap.get(id);
++        Vertex instanceVertex = idToVertexMap.get(id);
+ 
+         // add the attributes for the instance
+         ClassType classType = typeSystem.getDataType(ClassType.class, typedInstance.getTypeName());
+@@ -174,7 +174,7 @@ public final class TypedInstanceToGraphMapper {
+         return getId(typedInstance)._getId();
+     }
+ 
+-    void mapInstanceToVertex(ITypedInstance typedInstance, AtlasVertex instanceVertex,
++    void mapInstanceToVertex(ITypedInstance typedInstance, Vertex instanceVertex,
+                              Map<String, AttributeInfo> fields, boolean mapOnlyUniqueAttributes, Operation operation)
+             throws AtlasException {
+ 
+@@ -189,7 +189,7 @@ public final class TypedInstanceToGraphMapper {
+                 RequestContext.get().getRequestTime());
+     }
+ 
+-    void mapAttributeToVertex(ITypedInstance typedInstance, AtlasVertex instanceVertex,
++    void mapAttributeToVertex(ITypedInstance typedInstance, Vertex instanceVertex,
+                               AttributeInfo attributeInfo, Operation operation) throws AtlasException {
+         Object attrValue = typedInstance.get(attributeInfo.name);
+         LOG.debug("Mapping attribute {} = {}", attributeInfo.name, attrValue);
+@@ -211,15 +211,15 @@ public final class TypedInstanceToGraphMapper {
+ 
+             case STRUCT:
+             case CLASS:
+-                String edgeLabel = graphHelper.getEdgeLabel(typedInstance, attributeInfo);
++                String edgeLabel = GraphHelper.getEdgeLabel(typedInstance, attributeInfo);
+ 
+-                AtlasEdge currentEdge = graphHelper.getEdgeForLabel(instanceVertex, edgeLabel);
+-                AtlasEdge newEdge = addOrUpdateReference(instanceVertex, attributeInfo, attributeInfo.dataType(),
++                Edge currentEdge = GraphHelper.getEdgeForLabel(instanceVertex, edgeLabel);
++                String newEdgeId = addOrUpdateReference(instanceVertex, attributeInfo, attributeInfo.dataType(),
+                         attrValue, currentEdge, edgeLabel, operation);
+ 
+-                if (currentEdge != null && !currentEdge.equals(newEdge)) {
+-                    deleteHandler.deleteEdgeReference(currentEdge, attributeInfo.dataType().getTypeCategory(),
+-                            attributeInfo.isComposite, true);
++                if (currentEdge != null && !currentEdge.getId().toString().equals(newEdgeId)) {
++                    deleteHandler.deleteReference(currentEdge, attributeInfo.dataType().getTypeCategory(),
++                            attributeInfo.isComposite);
+                 }
+                 break;
+ 
+@@ -245,7 +245,7 @@ public final class TypedInstanceToGraphMapper {
+             Id id = instance.getId();
+ 
+             if (!idToVertexMap.containsKey(id)) {
+-                AtlasVertex instanceVertex;
++                Vertex instanceVertex;
+                 if (id.isAssigned()) {  // has a GUID
+                     LOG.debug("Instance has an assigned id {}", instance.getId()._getId());
+                     instanceVertex = graphHelper.getVertexForGUID(id.id);
+@@ -289,15 +289,16 @@ public final class TypedInstanceToGraphMapper {
+         return TypeUtils.Pair.of(instancesToCreate, instancesToUpdate);
+     }
+ 
+-    private void addFullTextProperty(List<ITypedReferenceableInstance> instances, FullTextMapper fulltextMapper) throws AtlasException {
++    private void addFullTextProperty(List<ITypedReferenceableInstance> instances) throws AtlasException {
++        FullTextMapper fulltextMapper = new FullTextMapper(graphToTypedInstanceMapper);
+         for (ITypedReferenceableInstance typedInstance : instances) { // Traverse
+-            AtlasVertex instanceVertex = getClassVertex(typedInstance);
++            Vertex instanceVertex = getClassVertex(typedInstance);
+             String fullText = fulltextMapper.mapRecursive(instanceVertex, true);
+             GraphHelper.setProperty(instanceVertex, Constants.ENTITY_TEXT_PROPERTY_KEY, fullText);
+         }
+     }
+ 
+-    private void addTraits(ITypedReferenceableInstance typedInstance, AtlasVertex instanceVertex, ClassType classType)
++    private void addTraits(ITypedReferenceableInstance typedInstance, Vertex instanceVertex, ClassType classType)
+             throws AtlasException {
+         for (String traitName : typedInstance.getTraits()) {
+             LOG.debug("mapping trait {}", traitName);
+@@ -311,7 +312,7 @@ public final class TypedInstanceToGraphMapper {
+ 
+     /******************************************** ARRAY **************************************************/
+ 
+-    private void mapArrayCollectionToVertex(ITypedInstance typedInstance, AtlasVertex instanceVertex,
++    private void mapArrayCollectionToVertex(ITypedInstance typedInstance, Vertex instanceVertex,
+                                             AttributeInfo attributeInfo, Operation operation) throws AtlasException {
+         LOG.debug("Mapping instance {} for array attribute {} vertex {}", typedInstance.toShortString(),
+                 attributeInfo.name, string(instanceVertex));
+@@ -323,73 +324,91 @@ public final class TypedInstanceToGraphMapper {
+             return;
+         }
+ 
+-        IDataType elementType = ((DataTypes.ArrayType) attributeInfo.dataType()).getElemType();
+         String propertyName = GraphHelper.getQualifiedFieldName(typedInstance, attributeInfo);
+-        
+-        List<Object> currentElements = GraphHelper.getArrayElementsProperty(elementType, instanceVertex, propertyName);
+-        
+-        List<Object> newElementsCreated = new ArrayList<>();
++        List<String> currentElements = instanceVertex.getProperty(propertyName);
++        IDataType elementType = ((DataTypes.ArrayType) attributeInfo.dataType()).getElemType();
++        List<String> newElementsCreated = new ArrayList<>();
+ 
+         if (!newAttributeEmpty) {
+             if (newElements != null && !newElements.isEmpty()) {
+                 int index = 0;
+                 for (; index < newElements.size(); index++) {
+-                    Object currentElement = (currentElements != null && index < currentElements.size()) ?
++                    String currentElement = (currentElements != null && index < currentElements.size()) ?
+                             currentElements.get(index) : null;
+                     LOG.debug("Adding/updating element at position {}, current element {}, new element {}", index,
+                             currentElement, newElements.get(index));
+-                    Object newEntry = addOrUpdateCollectionEntry(instanceVertex, attributeInfo, elementType,
++                    String newEntry = addOrUpdateCollectionEntry(instanceVertex, attributeInfo, elementType,
+                             newElements.get(index), currentElement, propertyName, operation);
+                     newElementsCreated.add(newEntry);
+                 }
+             }
+         }
+ 
+-        if(GraphHelper.isReference(elementType)) {
++        // for dereference on way out
++        GraphHelper.setProperty(instanceVertex, propertyName, newElementsCreated);
++
++        removeUnusedEntries(currentElements, newElementsCreated, elementType, attributeInfo);
++    }
+ 
+-            List<AtlasEdge> additionalEdges = removeUnusedEntries(instanceVertex, propertyName, (List)currentElements,
+-                    (List)newElementsCreated, elementType, attributeInfo);
+-            newElementsCreated.addAll(additionalEdges);
++    private void removeUnusedEntries(List<String> currentEntries, List<String> newEntries, IDataType entryType,
++                                     AttributeInfo attributeInfo) throws AtlasException {
++        if (currentEntries == null || currentEntries.isEmpty()) {
++            return;
+         }
+ 
+-        // for dereference on way out
+-        GraphHelper.setArrayElementsProperty(elementType, instanceVertex, propertyName, newElementsCreated);
+-    }
++        LOG.debug("Removing unused entries from the old collection");
++        if (entryType.getTypeCategory() == DataTypes.TypeCategory.STRUCT
++                || entryType.getTypeCategory() == DataTypes.TypeCategory.CLASS) {
+ 
+-    //Removes unused edges from the old collection, compared to the new collection
+-    private List<AtlasEdge> removeUnusedEntries(AtlasVertex instanceVertex, String edgeLabel,
+-                                             Collection<AtlasEdge> currentEntries,
+-                                             Collection<AtlasEdge> newEntries,
+-                                             IDataType entryType, AttributeInfo attributeInfo) throws AtlasException {
+-        if (currentEntries != null && !currentEntries.isEmpty()) {
+-            LOG.debug("Removing unused entries from the old collection");
+-            if (entryType.getTypeCategory() == DataTypes.TypeCategory.STRUCT
+-                    || entryType.getTypeCategory() == DataTypes.TypeCategory.CLASS) {
+-
+-                //Remove the edges for (current edges - new edges)
+-                List<AtlasEdge> cloneElements = new ArrayList<>(currentEntries);
+-                cloneElements.removeAll(newEntries);
+-                List<AtlasEdge> additionalElements = new ArrayList<>();
+-                LOG.debug("Removing unused entries from the old collection - {}", cloneElements);
+-
+-                if (!cloneElements.isEmpty()) {
+-                    for (AtlasEdge edge : cloneElements) {
+-                        boolean deleted = deleteHandler.deleteEdgeReference(edge, entryType.getTypeCategory(),
+-                                attributeInfo.isComposite, true);
+-                        if (!deleted) {
+-                            additionalElements.add(edge);
+-                        }
++            //Get map of edge id to edge
++            Map<String, Edge> edgeMap = new HashMap<>();
++            getEdges(currentEntries, edgeMap);
++            getEdges(newEntries, edgeMap);
++
++            //Get final set of in vertices
++            Set<String> newInVertices = new HashSet<>();
++            for (String edgeId : newEntries) {
++                Vertex inVertex = edgeMap.get(edgeId).getVertex(Direction.IN);
++                newInVertices.add(inVertex.getId().toString());
++            }
++
++            //Remove the edges for (current edges - new edges)
++            List<String> cloneElements = new ArrayList<>(currentEntries);
++            cloneElements.removeAll(newEntries);
++            LOG.debug("Removing unused entries from the old collection - {}", cloneElements);
++
++            if (!cloneElements.isEmpty()) {
++                for (String edgeIdForDelete : cloneElements) {
++                    Edge edge = edgeMap.get(edgeIdForDelete);
++                    Vertex inVertex = edge.getVertex(Direction.IN);
++                    if (newInVertices.contains(inVertex.getId().toString())) {
++                        //If the edge.inVertex is in the new set of in vertices, just delete the edge
++                        deleteHandler.deleteEdge(edge, true);
++                    } else {
++                        //else delete the edge + vertex
++                        deleteHandler.deleteReference(edge, entryType.getTypeCategory(), attributeInfo.isComposite);
+                     }
+                 }
+-                return additionalElements;
+             }
+         }
+-        return new ArrayList<>();
+     }
+ 
++    private void getEdges(List<String> edgeIds, Map<String, Edge> edgeMap) {
++        if (edgeIds == null) {
++            return;
++        }
++
++        for (String edgeId : edgeIds) {
++            if (!edgeMap.containsKey(edgeId)) {
++                edgeMap.put(edgeId, graphHelper.getEdgeById(edgeId));
++            }
++        }
++    }
++
++
+     /******************************************** MAP **************************************************/
+ 
+-    private void mapMapCollectionToVertex(ITypedInstance typedInstance, AtlasVertex instanceVertex,
++    private void mapMapCollectionToVertex(ITypedInstance typedInstance, Vertex instanceVertex,
+                                           AttributeInfo attributeInfo, Operation operation) throws AtlasException {
+         LOG.debug("Mapping instance {} to vertex {} for attribute {}", typedInstance.toShortString(), string(instanceVertex),
+                 attributeInfo.name);
+@@ -403,91 +422,46 @@ public final class TypedInstanceToGraphMapper {
+ 
+         IDataType elementType = ((DataTypes.MapType) attributeInfo.dataType()).getValueType();
+         String propertyName = GraphHelper.getQualifiedFieldName(typedInstance, attributeInfo);
+-
+-        Map<String, Object> currentMap = new HashMap<>();
+-        Map<String, Object> newMap = new HashMap<>();
+-
+-        List<String> currentKeys = GraphHelper.getListProperty(instanceVertex, propertyName);
+-        if (currentKeys != null && !currentKeys.isEmpty()) {
+-            for (String key : currentKeys) {
+-                String propertyNameForKey = GraphHelper.getQualifiedNameForMapKey(propertyName, key);
+-                Object propertyValueForKey = GraphHelper.getMapValueProperty(elementType, instanceVertex, propertyNameForKey);
+-                currentMap.put(key, propertyValueForKey);
+-            }
+-        }
++        List<String> currentElements = new ArrayList<>();
++        List<String> newElementsCreated = new ArrayList<>();
++        List<String> newKeysCreated = new ArrayList<>();
+ 
+         if (!newAttributeEmpty) {
+-            for (Map.Entry<Object,Object> entry : newAttribute.entrySet()) {
+-                String keyStr = entry.getKey().toString();
+-                String propertyNameForKey = GraphHelper.getQualifiedNameForMapKey(propertyName, keyStr);
++            for (Map.Entry entry : newAttribute.entrySet()) {
++                String propertyNameForKey = GraphHelper.getQualifiedNameForMapKey(propertyName, entry.getKey().toString());
++                newKeysCreated.add(entry.getKey().toString());
++
++                String currentEntry = instanceVertex.getProperty(propertyNameForKey);
++                if (currentEntry != null) {
++                    currentElements.add(currentEntry);
++                }
+ 
+-                Object newEntry = addOrUpdateCollectionEntry(instanceVertex, attributeInfo, elementType,
+-                        entry.getValue(), currentMap.get(keyStr), propertyNameForKey, operation);
++                String newEntry = addOrUpdateCollectionEntry(instanceVertex, attributeInfo, elementType,
++                        entry.getValue(), currentEntry, propertyNameForKey, operation);
+ 
+                 //Add/Update/Remove property value
+-                GraphHelper.setMapValueProperty(elementType, instanceVertex, propertyNameForKey, newEntry);
+-                newMap.put(keyStr, newEntry);
++                GraphHelper.setProperty(instanceVertex, propertyNameForKey, newEntry);
++                newElementsCreated.add(newEntry);
+             }
+         }
+ 
+-        Map<String, Object> additionalMap =
+-                removeUnusedMapEntries(instanceVertex, propertyName, currentMap, newMap, elementType, attributeInfo);
+-
+-        Set<String> newKeys = new HashSet<>(newMap.keySet());
+-        newKeys.addAll(additionalMap.keySet());
+-
+-
+         // for dereference on way out
+-        GraphHelper.setListProperty(instanceVertex, propertyName, new ArrayList<>(newKeys));
+-    }
+-
+-    //Remove unused entries from map
+-    private Map<String, Object> removeUnusedMapEntries(
+-            AtlasVertex instanceVertex, String propertyName,
+-            Map<String, Object> currentMap,
+-            Map<String, Object> newMap, IDataType elementType,
+-            AttributeInfo attributeInfo)
+-                    throws AtlasException {
++        GraphHelper.setProperty(instanceVertex, propertyName, newKeysCreated);
+ 
+-        Map<String, Object> additionalMap = new HashMap<>();
+-        for (String currentKey : currentMap.keySet()) {
+-
+-            boolean shouldDeleteKey = !newMap.containsKey(currentKey);
+-            if (GraphHelper.isReference(elementType)) {
+-
+-                //Delete the edge reference if its not part of new edges created/updated
+-                AtlasEdge currentEdge = (AtlasEdge)currentMap.get(currentKey);
+-
+-                if (!newMap.values().contains(currentEdge)) {
+-
+-                    boolean deleted =
+-                            deleteHandler.deleteEdgeReference(currentEdge, elementType.getTypeCategory(), attributeInfo.isComposite, true);
+-                    if (!deleted) {
+-                        additionalMap.put(currentKey, currentEdge);
+-                        shouldDeleteKey = false;
+-                    }
+-                }
+-            }
+-
+-            if (shouldDeleteKey) {
+-                String propertyNameForKey = GraphHelper.getQualifiedNameForMapKey(propertyName, currentKey);
+-                GraphHelper.setProperty(instanceVertex, propertyNameForKey, null);
+-            }
+-        }
+-        return additionalMap;
++        removeUnusedEntries(currentElements, newElementsCreated, elementType, attributeInfo);
+     }
+ 
+     /******************************************** ARRAY & MAP **************************************************/
+ 
+-    private Object addOrUpdateCollectionEntry(AtlasVertex instanceVertex, AttributeInfo attributeInfo,
+-                                              IDataType elementType, Object newAttributeValue, Object currentValue,
++    private String addOrUpdateCollectionEntry(Vertex instanceVertex, AttributeInfo attributeInfo,
++                                              IDataType elementType, Object newAttributeValue, String currentValue,
+                                               String propertyName, Operation operation)
+             throws AtlasException {
+ 
+         switch (elementType.getTypeCategory()) {
+         case PRIMITIVE:
+         case ENUM:
+-            return newAttributeValue != null ? newAttributeValue : null;
++            return newAttributeValue != null ? newAttributeValue.toString() : null;
+ 
+         case ARRAY:
+         case MAP:
+@@ -498,7 +472,8 @@ public final class TypedInstanceToGraphMapper {
+         case STRUCT:
+         case CLASS:
+             final String edgeLabel = GraphHelper.EDGE_LABEL_PREFIX + propertyName;
+-            return addOrUpdateReference(instanceVertex, attributeInfo, elementType, newAttributeValue, (AtlasEdge)currentValue,
++            Edge currentEdge = graphHelper.getEdgeById(currentValue);
++            return addOrUpdateReference(instanceVertex, attributeInfo, elementType, newAttributeValue, currentEdge,
+                     edgeLabel, operation);
+ 
+         default:
+@@ -506,8 +481,8 @@ public final class TypedInstanceToGraphMapper {
+         }
+     }
+ 
+-    private AtlasEdge addOrUpdateReference(AtlasVertex instanceVertex, AttributeInfo attributeInfo,
+-                                        IDataType attributeType, Object newAttributeValue, AtlasEdge currentEdge,
++    private String addOrUpdateReference(Vertex instanceVertex, AttributeInfo attributeInfo,
++                                        IDataType attributeType, Object newAttributeValue, Edge currentEdge,
+                                         String edgeLabel, Operation operation) throws AtlasException {
+         switch (attributeType.getTypeCategory()) {
+         case STRUCT:
+@@ -524,26 +499,26 @@ public final class TypedInstanceToGraphMapper {
+     }
+     /******************************************** STRUCT **************************************************/
+ 
+-
+-    private AtlasEdge addOrUpdateStruct(AtlasVertex instanceVertex, AttributeInfo attributeInfo,
+-            ITypedStruct newAttributeValue, AtlasEdge currentEdge,
+-            String edgeLabel, Operation operation) throws AtlasException {
+-        AtlasEdge newEdge = null;
+-        if (GraphHelper.elementExists(currentEdge) && newAttributeValue != null) {
++    private String addOrUpdateStruct(Vertex instanceVertex, AttributeInfo attributeInfo,
++                                     ITypedStruct newAttributeValue, Edge currentEdge,
++                                     String edgeLabel, Operation operation) throws AtlasException {
++        String newEdgeId = null;
++        if (currentEdge != null && newAttributeValue != null) {
+             //update
+             updateStructVertex(newAttributeValue, currentEdge, operation);
+-            newEdge = currentEdge;
+-        } else if (! GraphHelper.elementExists(currentEdge) && newAttributeValue != null) {
++            newEdgeId = currentEdge.getId().toString();
++        } else if (currentEdge == null && newAttributeValue != null) {
+             //add
+-            newEdge = addStructVertex(newAttributeValue, instanceVertex, attributeInfo, edgeLabel);
++            Edge newEdge = addStructVertex(newAttributeValue, instanceVertex, attributeInfo, edgeLabel);
++            newEdgeId = newEdge.getId().toString();
+         }
+-        return newEdge;
++        return newEdgeId;
+     }
+ 
+-    private AtlasEdge addStructVertex(ITypedStruct structInstance, AtlasVertex instanceVertex,
++    private Edge addStructVertex(ITypedStruct structInstance, Vertex instanceVertex,
+                                  AttributeInfo attributeInfo, String edgeLabel) throws AtlasException {
+         // add a new vertex for the struct or trait instance
+-        AtlasVertex structInstanceVertex = graphHelper.createVertexWithoutIdentity(structInstance.getTypeName(), null,
++        Vertex structInstanceVertex = graphHelper.createVertexWithoutIdentity(structInstance.getTypeName(), null,
+                 Collections.<String>emptySet()); // no super types for struct type
+         LOG.debug("created vertex {} for struct {} value {}", string(structInstanceVertex), attributeInfo.name,
+                 structInstance.toShortString());
+@@ -552,22 +527,22 @@ public final class TypedInstanceToGraphMapper {
+         mapInstanceToVertex(structInstance, structInstanceVertex, structInstance.fieldMapping().fields, false,
+                 Operation.CREATE);
+         // add an edge to the newly created vertex from the parent
+-        AtlasEdge newEdge = graphHelper.getOrCreateEdge(instanceVertex, structInstanceVertex, edgeLabel);
++        Edge newEdge = graphHelper.addEdge(instanceVertex, structInstanceVertex, edgeLabel);
+ 
+         return newEdge;
+     }
+ 
+-    private void updateStructVertex(ITypedStruct newAttributeValue, AtlasEdge currentEdge,
+-            Operation operation) throws AtlasException {
++    private void updateStructVertex(ITypedStruct newAttributeValue, Edge currentEdge,
++                                    Operation operation) throws AtlasException {
+         //Already existing vertex. Update
+-        AtlasVertex structInstanceVertex = currentEdge.getInVertex();
++        Vertex structInstanceVertex = currentEdge.getVertex(Direction.IN);
+ 
+         LOG.debug("Updating struct vertex {} with struct {}", string(structInstanceVertex), newAttributeValue.toShortString());
+ 
+         // Update attributes
+         final MessageDigest digester = MD5Utils.getDigester();
+         String newSignature = newAttributeValue.getSignatureHash(digester);
+-        String curSignature = GraphHelper.getSingleValuedProperty(structInstanceVertex, SIGNATURE_HASH_PROPERTY_KEY, String.class);
++        String curSignature = structInstanceVertex.getProperty(SIGNATURE_HASH_PROPERTY_KEY);
+ 
+         if (!newSignature.equals(curSignature)) {
+             //Update struct vertex instance only if there is a change
+@@ -579,34 +554,33 @@ public final class TypedInstanceToGraphMapper {
+ 
+     /******************************************** CLASS **************************************************/
+ 
+-    private AtlasEdge addOrUpdateClassVertex(AtlasVertex instanceVertex, AtlasEdge currentEdge,
+-            ITypedReferenceableInstance newAttributeValue, AttributeInfo attributeInfo,
+-            String edgeLabel) throws AtlasException {
+-        AtlasVertex newReferenceVertex = getClassVertex(newAttributeValue);
+-        if( ! GraphHelper.elementExists(newReferenceVertex) && newAttributeValue != null) {
++    private String addOrUpdateClassVertex(Vertex instanceVertex, Edge currentEdge,
++                                          ITypedReferenceableInstance newAttributeValue, AttributeInfo attributeInfo,
++                                          String edgeLabel) throws AtlasException {
++        Vertex newReferenceVertex = getClassVertex(newAttributeValue);
++        if(newReferenceVertex == null && newAttributeValue != null) {
+             LOG.error("Could not find vertex for Class Reference " + newAttributeValue);
+             throw new EntityNotFoundException("Could not find vertex for Class Reference " + newAttributeValue);
+         }
+ 
+-        AtlasEdge newEdge = null;
+-        if (GraphHelper.elementExists(currentEdge) && newAttributeValue != null) {
+-            newEdge = updateClassEdge(instanceVertex, currentEdge, newAttributeValue, newReferenceVertex,
++        String newEdgeId = null;
++        if (currentEdge != null && newAttributeValue != null) {
++            newEdgeId = updateClassEdge(instanceVertex, currentEdge, newAttributeValue, newReferenceVertex,
+                     attributeInfo, edgeLabel);
+-        } else if (! GraphHelper.elementExists(currentEdge) && newAttributeValue != null){
+-            newEdge = addClassEdge(instanceVertex, newReferenceVertex, edgeLabel);
+-
++        } else if (currentEdge == null && newAttributeValue != null){
++            Edge newEdge = addClassEdge(instanceVertex, newReferenceVertex, edgeLabel);
++            newEdgeId = newEdge.getId().toString();
+         }
+-        return newEdge;
++        return newEdgeId;
+     }
+ 
+-
+-    private AtlasEdge addClassEdge(AtlasVertex instanceVertex, AtlasVertex toVertex, String edgeLabel) throws AtlasException {
++    private Edge addClassEdge(Vertex instanceVertex, Vertex toVertex, String edgeLabel) throws AtlasException {
+         // add an edge to the class vertex from the instance
+-        return graphHelper.getOrCreateEdge(instanceVertex, toVertex, edgeLabel);
++        return graphHelper.addEdge(instanceVertex, toVertex, edgeLabel);
+     }
+ 
+-    private AtlasVertex getClassVertex(ITypedReferenceableInstance typedReference) throws EntityNotFoundException {
+-        AtlasVertex referenceVertex = null;
++    private Vertex getClassVertex(ITypedReferenceableInstance typedReference) throws EntityNotFoundException {
++        Vertex referenceVertex = null;
+         Id id = null;
+         if (typedReference != null) {
+             id = typedReference instanceof Id ? (Id) typedReference : typedReference.getId();
+@@ -627,56 +601,56 @@ public final class TypedInstanceToGraphMapper {
+         Id id = typedReference instanceof Id ? (Id) typedReference : typedReference.getId();
+ 
+         if (id.isUnassigned()) {
+-            AtlasVertex classVertex = idToVertexMap.get(id);
+-            String guid = GraphHelper.getIdFromVertex(classVertex);
++            Vertex classVertex = idToVertexMap.get(id);
++            String guid = classVertex.getProperty(Constants.GUID_PROPERTY_KEY);
+             id = new Id(guid, 0, typedReference.getTypeName());
+         }
+         return id;
+     }
+ 
+ 
+-    private AtlasEdge updateClassEdge(AtlasVertex instanceVertex, AtlasEdge currentEdge,
+-            ITypedReferenceableInstance newAttributeValue,
+-            AtlasVertex newVertex, AttributeInfo attributeInfo,
+-            String edgeLabel) throws AtlasException {
++    private String updateClassEdge(Vertex instanceVertex, Edge currentEdge,
++                                   ITypedReferenceableInstance newAttributeValue,
++                                   Vertex newVertex, AttributeInfo attributeInfo,
++                                   String edgeLabel) throws AtlasException {
+         LOG.debug("Updating {} for reference attribute {}", string(currentEdge), attributeInfo.name);
+         // Update edge if it exists
+-        AtlasVertex currentVertex = currentEdge.getInVertex();
++        Vertex currentVertex = currentEdge.getVertex(Direction.IN);
+         String currentEntityId = GraphHelper.getIdFromVertex(currentVertex);
+         String newEntityId = getId(newAttributeValue).id;
+-        AtlasEdge newEdge = currentEdge;
++        String newEdgeId = currentEdge.getId().toString();
+         if (!currentEntityId.equals(newEntityId)) {
+             // add an edge to the class vertex from the instance
+             if (newVertex != null) {
+-                newEdge = graphHelper.getOrCreateEdge(instanceVertex, newVertex, edgeLabel);
+-
++                Edge newEdge = graphHelper.getOrCreateEdge(instanceVertex, newVertex, edgeLabel);
++                newEdgeId = newEdge.getId().toString();
+             }
+         }
+ 
+-        return newEdge;
++        return newEdgeId;
+     }
+ 
+     /******************************************** TRAITS ****************************************************/
+ 
+-    void mapTraitInstanceToVertex(ITypedStruct traitInstance, IDataType entityType, AtlasVertex parentInstanceVertex)
++    void mapTraitInstanceToVertex(ITypedStruct traitInstance, IDataType entityType, Vertex parentInstanceVertex)
+             throws AtlasException {
+-        // add a new AtlasVertex for the struct or trait instance
++        // add a new vertex for the struct or trait instance
+         final String traitName = traitInstance.getTypeName();
+-        AtlasVertex traitInstanceVertex = graphHelper.createVertexWithoutIdentity(traitInstance.getTypeName(), null,
++        Vertex traitInstanceVertex = graphHelper.createVertexWithoutIdentity(traitInstance.getTypeName(), null,
+                 typeSystem.getDataType(TraitType.class, traitName).getAllSuperTypeNames());
+         LOG.debug("created vertex {} for trait {}", string(traitInstanceVertex), traitName);
+ 
+-        // map all the attributes to this newly created AtlasVertex
++        // map all the attributes to this newly created vertex
+         mapInstanceToVertex(traitInstance, traitInstanceVertex, traitInstance.fieldMapping().fields, false, Operation.CREATE);
+ 
+-        // add an edge to the newly created AtlasVertex from the parent
++        // add an edge to the newly created vertex from the parent
+         String relationshipLabel = GraphHelper.getTraitLabel(entityType.getName(), traitName);
+-        graphHelper.getOrCreateEdge(parentInstanceVertex, traitInstanceVertex, relationshipLabel);
++        graphHelper.addEdge(parentInstanceVertex, traitInstanceVertex, relationshipLabel);
+     }
+ 
+     /******************************************** PRIMITIVES **************************************************/
+ 
+-    private void mapPrimitiveOrEnumToVertex(ITypedInstance typedInstance, AtlasVertex instanceVertex,
++    private void mapPrimitiveOrEnumToVertex(ITypedInstance typedInstance, Vertex instanceVertex,
+                                             AttributeInfo attributeInfo) throws AtlasException {
+         Object attrValue = typedInstance.get(attributeInfo.name);
+ 
+@@ -708,9 +682,7 @@ public final class TypedInstanceToGraphMapper {
+         } else if (attributeInfo.dataType() == DataTypes.DATE_TYPE) {
+             final Date dateVal = typedInstance.getDate(attributeInfo.name);
+             //Convert Property value to Long  while persisting
+-            if(dateVal != null) {
+-                propertyValue = dateVal.getTime();
+-            }
++            propertyValue = dateVal.getTime();
+         } else if (attributeInfo.dataType().getTypeCategory() == DataTypes.TypeCategory.ENUM) {
+             if (attrValue != null) {
+                 propertyValue = ((EnumValue)attrValue).value;

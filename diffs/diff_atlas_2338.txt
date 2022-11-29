@@ -1,0 +1,288 @@
+diff --git a/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java b/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java
+index d8ffe9fc5..2058c67f4 100755
+--- a/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java
++++ b/webapp/src/main/java/org/apache/atlas/web/resources/EntityResource.java
+@@ -19,12 +19,13 @@
+ package org.apache.atlas.web.resources;
+ 
+ import com.google.common.base.Preconditions;
+-import org.apache.atlas.AtlasClient;
+ import org.apache.atlas.AtlasException;
++import org.apache.atlas.AtlasClient;
+ import org.apache.atlas.ParamChecker;
+ import org.apache.atlas.TypeNotFoundException;
+ import org.apache.atlas.repository.EntityNotFoundException;
+ import org.apache.atlas.services.MetadataService;
++import org.apache.atlas.typesystem.types.ValueConversionException;
+ import org.apache.atlas.web.util.Servlets;
+ import org.codehaus.jettison.json.JSONArray;
+ import org.codehaus.jettison.json.JSONObject;
+@@ -58,7 +59,7 @@ import java.util.List;
+  * An entity is an "instance" of a Type.  Entities conform to the definition
+  * of the Type they correspond with.
+  */
+-@Path("entity")
++@Path("entities")
+ @Singleton
+ public class EntityResource {
+ 
+@@ -81,6 +82,44 @@ public class EntityResource {
+         this.metadataService = metadataService;
+     }
+ 
++    /**
++     * Submits an entity definition (instance) corresponding to a given type.
++     */
++    @POST
++    @Consumes(Servlets.JSON_MEDIA_TYPE)
++    @Produces(Servlets.JSON_MEDIA_TYPE)
++    public Response submit(@Context HttpServletRequest request) {
++        try {
++            final String entity = Servlets.getRequestPayload(request);
++            LOG.debug("submitting entity {} ", entity);
++
++            final String guid = metadataService.createEntity(entity);
++
++            UriBuilder ub = uriInfo.getAbsolutePathBuilder();
++            URI locationURI = ub.path(guid).build();
++
++            JSONObject response = new JSONObject();
++            response.put(AtlasClient.REQUEST_ID, Servlets.getRequestId());
++            response.put(AtlasClient.GUID, guid);
++            response.put(AtlasClient.DEFINITION,
++                    metadataService.getEntityDefinition(guid));
++
++            return Response.created(locationURI).entity(response).build();
++
++        } catch(ValueConversionException ve) {
++            LOG.error("Unable to persist entity instance due to a desrialization error ", ve);
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(ve.getCause(), Response.Status.BAD_REQUEST));
++        } catch (AtlasException | IllegalArgumentException e) {
++            LOG.error("Unable to persist entity instance", e);
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
++        } catch (Throwable e) {
++            LOG.error("Unable to persist entity instance", e);
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++        }
++    }
+ 
+     /**
+      * Fetch the complete definition of an entity given its GUID.
+@@ -105,67 +144,60 @@ public class EntityResource {
+                 response.put(AtlasClient.DEFINITION, entityDefinition);
+                 status = Response.Status.OK;
+             } else {
+-                response.put(AtlasClient.ERROR,
+-                        Servlets.escapeJsonString(String.format("An entity with GUID={%s} does not exist", guid)));
++                response.put(AtlasClient.ERROR, Servlets.escapeJsonString(
++                        String.format("An entity with GUID={%s} does not exist", guid)));
+             }
+ 
+             return Response.status(status).entity(response).build();
+ 
+         } catch (EntityNotFoundException e) {
+             LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+         } catch (AtlasException | IllegalArgumentException e) {
+             LOG.error("Bad GUID={}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+         } catch (Throwable e) {
+             LOG.error("Unable to get instance definition for GUID {}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+ 
+     /**
+-     * Fetch the complete definition of an entity given its qualified name.
++     * Gets the list of entities for a given entity type.
+      *
+-     * @param entityType
+-     * @param attribute
+-     * @param value
++     * @param entityType name of a type which is unique
+      */
+     @GET
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response getEntityDefinitionByAttribute(@QueryParam("type") String entityType,
+-                                                   @QueryParam("property") String attribute,
+-                                                   @QueryParam("value") String value) {
++    public Response getEntityListByType(@QueryParam("type") String entityType) {
+         try {
+-            LOG.debug("Fetching entity definition for type={}, qualified name={}", entityType, value);
+-            ParamChecker.notEmpty(entityType, "type cannot be null");
+-            ParamChecker.notEmpty(attribute, "attribute name cannot be null");
+-            ParamChecker.notEmpty(value, "attribute value cannot be null");
++            Preconditions.checkNotNull(entityType, "Entity type cannot be null");
+ 
+-            final String entityDefinition = metadataService.getEntityDefinition(entityType, attribute, value);
++            LOG.debug("Fetching entity list for type={} ", entityType);
++            final List<String> entityList = metadataService.getEntityList(entityType);
+ 
+             JSONObject response = new JSONObject();
+             response.put(AtlasClient.REQUEST_ID, Servlets.getRequestId());
++            response.put(AtlasClient.TYPENAME, entityType);
++            response.put(AtlasClient.RESULTS, new JSONArray(entityList));
++            response.put(AtlasClient.COUNT, entityList.size());
+ 
+-            Response.Status status = Response.Status.NOT_FOUND;
+-            if (entityDefinition != null) {
+-                response.put(AtlasClient.DEFINITION, entityDefinition);
+-                status = Response.Status.OK;
+-            } else {
+-                response.put(AtlasClient.ERROR, Servlets.escapeJsonString(String.format("An entity with type={%s}, " +
+-                        "qualifiedName={%s} does not exist", entityType, value)));
+-            }
+-
+-            return Response.status(status).entity(response).build();
+-
+-        } catch (EntityNotFoundException e) {
+-            LOG.error("An entity with type={} and qualifiedName={} does not exist", entityType, value, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
++            return Response.ok(response).build();
++        } catch (NullPointerException e) {
++            LOG.error("Entity type cannot be null", e);
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+         } catch (AtlasException | IllegalArgumentException e) {
+-            LOG.error("Bad type={}, qualifiedName={}", entityType, value, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
++            LOG.error("Unable to get entity list for type {}", entityType, e);
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+         } catch (Throwable e) {
+-            LOG.error("Unable to get instance definition for type={}, qualifiedName={}", entityType, value, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++            LOG.error("Unable to get entity list for type {}", entityType, e);
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+ 
+@@ -180,8 +212,9 @@ public class EntityResource {
+     @Path("{guid}")
+     @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response update(@PathParam("guid") String guid, @QueryParam("property") String property,
+-            @QueryParam("value") String value) {
++    public Response update(@PathParam("guid") String guid,
++                           @QueryParam("property") String property,
++                           @QueryParam("value") String value) {
+         try {
+             Preconditions.checkNotNull(property, "Entity property cannot be null");
+             Preconditions.checkNotNull(value, "Entity value cannot be null");
+@@ -193,18 +226,20 @@ public class EntityResource {
+             return Response.ok(response).build();
+         } catch (EntityNotFoundException e) {
+             LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+         } catch (AtlasException | IllegalArgumentException e) {
+             LOG.error("Unable to add property {} to entity id {}", property, guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+         } catch (Throwable e) {
+             LOG.error("Unable to add property {} to entity id {}", property, guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+ 
+     // Trait management functions
+-
+     /**
+      * Gets the list of trait names for a given entity represented by a guid.
+      *
+@@ -228,13 +263,16 @@ public class EntityResource {
+             return Response.ok(response).build();
+         } catch (EntityNotFoundException e) {
+             LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+         } catch (AtlasException | IllegalArgumentException e) {
+             LOG.error("Unable to get trait names for entity {}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+         } catch (Throwable e) {
+             LOG.error("Unable to get trait names for entity {}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+ 
+@@ -247,7 +285,8 @@ public class EntityResource {
+     @Path("{guid}/traits")
+     @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response addTrait(@Context HttpServletRequest request, @PathParam("guid") String guid) {
++    public Response addTrait(@Context HttpServletRequest request,
++                             @PathParam("guid") String guid) {
+         try {
+             final String traitDefinition = Servlets.getRequestPayload(request);
+             LOG.debug("Adding trait={} for entity={} ", traitDefinition, guid);
+@@ -263,13 +302,16 @@ public class EntityResource {
+             return Response.created(locationURI).entity(response).build();
+         } catch (EntityNotFoundException | TypeNotFoundException e) {
+             LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+         } catch (AtlasException | IllegalArgumentException e) {
+             LOG.error("Unable to add trait for entity={}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+         } catch (Throwable e) {
+             LOG.error("Unable to add trait for entity={}", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+ 
+@@ -283,8 +325,9 @@ public class EntityResource {
+     @Path("{guid}/traits/{traitName}")
+     @Consumes(Servlets.JSON_MEDIA_TYPE)
+     @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response deleteTrait(@Context HttpServletRequest request, @PathParam("guid") String guid,
+-            @PathParam(TRAIT_NAME) String traitName) {
++    public Response deleteTrait(@Context HttpServletRequest request,
++                                @PathParam("guid") String guid,
++                                @PathParam(TRAIT_NAME) String traitName) {
+         LOG.debug("Deleting trait={} from entity={} ", traitName, guid);
+         try {
+             metadataService.deleteTrait(guid, traitName);
+@@ -297,13 +340,16 @@ public class EntityResource {
+             return Response.ok(response).build();
+         } catch (EntityNotFoundException | TypeNotFoundException e) {
+             LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+         } catch (AtlasException | IllegalArgumentException e) {
+             LOG.error("Unable to delete trait name={} for entity={}", traitName, guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+         } catch (Throwable e) {
+             LOG.error("Unable to delete trait name={} for entity={}", traitName, guid, e);
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+ }

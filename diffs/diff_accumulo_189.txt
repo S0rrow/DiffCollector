@@ -1,0 +1,24 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/security/crypto/NoFlushOutputStream.java b/core/src/main/java/org/apache/accumulo/core/security/crypto/NoFlushOutputStream.java
+index 2f9f4bb0e2..a68bdfd0c6 100644
+--- a/core/src/main/java/org/apache/accumulo/core/security/crypto/NoFlushOutputStream.java
++++ b/core/src/main/java/org/apache/accumulo/core/security/crypto/NoFlushOutputStream.java
+@@ -17,7 +17,6 @@
+ package org.apache.accumulo.core.security.crypto;
+ 
+ import java.io.FilterOutputStream;
+-import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ public class NoFlushOutputStream extends FilterOutputStream {
+@@ -26,11 +25,6 @@ public class NoFlushOutputStream extends FilterOutputStream {
+     super(out);
+   }
+ 
+-  @Override
+-  public void write(byte[] b, int off, int len) throws IOException {
+-    out.write(b, off, len);
+-  }
+-
+   @Override
+   public void flush() {}
+ 

@@ -1,0 +1,202 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerReceiverContext.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerReceiverContext.java
+index 34a522f27c..4b978318fb 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerReceiverContext.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerReceiverContext.java
+@@ -16,19 +16,17 @@
+  */
+ package org.apache.activemq.artemis.protocol.amqp.proton;
+ 
+-import java.util.Arrays;
+-import java.util.List;
+-
+-import org.apache.activemq.artemis.api.core.RoutingType;
+-import org.apache.activemq.artemis.core.transaction.Transaction;
++import io.netty.buffer.ByteBuf;
++import io.netty.buffer.PooledByteBufAllocator;
+ import org.apache.activemq.artemis.protocol.amqp.broker.AMQPSessionCallback;
++import org.apache.activemq.artemis.protocol.amqp.logger.ActiveMQAMQPProtocolMessageBundle;
+ import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPException;
+ import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPInternalErrorException;
+ import org.apache.activemq.artemis.protocol.amqp.exceptions.ActiveMQAMQPNotFoundException;
+-import org.apache.activemq.artemis.protocol.amqp.logger.ActiveMQAMQPProtocolMessageBundle;
++import org.apache.activemq.artemis.protocol.amqp.util.DeliveryUtil;
++import org.apache.activemq.artemis.core.transaction.Transaction;
+ import org.apache.qpid.proton.amqp.Symbol;
+ import org.apache.qpid.proton.amqp.messaging.Rejected;
+-import org.apache.qpid.proton.amqp.messaging.TerminusExpiryPolicy;
+ import org.apache.qpid.proton.amqp.transaction.TransactionalState;
+ import org.apache.qpid.proton.amqp.transport.ErrorCondition;
+ import org.apache.qpid.proton.engine.Delivery;
+@@ -49,15 +47,15 @@ public class ProtonServerReceiverContext extends ProtonInitializable implements
+ 
+    protected final AMQPSessionCallback sessionSPI;
+ 
++
+    /*
+     The maximum number of credits we will allocate to clients.
+     This number is also used by the broker when refresh client credits.
+-    */
++     */
+    private static int maxCreditAllocation = 100;
+ 
+    // Used by the broker to decide when to refresh clients credit.  This is not used when client requests credit.
+    private static int minCreditRefresh = 30;
+-   private TerminusExpiryPolicy expiryPolicy;
+ 
+    public ProtonServerReceiverContext(AMQPSessionCallback sessionSPI,
+                                       AMQPConnectionContext connection,
+@@ -81,41 +79,36 @@ public class ProtonServerReceiverContext extends ProtonInitializable implements
+ 
+       if (target != null) {
+          if (target.getDynamic()) {
+-            // if dynamic we have to create the node (queue) and set the address on the target, the node is temporary and
++            //if dynamic we have to create the node (queue) and set the address on the target, the node is temporary and
+             // will be deleted on closing of the session
+             address = sessionSPI.tempQueueName();
+ 
+             try {
+-               sessionSPI.createTemporaryQueue(address, RoutingType.ANYCAST);
+-            } catch (Exception e) {
++               sessionSPI.createTemporaryQueue(address);
++            }
++            catch (Exception e) {
+                throw new ActiveMQAMQPInternalErrorException(e.getMessage(), e);
+             }
+-            expiryPolicy = target.getExpiryPolicy() != null ? target.getExpiryPolicy() : TerminusExpiryPolicy.LINK_DETACH;
+             target.setAddress(address);
+-         } else {
+-            // the target will have an address unless the remote is requesting an anonymous
+-            // relay in which case the address in the incoming message's to field will be
+-            // matched on receive of the message.
++         }
++         else {
++            //if not dynamic then we use the targets address as the address to forward the messages to, however there has to
++            //be a queue bound to it so we nee to check this.
+             address = target.getAddress();
++            if (address == null) {
++               throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.targetAddressNotSet();
++            }
+ 
+-            if (address != null && !address.isEmpty()) {
+-               try {
+-                  if (!sessionSPI.bindingQuery(address)) {
+-                     throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.addressDoesntExist();
+-                  }
+-               } catch (ActiveMQAMQPNotFoundException e) {
+-                  throw e;
+-               } catch (Exception e) {
+-                  throw new ActiveMQAMQPInternalErrorException(e.getMessage(), e);
++            try {
++               if (!sessionSPI.bindingQuery(address)) {
++                  throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.addressDoesntExist();
+                }
+             }
+-         }
+-
+-         Symbol[] remoteDesiredCapabilities = receiver.getRemoteDesiredCapabilities();
+-         if (remoteDesiredCapabilities != null) {
+-            List<Symbol> list = Arrays.asList(remoteDesiredCapabilities);
+-            if (list.contains(AmqpSupport.DELAYED_DELIVERY)) {
+-               receiver.setOfferedCapabilities(new Symbol[] {AmqpSupport.DELAYED_DELIVERY});
++            catch (ActiveMQAMQPNotFoundException e) {
++               throw e;
++            }
++            catch (Exception e) {
++               throw new ActiveMQAMQPInternalErrorException(e.getMessage(), e);
+             }
+          }
+       }
+@@ -142,52 +135,42 @@ public class ProtonServerReceiverContext extends ProtonInitializable implements
+             return;
+          }
+ 
+-         Transaction tx = null;
++         ByteBuf buffer = PooledByteBufAllocator.DEFAULT.heapBuffer(10 * 1024);
++         try {
++            synchronized (connection.getLock()) {
++               DeliveryUtil.readDelivery(receiver, buffer);
+ 
+-         byte[] data;
++               receiver.advance();
+ 
+-         synchronized (connection.getLock()) {
+-            data = new byte[delivery.available()];
+-            receiver.recv(data, 0, data.length);
+-            receiver.advance();
+-         }
++               Transaction tx = null;
++               if (delivery.getRemoteState() instanceof TransactionalState) {
+ 
+-         if (delivery.getRemoteState() instanceof TransactionalState) {
++                  TransactionalState txState = (TransactionalState) delivery.getRemoteState();
++                  tx = this.sessionSPI.getTransaction(txState.getTxnId());
++               }
++               sessionSPI.serverSend(tx, receiver, delivery, address, delivery.getMessageFormat(), buffer);
+ 
+-            TransactionalState txState = (TransactionalState) delivery.getRemoteState();
+-            tx = this.sessionSPI.getTransaction(txState.getTxnId(), false);
++               flow(maxCreditAllocation, minCreditRefresh);
++            }
+          }
+-
+-         sessionSPI.serverSend(tx, receiver, delivery, address, delivery.getMessageFormat(), data);
+-
+-         synchronized (connection.getLock()) {
+-            flow(maxCreditAllocation, minCreditRefresh);
++         finally {
++            buffer.release();
+          }
+-      } catch (Exception e) {
++      }
++      catch (Exception e) {
+          log.warn(e.getMessage(), e);
+          Rejected rejected = new Rejected();
+          ErrorCondition condition = new ErrorCondition();
+          condition.setCondition(Symbol.valueOf("failed"));
+          condition.setDescription(e.getMessage());
+          rejected.setError(condition);
+-         synchronized (connection.getLock()) {
+-            delivery.disposition(rejected);
+-            delivery.settle();
+-         }
++         delivery.disposition(rejected);
+       }
+    }
+ 
+    @Override
+    public void close(boolean remoteLinkClose) throws ActiveMQAMQPException {
+       protonSession.removeReceiver(receiver);
+-      org.apache.qpid.proton.amqp.messaging.Target target = (org.apache.qpid.proton.amqp.messaging.Target) receiver.getRemoteTarget();
+-      if (target != null && target.getDynamic() && (target.getExpiryPolicy() == TerminusExpiryPolicy.LINK_DETACH || target.getExpiryPolicy() == TerminusExpiryPolicy.SESSION_END)) {
+-         try {
+-            sessionSPI.removeTemporaryQueue(target.getAddress());
+-         } catch (Exception e) {
+-            //ignore on close, its temp anyway and will be removed later
+-         }
+-      }
+    }
+ 
+    @Override
+@@ -200,12 +183,14 @@ public class ProtonServerReceiverContext extends ProtonInitializable implements
+       // Use the SessionSPI to allocate producer credits, or default, always allocate credit.
+       if (sessionSPI != null) {
+          sessionSPI.offerProducerCredit(address, credits, threshold, receiver);
+-      } else {
++      }
++      else {
+          synchronized (connection.getLock()) {
+             receiver.flow(credits);
++            connection.flush();
+          }
+-         connection.flush();
+       }
++
+    }
+ 
+    public void drain(int credits) {
+@@ -222,4 +207,5 @@ public class ProtonServerReceiverContext extends ProtonInitializable implements
+    public boolean isDraining() {
+       return receiver.draining();
+    }
++
+ }

@@ -1,0 +1,70 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/view/ConnectionView.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/view/ConnectionView.java
+index 1baf03945b..32eedfff9c 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/view/ConnectionView.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/view/ConnectionView.java
+@@ -24,7 +24,6 @@ import java.util.Set;
+ 
+ import org.apache.activemq.artemis.core.management.impl.view.predicate.ConnectionFilterPredicate;
+ import org.apache.activemq.artemis.core.server.ActiveMQServer;
+-import org.apache.activemq.artemis.core.server.ServerConsumer;
+ import org.apache.activemq.artemis.core.server.ServerSession;
+ import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+ import org.apache.activemq.artemis.utils.JsonLoader;
+@@ -32,7 +31,7 @@ import org.apache.activemq.artemis.utils.StringUtil;
+ 
+ public class ConnectionView extends ActiveMQAbstractView<RemotingConnection> {
+ 
+-   private static final String defaultSortColumn = "connectionID";
++   private static final String defaultSortColumn = "creationTime";
+ 
+    private final ActiveMQServer server;
+ 
+@@ -58,47 +57,7 @@ public class ConnectionView extends ActiveMQAbstractView<RemotingConnection> {
+          users.add(username);
+       }
+ 
+-      return JsonLoader.createObjectBuilder().add("connectionID", toString(connection.getID()))
+-         .add("remoteAddress", toString(connection.getRemoteAddress()))
+-         .add("users", StringUtil.joinStringList(users, ","))
+-         .add("creationTime", new Date(connection.getCreationTime()).toString())
+-         .add("implementation", toString(connection.getClass().getSimpleName()))
+-         .add("protocol", toString(connection.getProtocolName()))
+-         .add("clientID", toString(connection.getClientID()))
+-         .add("localAddress", toString(connection.getTransportLocalAddress()))
+-         .add("sessionCount", server.getSessions(connection.getID().toString()).size());
+-   }
+-
+-   public Object getField(RemotingConnection connection, String fieldName) {
+-      List<ServerSession> sessions = server.getSessions(connection.getID().toString());
+-
+-      switch (fieldName) {
+-         case "connectionID":
+-            return connection.getID();
+-         case "remoteAddress":
+-            return connection.getRemoteAddress();
+-         case "users":
+-            Set<String> users = new HashSet<>();
+-            for (ServerSession session : sessions) {
+-               String username = session.getUsername() == null ? "" : session.getUsername();
+-               users.add(username);
+-            }
+-            return users;
+-         case "creationTime":
+-            return new Date(connection.getCreationTime());
+-         case "implementation":
+-            return connection.getClass().getSimpleName();
+-         case "protocol":
+-            return connection.getProtocolName();
+-         case "clientID":
+-            return connection.getClientID();
+-         case "localAddress":
+-            return connection.getTransportLocalAddress();
+-         case "sessionCount":
+-            return sessions.size();
+-         default:
+-            throw new IllegalArgumentException("Unsupported field, " + fieldName);
+-      }
++      return JsonLoader.createObjectBuilder().add("connectionID", toString(connection.getID())).add("remoteAddress", toString(connection.getRemoteAddress())).add("users", StringUtil.joinStringList(users, ",")).add("creationTime", new Date(connection.getCreationTime()).toString()).add("implementation", toString(toString(connection.getClass().getSimpleName()))).add("protocol", toString(connection.getProtocolName())).add("clientID", toString(connection.getClientID())).add("localAddress", toString(connection.getTransportConnection().getLocalAddress())).add("sessionCount", server.getSessions(connection.getID().toString()).size());
+    }
+ 
+    @Override

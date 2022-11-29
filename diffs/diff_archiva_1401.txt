@@ -1,0 +1,182 @@
+diff --git a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/metadata/MetadataTools.java b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/metadata/MetadataTools.java
+index d0309acce..0ea758b30 100644
+--- a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/metadata/MetadataTools.java
++++ b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/metadata/MetadataTools.java
+@@ -16,7 +16,6 @@
+  * limitations under the License.
+  */
+ 
+-import org.apache.commons.lang.StringUtils;
+ import org.apache.commons.lang.math.NumberUtils;
+ import org.apache.maven.archiva.common.utils.PathUtil;
+ import org.apache.maven.archiva.common.utils.VersionComparator;
+@@ -137,9 +136,14 @@ public Set<String> gatherAvailableVersions( ArchivaRepository managedRepository,
+         }
+ 
+         Set<String> foundVersions = new HashSet<String>();
+-        VersionedReference versionRef = new VersionedReference();
+-        versionRef.setGroupId( reference.getGroupId() );
+-        versionRef.setArtifactId( reference.getArtifactId() );
++
++        // TODO: should really determine if valid based on artifactPatterns, not POM existance.
++        //       this method was written before the gatherSnapshotVersions() method, consider
++        //       using the routines from that method used to determine artifacts via pattern.
++        ArtifactReference pomReference = new ArtifactReference();
++        pomReference.setGroupId( reference.getGroupId() );
++        pomReference.setArtifactId( reference.getArtifactId() );
++        pomReference.setType( "pom" );
+ 
+         File repoFiles[] = repoDir.listFiles();
+         for ( int i = 0; i < repoFiles.length; i++ )
+@@ -150,13 +154,14 @@ public Set<String> gatherAvailableVersions( ArchivaRepository managedRepository,
+                 continue;
+             }
+ 
+-            // Test if dir has an artifact, which proves to us that it is a valid version directory.
++            // Test if dir has pom, which proves to us that it is a valid version directory.
+             String version = repoFiles[i].getName();
+-            versionRef.setVersion( version );
++            pomReference.setVersion( version );
+ 
+-            if ( hasArtifact( managedRepository, versionRef ) )
++            File artifactFile = new File( managedRepository.getUrl().getPath(), layout.toPath( pomReference ) );
++            if ( artifactFile.exists() )
+             {
+-                // Found an artifact, must be a valid version.
++                // Found a pom, must be a valid version.
+                 foundVersions.add( version );
+             }
+         }
+@@ -164,19 +169,6 @@ public Set<String> gatherAvailableVersions( ArchivaRepository managedRepository,
+         return foundVersions;
+     }
+ 
+-    private boolean hasArtifact( ArchivaRepository managedRepository, VersionedReference reference )
+-        throws LayoutException
+-    {
+-        try
+-        {
+-            return ( getFirstArtifact( managedRepository, reference ) != null );
+-        }
+-        catch ( IOException e )
+-        {
+-            return false;
+-        }
+-    }
+-
+     /**
+      * Get the first Artifact found in the provided VersionedReference location. 
+      * 
+@@ -270,7 +262,6 @@ public Set<String> gatherSnapshotVersions( ArchivaRepository managedRepository,
+ 
+         Set<String> foundVersions = new HashSet<String>();
+ 
+-        // First gather up the versions found as artifacts in the managed repository.
+         File repoFiles[] = repoDir.listFiles();
+         for ( int i = 0; i < repoFiles.length; i++ )
+         {
+@@ -293,46 +284,6 @@ public Set<String> gatherSnapshotVersions( ArchivaRepository managedRepository,
+             }
+         }
+ 
+-        // Next gather up the referenced 'latest' versions found in any proxied repositories
+-        // maven-metadata-${proxyId}.xml files that may be present.
+-
+-        // Does this repository have a set of remote proxied repositories?
+-        Set proxiedRepoIds = this.proxies.get( managedRepository.getId() );
+-
+-        if ( proxiedRepoIds != null )
+-        {
+-            String baseVersion = VersionUtil.getBaseVersion( reference.getVersion() );
+-            baseVersion = baseVersion.substring( 0, baseVersion.indexOf( VersionUtil.SNAPSHOT ) - 1 );
+-
+-            // Add in the proxied repo version ids too.
+-            Iterator<String> it = proxiedRepoIds.iterator();
+-            while ( it.hasNext() )
+-            {
+-                String proxyId = it.next();
+-
+-                ArchivaRepositoryMetadata proxyMetadata = readProxyMetadata( managedRepository, reference, proxyId );
+-                if ( proxyMetadata == null )
+-                {
+-                    // There is no proxy metadata, skip it.
+-                    continue;
+-                }
+-
+-                // Is there some snapshot info?
+-                SnapshotVersion snapshot = proxyMetadata.getSnapshotVersion();
+-                if ( snapshot != null )
+-                {
+-                    String timestamp = snapshot.getTimestamp();
+-                    int buildNumber = snapshot.getBuildNumber();
+-
+-                    // Only interested in the timestamp + buildnumber.
+-                    if ( StringUtils.isNotBlank( timestamp ) && ( buildNumber > 0 ) )
+-                    {
+-                        foundVersions.add( baseVersion + "-" + timestamp + "-" + buildNumber );
+-                    }
+-                }
+-            }
+-        }
+-
+         return foundVersions;
+     }
+ 
+@@ -421,27 +372,6 @@ public ArchivaRepositoryMetadata readProxyMetadata( ArchivaRepository managedRep
+         }
+     }
+ 
+-    public ArchivaRepositoryMetadata readProxyMetadata( ArchivaRepository managedRepository,
+-                                                        VersionedReference reference, String proxyId )
+-        throws LayoutException
+-    {
+-        BidirectionalRepositoryLayout layout = layoutFactory.getLayout( managedRepository.getLayoutType() );
+-        String metadataPath = getRepositorySpecificName( proxyId, layout.toPath( reference ) );
+-        File metadataFile = new File( managedRepository.getUrl().getPath(), metadataPath );
+-
+-        try
+-        {
+-            return RepositoryMetadataReader.read( metadataFile );
+-        }
+-        catch ( RepositoryMetadataException e )
+-        {
+-            // TODO: [monitor] consider a monitor for this event.
+-            // TODO: consider a read-redo on monitor return code?
+-            log.warn( "Unable to read metadata: " + metadataFile.getAbsolutePath(), e );
+-            return null;
+-        }
+-    }
+-
+     /**
+      * Update the metadata to represent the all versions of 
+      * the provided groupId:artifactId project reference,
+@@ -536,8 +466,7 @@ public void updateMetadata( ArchivaRepository managedRepository, VersionedRefere
+             // Do SNAPSHOT handling.
+             metadata.setVersion( VersionUtil.getBaseVersion( reference.getVersion() ) );
+ 
+-            // Gather up all of the versions found in the reference dir, and any
+-            // proxied maven-metadata.xml files.
++            // Gather up all of the versions found in the reference dir.
+             Set snapshotVersions = gatherSnapshotVersions( managedRepository, reference );
+ 
+             if ( snapshotVersions.isEmpty() )
+@@ -585,15 +514,15 @@ else if ( VersionUtil.isGenericSnapshot( latestVersion ) )
+                  * archive, the most recent timestamp in the archive?
+                  */
+                 ArtifactReference artifact = getFirstArtifact( managedRepository, reference );
+-
++                
+                 if ( artifact == null )
+                 {
+                     throw new IOException( "Not snapshot artifact found to reference in " + reference );
+                 }
+-
++                
+                 File artifactFile = new File( managedRepository.getUrl().getPath(), layout.toPath( artifact ) );
+-
+-                if ( artifactFile.exists() )
++                
++                if( artifactFile.exists() )
+                 {
+                     Date lastModified = new Date( artifactFile.lastModified() );
+                     metadata.setLastUpdatedTimestamp( lastModified );

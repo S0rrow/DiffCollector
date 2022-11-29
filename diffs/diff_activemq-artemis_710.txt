@@ -1,0 +1,39 @@
+diff --git a/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTProtocolManager.java b/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTProtocolManager.java
+index 8ee40339f8..6118b0dfed 100644
+--- a/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTProtocolManager.java
++++ b/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTProtocolManager.java
+@@ -19,7 +19,6 @@ package org.apache.activemq.artemis.core.protocol.mqtt;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.List;
+-import java.util.Set;
+ 
+ import io.netty.buffer.ByteBuf;
+ import io.netty.buffer.Unpooled;
+@@ -39,7 +38,6 @@ import org.apache.activemq.artemis.spi.core.protocol.ProtocolManagerFactory;
+ import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+ import org.apache.activemq.artemis.spi.core.remoting.Acceptor;
+ import org.apache.activemq.artemis.spi.core.remoting.Connection;
+-import org.apache.activemq.artemis.utils.collections.ConcurrentHashSet;
+ 
+ /**
+  * MQTTProtocolManager
+@@ -54,9 +52,6 @@ class MQTTProtocolManager extends AbstractProtocolManager<MqttMessage, MQTTInter
+    private final List<MQTTInterceptor> incomingInterceptors = new ArrayList<>();
+    private final List<MQTTInterceptor> outgoingInterceptors = new ArrayList<>();
+ 
+-   //TODO Read in a list of existing client IDs from stored Sessions.
+-   private Set<String> connectedClients = new ConcurrentHashSet<>();
+-
+    MQTTProtocolManager(ActiveMQServer server,
+                        List<BaseInterceptor> incomingInterceptors,
+                        List<BaseInterceptor> outgoingInterceptors) {
+@@ -177,8 +172,4 @@ class MQTTProtocolManager extends AbstractProtocolManager<MqttMessage, MQTTInter
+    public void invokeOutgoing(MqttMessage mqttMessage, MQTTConnection connection) {
+       super.invokeInterceptors(this.outgoingInterceptors, mqttMessage, connection);
+    }
+-
+-   public Set<String> getConnectedClients() {
+-      return connectedClients;
+-   }
+ }

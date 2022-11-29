@@ -1,0 +1,169 @@
+diff --git a/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java b/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java
+index 187358c7a9..78bcf208f6 100644
+--- a/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java
++++ b/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java
+@@ -1,11 +1,11 @@
+ /*
+- * Copyright 2009-2013 by The Regents of the University of California
++ * Copyright 2009-2010 by The Regents of the University of California
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+  * you may obtain a copy of the License from
+- *
++ * 
+  *     http://www.apache.org/licenses/LICENSE-2.0
+- *
++ * 
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS,
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+@@ -26,7 +26,7 @@ import java.util.logging.Logger;
+ import edu.uci.ics.hyracks.api.channels.IInputChannel;
+ import edu.uci.ics.hyracks.api.comm.NetworkAddress;
+ import edu.uci.ics.hyracks.api.dataset.DatasetDirectoryRecord;
+-import edu.uci.ics.hyracks.api.dataset.DatasetJobRecord.Status;
++import edu.uci.ics.hyracks.api.dataset.DatasetDirectoryRecord.Status;
+ import edu.uci.ics.hyracks.api.dataset.IDatasetInputChannelMonitor;
+ import edu.uci.ics.hyracks.api.dataset.IHyracksDatasetDirectoryServiceConnection;
+ import edu.uci.ics.hyracks.api.dataset.IHyracksDatasetReader;
+@@ -89,54 +89,71 @@ public class HyracksDatasetReader implements IHyracksDatasetReader {
+         return status;
+     }
+ 
+-    private DatasetDirectoryRecord getRecord(int partition) throws Exception {
+-        while (knownRecords == null || knownRecords[partition] == null) {
+-            knownRecords = datasetDirectoryServiceConnection
+-                    .getDatasetResultLocations(jobId, resultSetId, knownRecords);
+-        }
+-        return knownRecords[partition];
+-    }
+-
+-    private boolean nextPartition() throws HyracksDataException {
+-        ++lastReadPartition;
+-        try {
+-            DatasetDirectoryRecord record = getRecord(lastReadPartition);
+-            while (record.getEmpty() && (++lastReadPartition) < knownRecords.length) {
+-                record = getRecord(lastReadPartition);
+-            }
+-            if (lastReadPartition == knownRecords.length) {
+-                return false;
+-            }
+-            resultChannel = new DatasetNetworkInputChannel(netManager, getSocketAddress(record), jobId, resultSetId,
+-                    lastReadPartition, NUM_READ_BUFFERS);
+-            lastMonitor = getMonitor(lastReadPartition);
+-            resultChannel.registerMonitor(lastMonitor);
+-            resultChannel.open(datasetClientCtx);
+-            return true;
+-        } catch (Exception e) {
+-            throw new HyracksDataException(e);
+-        }
+-    }
+-
+     @Override
+     public int read(ByteBuffer buffer) throws HyracksDataException {
+         ByteBuffer readBuffer;
+         int readSize = 0;
+ 
+         if (lastReadPartition == -1) {
+-            if (!nextPartition()) {
+-                return readSize;
++            while (knownRecords == null || knownRecords[0] == null) {
++                try {
++                    knownRecords = datasetDirectoryServiceConnection.getDatasetResultLocations(jobId, resultSetId,
++                            knownRecords);
++                    lastReadPartition = 0;
++                    resultChannel = new DatasetNetworkInputChannel(netManager,
++                            getSocketAddress(knownRecords[lastReadPartition]), jobId, lastReadPartition,
++                            NUM_READ_BUFFERS);
++                    lastMonitor = getMonitor(lastReadPartition);
++                    resultChannel.open(datasetClientCtx);
++                    resultChannel.registerMonitor(lastMonitor);
++                } catch (HyracksException e) {
++                    throw new HyracksDataException(e);
++                } catch (UnknownHostException e) {
++                    throw new HyracksDataException(e);
++                } catch (Exception e) {
++                    // Do nothing here.
++                }
+             }
+         }
+ 
+-        while (readSize <= 0
+-                && !((lastReadPartition == knownRecords.length - 1) && isPartitionReadComplete(lastMonitor))) {
+-            waitForNextFrame(lastMonitor);
+-            if (isPartitionReadComplete(lastMonitor)) {
++        while (readSize <= 0 && !((lastReadPartition == knownRecords.length - 1) && (lastMonitor.eosReached()))) {
++            synchronized (lastMonitor) {
++                while (lastMonitor.getNFramesAvailable() <= 0 && !lastMonitor.eosReached()) {
++                    try {
++                        lastMonitor.wait();
++                    } catch (InterruptedException e) {
++                        throw new HyracksDataException(e);
++                    }
++                }
++            }
++
++            if (lastMonitor.getNFramesAvailable() <= 0 && lastMonitor.eosReached()) {
+                 knownRecords[lastReadPartition].readEOS();
+-                resultChannel.close();
+-                if ((lastReadPartition == knownRecords.length - 1) || !nextPartition()) {
++                if ((lastReadPartition == knownRecords.length - 1)) {
+                     break;
++                } else {
++                    try {
++                        lastReadPartition++;
++                        while (knownRecords[lastReadPartition] == null) {
++                            try {
++                                knownRecords = datasetDirectoryServiceConnection.getDatasetResultLocations(jobId,
++                                        resultSetId, knownRecords);
++                            } catch (Exception e) {
++                                // Do nothing here.
++                            }
++                        }
++
++                        resultChannel = new DatasetNetworkInputChannel(netManager,
++                                getSocketAddress(knownRecords[lastReadPartition]), jobId, lastReadPartition,
++                                NUM_READ_BUFFERS);
++                        lastMonitor = getMonitor(lastReadPartition);
++                        resultChannel.open(datasetClientCtx);
++                        resultChannel.registerMonitor(lastMonitor);
++                    } catch (HyracksException e) {
++                        throw new HyracksDataException(e);
++                    } catch (UnknownHostException e) {
++                        throw new HyracksDataException(e);
++                    }
+                 }
+             } else {
+                 readBuffer = resultChannel.getNextBuffer();
+@@ -153,23 +170,16 @@ public class HyracksDatasetReader implements IHyracksDatasetReader {
+         return readSize;
+     }
+ 
+-    private static void waitForNextFrame(IDatasetInputChannelMonitor monitor) throws HyracksDataException {
+-        synchronized (monitor) {
+-            while (monitor.getNFramesAvailable() <= 0 && !monitor.eosReached() && !monitor.failed()) {
+-                try {
+-                    monitor.wait();
+-                } catch (InterruptedException e) {
+-                    throw new HyracksDataException(e);
+-                }
+-            }
++    private boolean nullExists(DatasetDirectoryRecord[] locations) {
++        if (locations == null) {
++            return true;
+         }
+-        if (monitor.failed()) {
+-            throw new HyracksDataException("Job Failed.");
++        for (int i = 0; i < locations.length; i++) {
++            if (locations[i] == null) {
++                return true;
++            }
+         }
+-    }
+-
+-    private boolean isPartitionReadComplete(IDatasetInputChannelMonitor monitor) {
+-        return (monitor.getNFramesAvailable() <= 0) && (monitor.eosReached());
++        return false;
+     }
+ 
+     private SocketAddress getSocketAddress(DatasetDirectoryRecord addr) throws UnknownHostException {

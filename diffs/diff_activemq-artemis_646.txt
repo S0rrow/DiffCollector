@@ -1,0 +1,396 @@
+diff --git a/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTPublishManager.java b/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTPublishManager.java
+index 2e5a1e92b5..aa3f9e00d2 100644
+--- a/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTPublishManager.java
++++ b/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTPublishManager.java
+@@ -6,7 +6,7 @@
+  * (the "License"); you may not use this file except in compliance with
+  * the License. You may obtain a copy of the License at
+  *
+- * http://www.apache.org/licenses/LICENSE-2.0
++ *     http://www.apache.org/licenses/LICENSE-2.0
+  *
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS,
+@@ -17,18 +17,12 @@
+ 
+ package org.apache.activemq.artemis.core.protocol.mqtt;
+ 
+-import java.io.UnsupportedEncodingException;
+-
+ import io.netty.buffer.ByteBuf;
+-import io.netty.buffer.ByteBufAllocator;
+ import io.netty.buffer.EmptyByteBuf;
+-import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
+-import org.apache.activemq.artemis.api.core.ActiveMQIllegalStateException;
+-import org.apache.activemq.artemis.api.core.Message;
++import io.netty.handler.codec.mqtt.MqttMessageType;
+ import org.apache.activemq.artemis.api.core.Pair;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+-import org.apache.activemq.artemis.core.io.IOCallback;
+-import org.apache.activemq.artemis.core.server.Queue;
++import org.apache.activemq.artemis.core.journal.IOAsyncTask;
+ import org.apache.activemq.artemis.core.server.ServerConsumer;
+ import org.apache.activemq.artemis.core.server.ServerMessage;
+ import org.apache.activemq.artemis.core.server.impl.ServerMessageImpl;
+@@ -36,8 +30,8 @@ import org.apache.activemq.artemis.core.server.impl.ServerMessageImpl;
+ /**
+  * Handles MQTT Exactly Once (QoS level 2) Protocol.
+  */
+-public class MQTTPublishManager {
+-
++public class MQTTPublishManager
++{
+    private static final String MANAGEMENT_QUEUE_PREFIX = "$sys.mqtt.queue.qos2.";
+ 
+    private SimpleString managementAddress;
+@@ -50,103 +44,124 @@ public class MQTTPublishManager {
+ 
+    private final Object lock = new Object();
+ 
+-   private MQTTSessionState state;
+-
+-   private MQTTSessionState.OutboundStore outboundStore;
+-
+-   public MQTTPublishManager(MQTTSession session) {
++   public MQTTPublishManager(MQTTSession session)
++   {
+       this.session = session;
+    }
+ 
+-   synchronized void start() throws Exception {
+-      this.state = session.getSessionState();
+-      this.outboundStore = state.getOutboundStore();
+-
++   synchronized void start() throws Exception
++   {
+       createManagementAddress();
+       createManagementQueue();
+       createManagementConsumer();
+    }
+ 
+-   synchronized void stop() throws Exception {
+-      if (managementConsumer != null) {
++   synchronized void stop(boolean clean) throws Exception
++   {
++      if (managementConsumer != null)
++      {
+          managementConsumer.removeItself();
+          managementConsumer.setStarted(false);
+          managementConsumer.close(false);
++         if (clean) session.getServer().destroyQueue(managementAddress);
+       }
+    }
+ 
+-   void clean() throws Exception {
+-      createManagementAddress();
+-      Queue queue = session.getServer().locateQueue(managementAddress);
+-      if (queue != null) {
+-         queue.deleteQueue();
+-      }
+-   }
+-
+-   private void createManagementConsumer() throws Exception {
++   private void createManagementConsumer() throws Exception
++   {
+       long consumerId = session.getServer().getStorageManager().generateID();
+       managementConsumer = session.getServerSession().createConsumer(consumerId, managementAddress, null, false, false, -1);
+       managementConsumer.setStarted(true);
+    }
+ 
+-   private void createManagementAddress() {
+-      managementAddress = new SimpleString(MANAGEMENT_QUEUE_PREFIX + session.getSessionState().getClientId());
++   private void createManagementAddress()
++   {
++      String clientId = session.getSessionState().getClientId();
++      managementAddress = new SimpleString(MANAGEMENT_QUEUE_PREFIX + clientId);
+    }
+ 
+-   private void createManagementQueue() throws Exception {
+-      Queue q = session.getServer().locateQueue(managementAddress);
+-      if (q == null) {
++   private void createManagementQueue() throws Exception
++   {
++      if (session.getServer().locateQueue(managementAddress) == null)
++      {
+          session.getServerSession().createQueue(managementAddress, managementAddress, null, false, MQTTUtil.DURABLE_MESSAGES);
+       }
+    }
+ 
+-   boolean isManagementConsumer(ServerConsumer consumer) {
++   boolean isManagementConsumer(ServerConsumer consumer)
++   {
+       return consumer == managementConsumer;
+    }
+ 
+-   /**
+-    * Since MQTT Subscriptions can over lap; a client may receive the same message twice.  When this happens the client
++   private int generateMqttId(int qos)
++   {
++      if (qos == 1)
++      {
++         return session.getSessionState().generateId();
++      }
++      else
++      {
++         Integer mqttid = session.getSessionState().generateId();
++         if (mqttid == null)
++         {
++            mqttid = (int) session.getServer().getStorageManager().generateID();
++         }
++         return mqttid;
++      }
++   }
++
++   /** Since MQTT Subscriptions can over lap; a client may receive the same message twice.  When this happens the client
+     * returns a PubRec or PubAck with ID.  But we need to know which consumer to ack, since we only have the ID to go on we
+     * are not able to decide which consumer to ack.  Instead we send MQTT messages with different IDs and store a reference
+     * to original ID and consumer in the Session state.  This way we can look up the consumer Id and the message Id from
+-    * the PubAck or PubRec message id. *
+-    */
+-   protected void sendMessage(ServerMessage message, ServerConsumer consumer, int deliveryCount) throws Exception {
++    * the PubAck or PubRec message id. **/
++   protected void sendMessage(ServerMessage message, ServerConsumer consumer, int deliveryCount) throws Exception
++   {
+       // This is to allow retries of PubRel.
+-      if (isManagementConsumer(consumer)) {
++      if (isManagementConsumer(consumer))
++      {
+          sendPubRelMessage(message);
+-      } else {
++      }
++      else
++      {
+          int qos = decideQoS(message, consumer);
+-         if (qos == 0) {
++         if (qos == 0)
++         {
+             sendServerMessage((int) message.getMessageID(), (ServerMessageImpl) message, deliveryCount, qos);
+             session.getServerSession().acknowledge(consumer.getID(), message.getMessageID());
+-         } else if (qos == 1 || qos == 2) {
+-            int mqttid = outboundStore.generateMqttId(message.getMessageID(), consumer.getID());
+-            outboundStore.publish(mqttid, message.getMessageID(), consumer.getID());
++         }
++         else
++         {
++            String consumerAddress = consumer.getQueue().getAddress().toString();
++            Integer mqttid = generateMqttId(qos);
++
++            session.getSessionState().addOutbandMessageRef(mqttid, consumerAddress, message.getMessageID(), qos);
+             sendServerMessage(mqttid, (ServerMessageImpl) message, deliveryCount, qos);
+-         } else {
+-            // Client must have disconnected and it's Subscription QoS cleared
+-            consumer.individualCancel(message.getMessageID(), false);
+          }
+       }
+    }
+ 
+    // INBOUND
+-   void handleMessage(int messageId, String topic, int qos, ByteBuf payload, boolean retain) throws Exception {
+-      synchronized (lock) {
++   void handleMessage(int messageId, String topic, int qos, ByteBuf payload, boolean retain) throws Exception
++   {
++      synchronized (lock)
++      {
+          ServerMessage serverMessage = MQTTUtil.createServerMessageFromByteBuf(session, topic, retain, qos, payload);
+ 
+-         if (qos > 0) {
++         if (qos > 0)
++         {
+             serverMessage.setDurable(MQTTUtil.DURABLE_MESSAGES);
+          }
+ 
+-         if (qos < 2 || !state.getPubRec().contains(messageId)) {
+-            if (qos == 2)
+-               state.getPubRec().add(messageId);
++         if (qos < 2 || !session.getSessionState().getPubRec().contains(messageId))
++         {
++            if (qos == 2) session.getSessionState().getPubRec().add(messageId);
+             session.getServerSession().send(serverMessage, true);
+          }
+ 
+-         if (retain) {
++
++         if (retain)
++         {
+             boolean reset = payload instanceof EmptyByteBuf || payload.capacity() == 0;
+             session.getRetainMessageManager().handleRetainedMessage(serverMessage, topic, reset);
+          }
+@@ -155,109 +170,101 @@ public class MQTTPublishManager {
+       }
+    }
+ 
+-   void sendPubRelMessage(ServerMessage message) {
+-      int messageId = message.getIntProperty(MQTTUtil.MQTT_MESSAGE_ID_KEY);
+-      session.getProtocolHandler().sendPubRel(messageId);
+-   }
+-
+-   void handlePubRec(int messageId) throws Exception {
+-      try {
+-         Pair<Long, Long> ref = outboundStore.publishReceived(messageId);
+-         if (ref != null) {
+-            ServerMessage m = MQTTUtil.createPubRelMessage(session, managementAddress, messageId);
+-            session.getServerSession().send(m, true);
+-            session.getServerSession().acknowledge(ref.getB(), ref.getA());
+-         } else {
+-            session.getProtocolHandler().sendPubRel(messageId);
+-         }
+-      } catch (ActiveMQIllegalStateException e) {
+-         log.warn("MQTT Client(" + session.getSessionState().getClientId() + ") attempted to Ack already Ack'd message");
++   void sendPubRelMessage(ServerMessage message)
++   {
++      if (message.getIntProperty(MQTTUtil.MQTT_MESSAGE_TYPE_KEY) == MqttMessageType.PUBREL.value())
++      {
++         int messageId = message.getIntProperty(MQTTUtil.MQTT_MESSAGE_ID_KEY);
++         MQTTMessageInfo messageInfo = new MQTTMessageInfo(message.getMessageID(), managementConsumer.getID(), message.getAddress().toString());
++         session.getSessionState().storeMessageRef(messageId, messageInfo, false);
++         session.getProtocolHandler().sendPubRel(messageId);
+       }
+    }
+ 
+-   void handlePubComp(int messageId) throws Exception {
+-      Pair<Long, Long> ref = session.getState().getOutboundStore().publishComplete(messageId);
+-      if (ref != null) {
+-         session.getServerSession().acknowledge(ref.getB(), ref.getA());
+-      }
+-   }
+-
+-   private void createMessageAck(final int messageId, final int qos) {
+-      session.getServer().getStorageManager().afterCompleteOperations(new IOCallback() {
++   private void createMessageAck(final int messageId, final int qos)
++   {
++      session.getServer().getStorageManager().afterCompleteOperations(new IOAsyncTask()
++      {
+          @Override
+-         public void done() {
+-            if (qos == 1) {
++         public void done()
++         {
++            if (qos == 1)
++            {
+                session.getProtocolHandler().sendPubAck(messageId);
+-            } else if (qos == 2) {
++            }
++            else if (qos == 2)
++            {
+                session.getProtocolHandler().sendPubRec(messageId);
+             }
+          }
+ 
+          @Override
+-         public void onError(int errorCode, String errorMessage) {
++         public void onError(int errorCode, String errorMessage)
++         {
+             log.error("Pub Sync Failed");
+          }
+       });
+    }
+ 
+-   void handlePubRel(int messageId) {
+-      // We don't check to see if a PubRel existed for this message.  We assume it did and so send PubComp.
+-      state.getPubRec().remove(messageId);
+-      session.getProtocolHandler().sendPubComp(messageId);
+-      state.removeMessageRef(messageId);
++   void handlePubRec(int messageId) throws Exception
++   {
++      MQTTMessageInfo messageRef = session.getSessionState().getMessageInfo(messageId);
++      if (messageRef != null)
++      {
++         ServerMessage pubRel = MQTTUtil.createPubRelMessage(session, managementAddress, messageId);
++         session.getServerSession().send(pubRel, true);
++         session.getServerSession().acknowledge(messageRef.getConsumerId(), messageRef.getServerMessageId());
++         session.getProtocolHandler().sendPubRel(messageId);
++      }
+    }
+ 
+-   void handlePubAck(int messageId) throws Exception {
+-      try {
+-         Pair<Long, Long> ref = outboundStore.publishAckd(messageId);
+-         if (ref != null) {
+-            session.getServerSession().acknowledge(ref.getB(), ref.getA());
+-         }
+-      } catch (ActiveMQIllegalStateException e) {
+-         log.warn("MQTT Client(" + session.getSessionState().getClientId() + ") attempted to Ack already Ack'd message");
++   void handlePubComp(int messageId) throws Exception
++   {
++      MQTTMessageInfo messageInfo = session.getSessionState().getMessageInfo(messageId);
++
++      // Check to see if this message is stored if not just drop the packet.
++      if (messageInfo != null)
++      {
++         session.getServerSession().acknowledge(managementConsumer.getID(), messageInfo.getServerMessageId());
+       }
+    }
+ 
+-   private void sendServerMessage(int messageId, ServerMessageImpl message, int deliveryCount, int qos) {
+-      String address = MQTTUtil.convertCoreAddressFilterToMQTT(message.getAddress().toString());
+-
+-      ByteBuf payload;
+-      switch (message.getType()) {
+-         case Message.TEXT_TYPE:
+-            try {
+-               SimpleString text = message.getBodyBuffer().readNullableSimpleString();
+-               byte[] stringPayload = text.toString().getBytes("UTF-8");
+-               payload = ByteBufAllocator.DEFAULT.buffer(stringPayload.length);
+-               payload.writeBytes(stringPayload);
+-               break;
+-            } catch (UnsupportedEncodingException e) {
+-               log.warn("Unable to send message: " + message.getMessageID() + " Cause: " + e.getMessage());
+-            }
+-         default:
+-            ActiveMQBuffer bufferDup = message.getBodyBufferDuplicate();
+-            payload = bufferDup.readBytes(message.getEndOfBodyPosition() - bufferDup.readerIndex()).byteBuf();
+-            break;
+-      }
+-      session.getProtocolHandler().send(messageId, address, qos, payload, deliveryCount);
++   void handlePubRel(int messageId)
++   {
++      // We don't check to see if a PubRel existed for this message.  We assume it did and so send PubComp.
++      session.getSessionState().getPubRec().remove(messageId);
++      session.getProtocolHandler().sendPubComp(messageId);
++      session.getSessionState().removeMessageRef(messageId);
+    }
+ 
+-   private int decideQoS(ServerMessage message, ServerConsumer consumer) {
+ 
+-      int subscriptionQoS = -1;
+-      try {
+-         subscriptionQoS = session.getSubscriptionManager().getConsumerQoSLevels().get(consumer.getID());
+-      } catch (NullPointerException e) {
+-         // This can happen if the client disconnected during a server send.
+-         return subscriptionQoS;
++   void handlePubAck(int messageId) throws Exception
++   {
++      Pair<String, Long> pub1MessageInfo = session.getSessionState().removeOutbandMessageRef(messageId, 1);
++      if (pub1MessageInfo != null)
++      {
++         String mqttAddress = MQTTUtil.convertCoreAddressFilterToMQTT(pub1MessageInfo.getA());
++         ServerConsumer consumer = session.getSubscriptionManager().getConsumerForAddress(mqttAddress);
++         session.getServerSession().acknowledge(consumer.getID(), pub1MessageInfo.getB());
+       }
++   }
+ 
+-      int qos = 2;
+-      if (message.containsProperty(MQTTUtil.MQTT_QOS_LEVEL_KEY)) {
+-         qos = message.getIntProperty(MQTTUtil.MQTT_QOS_LEVEL_KEY);
+-      }
++   private void sendServerMessage(int messageId, ServerMessageImpl message, int deliveryCount, int qos)
++   {
++      String address = MQTTUtil.convertCoreAddressFilterToMQTT(message.getAddress().toString()).toString();
++
++      //FIXME should we be copying the body buffer here?
++      ByteBuf payload = message.getBodyBufferCopy().byteBuf();
++      session.getProtocolHandler().send(messageId, address, qos, payload, deliveryCount);
++   }
++
++   private int decideQoS(ServerMessage message, ServerConsumer consumer)
++   {
++      int subscriptionQoS = session.getSubscriptionManager().getConsumerQoSLevels().get(consumer.getID());
++      int qos = message.getIntProperty(MQTTUtil.MQTT_QOS_LEVEL_KEY);
+ 
+       /* Subscription QoS is the maximum QoS the client is willing to receive for this subscription.  If the message QoS
+       is less than the subscription QoS then use it, otherwise use the subscription qos). */
+       return subscriptionQoS < qos ? subscriptionQoS : qos;
+    }
+-}
++}
+\ No newline at end of file

@@ -1,0 +1,29 @@
+diff --git a/server/tserver/src/main/java/org/apache/accumulo/tserver/log/TabletServerLogger.java b/server/tserver/src/main/java/org/apache/accumulo/tserver/log/TabletServerLogger.java
+index a276a97e9d..7fd27668ab 100644
+--- a/server/tserver/src/main/java/org/apache/accumulo/tserver/log/TabletServerLogger.java
++++ b/server/tserver/src/main/java/org/apache/accumulo/tserver/log/TabletServerLogger.java
+@@ -36,9 +36,9 @@ import org.apache.accumulo.core.data.Mutation;
+ import org.apache.accumulo.core.util.UtilWaitThread;
+ import org.apache.accumulo.server.fs.VolumeManager;
+ import org.apache.accumulo.tserver.Tablet;
+-import org.apache.accumulo.tserver.Tablet.CommitSession;
+ import org.apache.accumulo.tserver.TabletMutations;
+ import org.apache.accumulo.tserver.TabletServer;
++import org.apache.accumulo.tserver.Tablet.CommitSession;
+ import org.apache.accumulo.tserver.log.DfsLogger.LoggerOperation;
+ import org.apache.hadoop.fs.Path;
+ import org.apache.log4j.Logger;
+@@ -161,11 +161,11 @@ public class TabletServerLogger {
+     return result[0];
+   }
+   
+-  public void getLogFiles(Set<String> loggersOut) {
++  public void getLoggers(Set<String> loggersOut) {
+     logSetLock.readLock().lock();
+     try {
+       for (DfsLogger logger : loggers) {
+-        loggersOut.add(logger.getFileName());
++        loggersOut.add(logger.toString());
+       }
+     } finally {
+       logSetLock.readLock().unlock();

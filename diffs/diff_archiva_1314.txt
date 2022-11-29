@@ -1,0 +1,225 @@
+diff --git a/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java b/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java
+index edfd90f38..19a403cc8 100644
+--- a/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java
++++ b/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java
+@@ -88,15 +88,15 @@ public void initialize()
+             manager.saveOperation( operation );
+         }
+ 
+-        if ( !manager.operationExists( "access-reports" ) )
++        if ( !manager.operationExists( "get-reports" ) )
+         {
+-            Operation operation = manager.createOperation( "access-reports" );
++            Operation operation = manager.createOperation( "get-reports" );
+             manager.saveOperation( operation );
+         }
+ 
+-        if ( !manager.operationExists( "generate-reports" ) )
++        if ( !manager.operationExists( "regenerate-reports" ) )
+         {
+-            Operation operation = manager.createOperation( "generate-reports" );
++            Operation operation = manager.createOperation( "regenerate-reports" );
+             manager.saveOperation( operation );
+         }
+ 
+@@ -112,12 +112,6 @@ public void initialize()
+             manager.saveOperation( operation );
+         }
+ 
+-        if ( !manager.operationExists( "grant-roles" ) )
+-        {
+-            Operation operation = manager.createOperation( "grant-roles" );
+-            manager.saveOperation( operation );
+-        }
+-
+         if ( !manager.operationExists( "remove-roles" ) )
+         {
+             Operation operation = manager.createOperation( "remove-roles" );
+@@ -128,70 +122,42 @@ public void initialize()
+         {
+             if ( !manager.permissionExists( "Edit Configuration" ) )
+             {
+-                Permission editConfiguration = manager.createPermission( "Edit Configuration", "edit-configuration",
+-                                                                         manager.getGlobalResource().getIdentifier() );
++                Permission editConfiguration =
++                    manager.createPermission( "Edit Configuration", "edit-configuration", manager.getGlobalResource().getIdentifier() );
+                 manager.savePermission( editConfiguration );
+             }
+ 
+             if ( !manager.permissionExists( "Run Indexer" ) )
+             {
+-                Permission runIndexer = manager.createPermission( "Run Indexer", "run-indexer",
+-                                                                  manager.getGlobalResource().getIdentifier() );
++                Permission runIndexer = manager.createPermission( "Run Indexer", "run-indexer", manager.getGlobalResource().getIdentifier()  );
+ 
+                 manager.savePermission( runIndexer );
+             }
+ 
+             if ( !manager.permissionExists( "Add Repository" ) )
+             {
+-                Permission runIndexer = manager.createPermission( "Add Repository", "add-repository",
+-                                                                  manager.getGlobalResource().getIdentifier() );
++                Permission runIndexer = manager.createPermission( "Add Repository", "add-repository", manager.getGlobalResource().getIdentifier() );
+                 manager.savePermission( runIndexer );
+             }
+ 
+             if ( !manager.permissionExists( "Edit All Users" ) )
+             {
+-                Permission editAllUsers = manager.createPermission( "Edit All Users", "edit-all-users",
+-                                                                    manager.getGlobalResource().getIdentifier() );
+-
+-                manager.savePermission( editAllUsers );
+-            }
+-
+-            if ( !manager.permissionExists( "Access Reports" ) )
+-            {
+-                Permission editAllUsers = manager.createPermission( "Access Reports", "access-reports",
+-                                                                    manager.getGlobalResource().getIdentifier() );
++                Permission editAllUsers = manager.createPermission( "Edit All Users", "edit-all-users", manager.getGlobalResource().getIdentifier()  );
+ 
+                 manager.savePermission( editAllUsers );
+             }
+ 
+-            if ( !manager.permissionExists( "Generate All Reports" ) )
++            if ( !manager.permissionExists( "Remove Roles" ) )
+             {
+-                Permission editAllUsers = manager.createPermission( "Generate All Reports", "generate-reports",
+-                                                                    manager.getGlobalResource().getIdentifier() );
++                Permission editAllUsers = manager.createPermission( "Remove Roles", "remove-roles", manager.getGlobalResource().getIdentifier()  );
+ 
+                 manager.savePermission( editAllUsers );
+             }
+ 
+-            if ( !manager.permissionExists( "Grant Roles" ) )
+-            {
+-                Permission granRoles = manager.createPermission( "Grant Roles", "grant-roles",
+-                                                                    manager.getGlobalResource().getIdentifier() );
+-
+-                manager.savePermission( granRoles );
+-            }
+-            
+-            if ( !manager.permissionExists( "Remove Roles" ) )
+-            {
+-                Permission removeRoles = manager.createPermission( "Remove Roles", "remove-roles",
+-                                                                    manager.getGlobalResource().getIdentifier() );
+-
+-                manager.savePermission( removeRoles );
+-            }
+ 
+             if ( !manager.permissionExists( "Regenerate Index" ) )
+             {
+-                Permission regenIndex = manager.createPermission( "Regenerate Index", "regenerate-index",
+-                                                                  manager.getGlobalResource().getIdentifier() );
++                Permission regenIndex = manager.createPermission( "Regenerate Index", "regenerate-index", manager.getGlobalResource().getIdentifier()  );
+ 
+                 manager.savePermission( regenIndex );
+             }
+@@ -201,7 +167,6 @@ public void initialize()
+                 Role userAdmin = manager.createRole( "User Administrator" );
+                 userAdmin.addPermission( manager.getPermission( "Edit All Users" ) );
+                 userAdmin.addPermission( manager.getPermission( "Remove Roles" ) );
+-                userAdmin.addPermission( manager.getPermission( "Grant Roles" ) );
+                 userAdmin.setAssignable( true );
+                 manager.saveRole( userAdmin );
+             }
+@@ -209,22 +174,20 @@ public void initialize()
+             if ( !manager.roleExists( "System Administrator" ) )
+             {
+                 Role admin = manager.createRole( "System Administrator" );
+-                admin.addChildRoleName( manager.getRole( "User Administrator" ).getName() );
++                admin.addChildRole( manager.getRole( "User Administrator" ) ) ;
+                 admin.addPermission( manager.getPermission( "Edit Configuration" ) );
+                 admin.addPermission( manager.getPermission( "Run Indexer" ) );
+-                admin.addPermission( manager.getPermission( "Add Repository" ) );
+-                admin.addPermission( manager.getPermission( "Access Reports") );
+-                admin.addPermission( manager.getPermission( "Generate All Reports") );
++                admin.addPermission( manager.getPermission( "Add Repository") );
+                 admin.addPermission( manager.getPermission( "Regenerate Index" ) );
+                 admin.setAssignable( true );
+                 manager.saveRole( admin );
+             }
+ 
+ 
++
+         }
+         catch ( RbacObjectNotFoundException ne )
+         {
+-            ne.printStackTrace();
+             throw new InitializationException( "error in role initialization", ne );
+         }
+ 
+@@ -234,23 +197,31 @@ public void initialize()
+     public void addUser( String principal )
+         throws RbacStoreException
+     {
++        try
++        {
++            // make the resource
++            Resource usernameResource = manager.createResource( principal );
++            manager.saveResource( usernameResource );
+ 
+-        // make the resource
+-        Resource usernameResource = manager.createResource( principal );
+-        manager.saveResource( usernameResource );
+-
+-        Permission editUser = manager.createPermission( "Edit Myself - " + principal, "edit-user", principal );
+-        editUser = manager.savePermission( editUser );
++            Permission editUser = manager.createPermission( "Edit Myself" );
++            editUser.setOperation( manager.getOperation( "edit-user" ) );
++            editUser.setResource( manager.getResource( principal ) );
++            editUser = manager.savePermission( editUser );
+ 
+-        // todo this one role a user will go away when we have expressions in the resources
+-        Role userRole = manager.createRole( "Personal Role - " + principal );
+-        userRole.addPermission( editUser );
+-        userRole = manager.saveRole( userRole );
++            // todo this one role a user will go away when we have expressions in the resources
++            Role userRole = manager.createRole( "Personal Role - " + principal );
++            userRole.addPermission( editUser );
++            userRole = manager.saveRole( userRole );
+ 
+-        UserAssignment assignment = manager.createUserAssignment( principal );
+-        assignment.addRole( userRole );
+-        manager.saveUserAssignment( assignment );
++            UserAssignment assignment = manager.createUserAssignment( principal );
++            assignment.addRole( userRole );
++            manager.saveUserAssignment( assignment );
+ 
++        }
++        catch ( RbacObjectNotFoundException ne )
++        {
++            throw new RbacStoreException( "rbac object not found in repo role creation", ne );
++        }
+     }
+ 
+     public void addRepository( String repositoryName )
+@@ -273,7 +244,8 @@ public void addRepository( String repositoryName )
+             deleteRepo.setResource( repoResource );
+             deleteRepo = manager.savePermission( deleteRepo );
+ 
+-            Permission getReports = manager.createPermission( "Get Reports - " + repositoryName );
++            Permission getReports =
++                manager.createPermission( "Get Reports - " + repositoryName );
+             getReports.setOperation( manager.getOperation( "get-reports" ) );
+             getReports.setResource( repoResource );
+             getReports = manager.savePermission( getReports );
+@@ -284,8 +256,8 @@ public void addRepository( String repositoryName )
+             regenReports = manager.savePermission( regenReports );
+ 
+             // make the roles
+-            Role repositoryObserver = manager.createRole( "Repository Observer - " + repositoryName );
+-            repositoryObserver.addPermission( getReports );
++            Role repositoryObserver = manager.createRole( "Repository Manager - " + repositoryName );
++            repositoryObserver.addPermission( editRepo );
+             repositoryObserver.setAssignable( true );
+             repositoryObserver = manager.saveRole( repositoryObserver );
+ 
+@@ -293,7 +265,7 @@ public void addRepository( String repositoryName )
+             repositoryManager.addPermission( editRepo );
+             repositoryManager.addPermission( deleteRepo );
+             repositoryManager.addPermission( regenReports );
+-            repositoryManager.addChildRoleName( repositoryObserver.getName() );
++            repositoryManager.addChildRole( repositoryObserver );
+             repositoryManager.setAssignable( true );
+             manager.saveRole( repositoryManager );
+ 

@@ -1,0 +1,101 @@
+diff --git a/src/server/src/main/java/org/apache/accumulo/server/master/Master.java b/src/server/src/main/java/org/apache/accumulo/server/master/Master.java
+index 72bb9f5d36..7170b348a0 100644
+--- a/src/server/src/main/java/org/apache/accumulo/server/master/Master.java
++++ b/src/server/src/main/java/org/apache/accumulo/server/master/Master.java
+@@ -50,7 +50,6 @@ import org.apache.accumulo.core.client.RowIterator;
+ import org.apache.accumulo.core.client.Scanner;
+ import org.apache.accumulo.core.client.TableNotFoundException;
+ import org.apache.accumulo.core.client.impl.Tables;
+-import org.apache.accumulo.core.client.impl.ThriftTransportPool;
+ import org.apache.accumulo.core.client.impl.thrift.TableOperation;
+ import org.apache.accumulo.core.client.impl.thrift.TableOperationExceptionType;
+ import org.apache.accumulo.core.client.impl.thrift.ThriftTableOperationException;
+@@ -529,15 +528,12 @@ public class Master implements LiveTServerSet.Listener, LoggerWatcher, TableObse
+   }
+   
+   public Master(String[] args) throws IOException {
+-    
+     Accumulo.init("master");
+     
+     log.info("Version " + Constants.VERSION);
+     instance = HdfsZooInstance.getInstance();
+     log.info("Instance " + instance.getInstanceID());
+     
+-    ThriftTransportPool.getInstance().setIdleTime(ServerConfiguration.getSiteConfiguration().getTimeInMillis(Property.GENERAL_RPC_TIMEOUT));
+-
+     hostname = Accumulo.getLocalAddress(args).getHostName();
+     fs = TraceFileSystem.wrap(FileUtil.getFileSystem(CachedConfiguration.getInstance(), ServerConfiguration.getSiteConfiguration()));
+     ;
+@@ -1490,23 +1486,21 @@ public class Master implements LiveTServerSet.Listener, LoggerWatcher, TableObse
+       for (MergeStats stats : mergeStatsCache.values()) {
+         try {
+           MergeState update = stats.nextMergeState();
+-          if (update == MergeState.MERGING) {
+-            if (stats.verifyMergeConsistency(getConnector(), Master.this)) {
+-              try {
+-                if (stats.getMergeInfo().isDelete()) {
+-                  deleteTablets(stats.getMergeInfo());
+-                } else {
+-                  mergeMetadataRecords(stats.getMergeInfo());
++          if (update != stats.getMergeInfo().getState()) {
++            if (update == MergeState.MERGING) {
++              if (stats.verifyMergeConsistency(getConnector(), Master.this)) {
++                try {
++                  if (stats.getMergeInfo().isDelete())
++                    deleteTablets(stats.getMergeInfo());
++                  else
++                    mergeMetadataRecords(stats.getMergeInfo());
++                  setMergeState(stats.getMergeInfo(), MergeState.COMPLETE);
++                  update = MergeState.NONE;
++                } catch (Exception ex) {
++                  log.error("Unable merge metadata table records", ex);
+                 }
+-                setMergeState(stats.getMergeInfo(), update = MergeState.COMPLETE);
+-              } catch (Exception ex) {
+-                log.error("Unable merge metadata table records", ex);
+               }
+             }
+-          }
+-          if (update == MergeState.COMPLETE)
+-            update = MergeState.NONE;
+-          if (update != stats.getMergeInfo().getState()) {
+             setMergeState(stats.getMergeInfo(), update);
+           }
+         } catch (Exception ex) {
+@@ -1798,10 +1792,7 @@ public class Master implements LiveTServerSet.Listener, LoggerWatcher, TableObse
+           found.add(extent);
+         }
+       }
+-      Set<KeyExtent> notFound = new HashSet<KeyExtent>();
+-      synchronized (migrations) {
+-        notFound.addAll(migrations.keySet());
+-      }
++      Set<KeyExtent> notFound = new HashSet<KeyExtent>(migrations.keySet());
+       notFound.removeAll(found);
+       for (KeyExtent extent : notFound) {
+         log.info("Canceling migration of " + extent + " to " + migrations.get(extent) + ": tablet no longer exists (probably due to a split)");
+@@ -1956,11 +1947,7 @@ public class Master implements LiveTServerSet.Listener, LoggerWatcher, TableObse
+     
+     private long balanceTablets() {
+       List<TabletMigration> migrationsOut = new ArrayList<TabletMigration>();
+-      Set<KeyExtent> migrationsCopy = new HashSet<KeyExtent>();
+-      synchronized (migrations) {
+-        migrationsCopy.addAll(migrations.keySet());
+-      }
+-      long wait = tabletBalancer.balance(Collections.unmodifiableSortedMap(tserverStatus), Collections.unmodifiableSet(migrationsCopy), migrationsOut);
++      long wait = tabletBalancer.balance(Collections.unmodifiableSortedMap(tserverStatus), Collections.unmodifiableSet(migrations.keySet()), migrationsOut);
+       
+       for (TabletMigration m : TabletBalancer.checkMigrationSanity(tserverStatus.keySet(), migrationsOut)) {
+         if (migrations.containsKey(m.tablet)) {
+@@ -1985,10 +1972,8 @@ public class Master implements LiveTServerSet.Listener, LoggerWatcher, TableObse
+       try {
+         TabletServerStatus status = tserverSet.getConnection(server).getTableMap();
+         result.put(server, status);
+-        // TODO maybe remove from bad servers
+       } catch (Exception ex) {
+-        log.error("unable to get tablet server status " + server + " " + ex.getMessage());
+-        log.debug("unable to get tablet server status " + server, ex);
++        log.error("unable to get tablet server status " + server);
+         if (badServers.get(server).incrementAndGet() > MAX_BAD_STATUS_COUNT) {
+           log.warn("attempting to stop " + server);
+           try {

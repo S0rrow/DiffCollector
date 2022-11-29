@@ -1,0 +1,77 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java
+index f0a3a77d25..37756dc1e5 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java
+@@ -26,7 +26,6 @@ import java.util.Map;
+ import java.util.Set;
+ 
+ import org.apache.activemq.artemis.api.core.ActiveMQException;
+-import org.apache.activemq.artemis.api.core.Message;
+ import org.apache.activemq.artemis.api.core.RoutingType;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.api.core.management.AddressControl;
+@@ -99,25 +98,19 @@ public class AddressControlImpl extends AbstractControl implements AddressContro
+    }
+ 
+    @Override
+-   public String[] getRoutingTypes() {
+-      Set<RoutingType> routingTypes = addressInfo.getRoutingTypes();
+-      String[] result = new String[routingTypes.size()];
+-      int i = 0;
+-      for (RoutingType routingType : routingTypes) {
+-         result[i++] = routingType.toString();
+-      }
+-      return result;
++   public Set<RoutingType> getDeliveryModes() {
++      return addressInfo.getRoutingTypes();
+    }
+ 
+    @Override
+-   public String getRoutingTypesAsJSON() throws Exception {
++   public String getDeliveryModesAsJSON() throws Exception {
+       clearIO();
+       try {
+          JsonArrayBuilder json = JsonLoader.createArrayBuilder();
+-         String[] routingTypes = getRoutingTypes();
++         Set<RoutingType> routingTypes = getDeliveryModes();
+ 
+-         for (String routingType : routingTypes) {
+-            json.add(routingType);
++         for (RoutingType routingType : routingTypes) {
++            json.add(routingType.toString());
+          }
+          return json.build().toString();
+       } finally {
+@@ -292,20 +285,14 @@ public class AddressControlImpl extends AbstractControl implements AddressContro
+             }
+          });
+          CoreMessage message = new CoreMessage(storageManager.generateID(), 50);
+-         if (headers != null) {
+-            for (String header : headers.keySet()) {
+-               message.putStringProperty(new SimpleString(header), new SimpleString(headers.get(header)));
+-            }
++         for (String header : headers.keySet()) {
++            message.putStringProperty(new SimpleString(header), new SimpleString(headers.get(header)));
+          }
+          message.setType((byte) type);
+          message.setDurable(durable);
+          message.setTimestamp(System.currentTimeMillis());
+          if (body != null) {
+-            if (type == Message.TEXT_TYPE) {
+-               message.getBodyBuffer().writeNullableSimpleString(new SimpleString(body));
+-            } else {
+-               message.getBodyBuffer().writeBytes(Base64.decode(body));
+-            }
++            message.getBodyBuffer().writeBytes(Base64.decode(body));
+          }
+          message.setAddress(addressInfo.getName());
+          postOffice.route(message, true);
+@@ -348,7 +335,7 @@ public class AddressControlImpl extends AbstractControl implements AddressContro
+             QueueControl coreQueueControl = (QueueControl) managementService.getResource(ResourceNames.QUEUE + queue);
+ 
+             // Ignore the "special" subscription
+-            if (coreQueueControl != null) {
++            if (coreQueueControl != null && !coreQueueControl.getName().equals(getAddress())) {
+                if (durability == DurabilityType.ALL || durability == DurabilityType.DURABLE && coreQueueControl.isDurable() ||
+                      durability == DurabilityType.NON_DURABLE && !coreQueueControl.isDurable()) {
+                   matchingQueues.add(coreQueueControl);

@@ -1,0 +1,27 @@
+diff --git a/maven-repository-indexer/src/main/java/org/apache/maven/repository/indexing/query/RangeQuery.java b/maven-repository-indexer/src/main/java/org/apache/maven/repository/indexing/query/RangeQuery.java
+index 84b355a28..db0b3887b 100644
+--- a/maven-repository-indexer/src/main/java/org/apache/maven/repository/indexing/query/RangeQuery.java
++++ b/maven-repository-indexer/src/main/java/org/apache/maven/repository/indexing/query/RangeQuery.java
+@@ -16,12 +16,11 @@
+  * limitations under the License.
+  */
+ 
+-import java.util.ArrayList;
+ import java.util.List;
++import java.util.ArrayList;
+ 
+ /**
+  * Query object that handles range queries for dates.
+- *
+  * @author Maria Odea Ching
+  */
+ public class RangeQuery
+@@ -31,7 +30,7 @@
+ 
+     private boolean inclusive;
+ 
+-    public RangeQuery( boolean inclusive )
++    public RangeQuery( boolean inclusive)
+     {
+         this.inclusive = inclusive;
+     }

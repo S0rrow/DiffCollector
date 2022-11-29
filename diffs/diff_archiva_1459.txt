@@ -1,0 +1,84 @@
+diff --git a/archiva-modules/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/UploadAction.java b/archiva-modules/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/UploadAction.java
+index 0071d1153..5813f484a 100644
+--- a/archiva-modules/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/UploadAction.java
++++ b/archiva-modules/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/UploadAction.java
+@@ -56,9 +56,6 @@
+ import org.apache.maven.archiva.repository.project.ProjectModelException;
+ import org.apache.maven.archiva.repository.project.ProjectModelWriter;
+ import org.apache.maven.archiva.repository.project.writers.ProjectModel400Writer;
+-import org.apache.maven.archiva.scheduled.ArchivaTaskScheduler;
+-import org.apache.maven.archiva.scheduled.tasks.RepositoryTask;
+-import org.apache.maven.archiva.scheduled.tasks.TaskCreator;
+ import org.apache.maven.archiva.security.AccessDeniedException;
+ import org.apache.maven.archiva.security.ArchivaSecurityException;
+ import org.apache.maven.archiva.security.PrincipalNotFoundException;
+@@ -68,7 +65,6 @@
+ import com.opensymphony.xwork2.Validateable;
+ import org.apache.commons.io.FilenameUtils;
+ import org.apache.commons.lang.StringUtils;
+-import org.codehaus.plexus.taskqueue.TaskQueueException;
+ 
+ /**
+  * Upload an artifact using Jakarta file upload in webwork. If set by the user a pom will also be generated. Metadata
+@@ -150,11 +146,6 @@
+      */
+     private RepositoryContentFactory repositoryFactory;
+     
+-    /**
+-     * @plexus.requirement
+-     */
+-    private ArchivaTaskScheduler scheduler;
+-    
+     private ChecksumAlgorithm[] algorithms = new ChecksumAlgorithm[] { ChecksumAlgorithm.SHA1, ChecksumAlgorithm.MD5 };
+ 
+     private ProjectModelWriter pomWriter = new ProjectModel400Writer();
+@@ -354,8 +345,7 @@ public String doUpload()
+             try
+             {
+                 copyFile( artifactFile, targetPath, filename );
+-                queueRepositoryTask( repository.getId(), repository.toFile( artifactReference ) );
+-                //consumers.executeConsumers( repoConfig, repository.toFile( artifactReference ) );
++                consumers.executeConsumers( repoConfig, repository.toFile( artifactReference ) );
+             }
+             catch ( IOException ie )
+             {
+@@ -375,8 +365,7 @@ public String doUpload()
+                 try
+                 {
+                     File generatedPomFile = createPom( targetPath, pomFilename );
+-                    queueRepositoryTask( repoConfig.getId(), generatedPomFile );
+-                    //consumers.executeConsumers( repoConfig, generatedPomFile );
++                    consumers.executeConsumers( repoConfig, generatedPomFile );
+                 }
+                 catch ( IOException ie )
+                 {
+@@ -395,8 +384,7 @@ public String doUpload()
+                 try
+                 {                    
+                     copyFile( pomFile, targetPath, pomFilename );
+-                    queueRepositoryTask( repoConfig.getId(), new File( targetPath, pomFilename ) );
+-                    //consumers.executeConsumers( repoConfig, new File( targetPath, pomFilename ) );
++                    consumers.executeConsumers( repoConfig, new File( targetPath, pomFilename ) );
+                 }
+                 catch ( IOException ie )
+                 {
+@@ -597,19 +585,4 @@ private List<String> getManagableRepos()
+         }
+         return Collections.emptyList();
+     }
+-    
+-    private void queueRepositoryTask( String repositoryId, File localFile )
+-    {
+-        RepositoryTask task = TaskCreator.createRepositoryTask( repositoryId, localFile.getName(), localFile );
+-        
+-        try
+-        {
+-            scheduler.queueRepositoryTask( task );
+-        }
+-        catch ( TaskQueueException e )
+-        {
+-            log.error( "Unable to queue repository task to execute consumers on resource file ['" +
+-                localFile.getName() + "']." );
+-        }
+-    }
+ }

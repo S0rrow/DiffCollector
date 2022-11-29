@@ -1,0 +1,39 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/client/impl/ServerClient.java b/core/src/main/java/org/apache/accumulo/core/client/impl/ServerClient.java
+index 84295c4a87..680d23a880 100644
+--- a/core/src/main/java/org/apache/accumulo/core/client/impl/ServerClient.java
++++ b/core/src/main/java/org/apache/accumulo/core/client/impl/ServerClient.java
+@@ -17,7 +17,6 @@
+ package org.apache.accumulo.core.client.impl;
+ 
+ import static com.google.common.base.Preconditions.checkArgument;
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.util.ArrayList;
+@@ -42,6 +41,8 @@ import org.apache.thrift.transport.TTransportException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class ServerClient {
+   private static final Logger log = LoggerFactory.getLogger(ServerClient.class);
+ 
+@@ -122,7 +123,7 @@ public class ServerClient {
+       throws TTransportException {
+     checkArgument(context != null, "context is null");
+     // create list of servers
+-    ArrayList<ThriftTransportKey> servers = new ArrayList<>();
++    ArrayList<ThriftTransportKey> servers = new ArrayList<ThriftTransportKey>();
+ 
+     // add tservers
+     Instance instance = context.getInstance();
+@@ -143,7 +144,7 @@ public class ServerClient {
+       ClientService.Client client = ThriftUtil.createClient(new ClientService.Client.Factory(), pair.getSecond());
+       opened = true;
+       warnedAboutTServersBeingDown = false;
+-      return new Pair<>(pair.getFirst(), client);
++      return new Pair<String,ClientService.Client>(pair.getFirst(), client);
+     } finally {
+       if (!opened) {
+         if (!warnedAboutTServersBeingDown) {

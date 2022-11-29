@@ -1,0 +1,52 @@
+diff --git a/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java b/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java
+index 43b92090ca..f55199f603 100644
+--- a/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java
++++ b/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.server;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.io.File;
+@@ -56,6 +55,8 @@ import org.apache.log4j.Logger;
+ import org.apache.log4j.helpers.LogLog;
+ import org.apache.zookeeper.KeeperException;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class Accumulo {
+ 
+   private static final Logger log = Logger.getLogger(Accumulo.class);
+@@ -167,8 +168,8 @@ public class Accumulo {
+     logConfigWatcher.start();
+ 
+     // Makes sure the log-forwarding to the monitor is configured
+-    int[] logPort = conf.getPort(Property.MONITOR_LOG4J_PORT);
+-    System.setProperty("org.apache.accumulo.core.host.log.port", Integer.toString(logPort[0]));
++    int logPort = conf.getPort(Property.MONITOR_LOG4J_PORT);
++    System.setProperty("org.apache.accumulo.core.host.log.port", Integer.toString(logPort));
+ 
+     log.info(application + " starting");
+     log.info("Instance " + serverConfig.getInstance().getInstanceID());
+@@ -181,7 +182,7 @@ public class Accumulo {
+       throw new RuntimeException("This version of accumulo (" + codeVersion + ") is not compatible with files stored using data version " + dataVersion);
+     }
+ 
+-    TreeMap<String,String> sortedProps = new TreeMap<>();
++    TreeMap<String,String> sortedProps = new TreeMap<String,String>();
+     for (Entry<String,String> entry : conf)
+       sortedProps.put(entry.getKey(), entry.getValue());
+ 
+@@ -312,8 +313,8 @@ public class Accumulo {
+    */
+   public static void abortIfFateTransactions() {
+     try {
+-      final ReadOnlyTStore<Accumulo> fate = new ReadOnlyStore<>(new ZooStore<Accumulo>(ZooUtil.getRoot(HdfsZooInstance.getInstance()) + Constants.ZFATE,
+-          ZooReaderWriter.getInstance()));
++      final ReadOnlyTStore<Accumulo> fate = new ReadOnlyStore<Accumulo>(new ZooStore<Accumulo>(
++          ZooUtil.getRoot(HdfsZooInstance.getInstance()) + Constants.ZFATE, ZooReaderWriter.getInstance()));
+       if (!(fate.list().isEmpty())) {
+         throw new AccumuloException("Aborting upgrade because there are outstanding FATE transactions from a previous Accumulo version. "
+             + "Please see the README document for instructions on what to do under your previous version.");

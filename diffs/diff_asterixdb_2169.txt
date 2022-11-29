@@ -1,0 +1,26 @@
+diff --git a/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java b/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java
+index d5ad038582..be0435ae43 100644
+--- a/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java
++++ b/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java
+@@ -205,13 +205,16 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+     protected void prepareNextLogFile() {
+         //wait until all log records have been flushed in the current file
+         synchronized (flushLSN) {
+-            try {
+-                while (flushLSN.get() != appendLSN.get()) {
+-                    //notification will come from LogBuffer.internalFlush(.)
++            while (flushLSN.get() != appendLSN.get()) {
++                //notification will come from LogBuffer.internalFlush(.)
++                try {
+                     flushLSN.wait();
++                } catch (InterruptedException e) {
++                    if (LOGGER.isLoggable(Level.SEVERE)) {
++                        LOGGER.severe("Preparing new log file was interrupted");
++                    }
++                    Thread.currentThread().interrupt();
+                 }
+-            } catch (InterruptedException e) {
+-                Thread.currentThread().interrupt();
+             }
+         }
+         //move appendLSN and flushLSN to the first LSN of the next log file

@@ -1,0 +1,532 @@
+diff --git a/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/utils/ReflectionUtils.java b/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/utils/ReflectionUtils.java
+index a54b3c620..8a3358354 100644
+--- a/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/utils/ReflectionUtils.java
++++ b/blueprint/blueprint-core/src/main/java/org/apache/aries/blueprint/utils/ReflectionUtils.java
+@@ -26,26 +26,18 @@ import java.lang.reflect.Modifier;
+ import java.lang.reflect.Type;
+ import java.security.AccessControlContext;
+ import java.security.AccessController;
+-import java.security.PrivilegedAction;
+ import java.security.PrivilegedActionException;
+ import java.security.PrivilegedExceptionAction;
+ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Collections;
+ import java.util.HashMap;
+-import java.util.HashSet;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.WeakHashMap;
+ 
+-import org.apache.aries.blueprint.ExtendedBlueprintContainer;
+-import org.apache.aries.blueprint.container.GenericType;
+-import org.apache.aries.blueprint.di.ExecutionContext;
+-import org.osgi.framework.BundleReference;
+-import org.osgi.service.blueprint.container.ComponentDefinitionException;
+-
+ /**
+  * TODO: javadoc
+  *
+@@ -137,73 +129,85 @@ public class ReflectionUtils {
+         }
+         
+         if (properties[index] == null) {
+-            Set<String> propertyNames = new HashSet<String>();
+-            Map<String,Method> getters = new HashMap<String, Method>();
+-            Map<String,List<Method>> setters = new HashMap<String, List<Method>>();
+-            Set<String> illegalProperties = new HashSet<String>();
+-            
++            Map<String,PropertyDescriptor> props = new HashMap<String, PropertyDescriptor>();
+             for (Method method : clazz.getMethods()) {
+-                if (Modifier.isStatic(method.getModifiers()) || method.isBridge()) continue;
+-                
++                if (Modifier.isStatic(method.getModifiers()) || method.isBridge()) {
++                    continue;
++                }
+                 String name = method.getName();
+                 Class<?> argTypes[] = method.getParameterTypes();
+                 Class<?> resultType = method.getReturnType();
+                 
++                Class<?> argType = resultType;
++                Method getter = null;
++                Method setter = null;
++                
+                 if (name.length() > 3 && name.startsWith("set") && resultType == Void.TYPE && argTypes.length == 1) {
+                     name = decapitalize(name.substring(3));
+-                    if (!!!setters.containsKey(name)) setters.put(name, new ArrayList<Method>());
+-                    setters.get(name).add(method);
+-                    propertyNames.add(name);
+-                } else if (name.length() > 3 && name.startsWith("get") && resultType != Void.TYPE && argTypes.length == 0) {
++                    setter = method;
++                    argType = argTypes[0];
++                } else if (name.length() > 3 && name.startsWith("get") && argTypes.length == 0) {
+                     name = decapitalize(name.substring(3));
+-
+-                    if (getters.containsKey(name)) illegalProperties.add(name);
+-                    else propertyNames.add(name);
+-                    
+-                    getters.put(name, method);                    
++                    getter = method;
+                 } else if (name.length() > 2 && name.startsWith("is") && argTypes.length == 0 && resultType == boolean.class) {
+                     name = decapitalize(name.substring(2));
+-
+-                    if (getters.containsKey(name)) illegalProperties.add(name);
+-                    else propertyNames.add(name);
+-                    
+-                    getters.put(name, method);                    
++                    getter = method;
++                } else {
++                    continue;
+                 }
+                 
++                if (props.containsKey(name)) {
++                    PropertyDescriptor pd = props.get(name);
++                    if (pd != INVALID_PROPERTY) {
++                        if (!argType.equals(pd.type)) {
++                            props.put(name, INVALID_PROPERTY);
++                        } else if (getter != null) {
++                            if (pd.getter == null || pd.getter.equals(getter))
++                                pd.getter = getter;
++                            else
++                                props.put(name, INVALID_PROPERTY);
++                        } else if (setter != null) {
++                            if (pd.setter == null || pd.setter.equals(setter)) 
++                                pd.setter = setter;
++                            else
++                                props.put(name, INVALID_PROPERTY);
++                        }
++                    }
++                } else {
++                    props.put(name, new PropertyDescriptor(name, argType, getter, setter));
++                }
+             }
+-
+-            Map<String, PropertyDescriptor> props = new HashMap<String, PropertyDescriptor>();
+-            for (String propName : propertyNames) {
+-                props.put(propName,
+-                        new MethodPropertyDescriptor(propName, getters.get(propName), setters.get(propName)));
+-            }            
+             
+             if (allowFieldInjection) {
+-                for (Class cl = clazz; cl != null && cl != Object.class; cl = cl.getSuperclass()) {
+-                    for (Field field : cl.getDeclaredFields()) {
+-                        if (!!!Modifier.isStatic(field.getModifiers())) {
+-                            String name = decapitalize(field.getName());
+-                            PropertyDescriptor desc = props.get(name);
+-                            if (desc == null) {
+-                                props.put(name, new FieldPropertyDescriptor(name, field));
+-                            } else if (desc instanceof MethodPropertyDescriptor) {
+-                                props.put(name,
+-                                        new JointPropertyDescriptor((MethodPropertyDescriptor) desc,
+-                                                new FieldPropertyDescriptor(name, field)));
+-                            } else {
+-                                illegalProperties.add(name);
+-                            }
++                for (Field field : clazz.getDeclaredFields()) {
++                    if (Modifier.isStatic(field.getModifiers())) {
++                        continue;
++                    }
++                    
++                    String name = decapitalize(field.getName());
++                    if (!props.containsKey(name)) {
++                        props.put(name, new PropertyDescriptor(name, field.getType(), field));
++                    } else {
++                        PropertyDescriptor pd = props.get(name);
++                        if (pd != INVALID_PROPERTY) {
++                            if (pd.type.equals(field.getType())) {
++                                pd.field = field;
++                            } 
++                            // no else, we don't require field implementations to have the same
++                            // type as the getter and setter
+                         }
+                     }
+                 }
+             }
+             
+-            List<PropertyDescriptor> result = new ArrayList<PropertyDescriptor>();
+-            for (PropertyDescriptor prop : props.values()) {
+-                if (!!!illegalProperties.contains(prop.getName())) result.add(prop);
++            Iterator<PropertyDescriptor> it = props.values().iterator();
++            while (it.hasNext()) {
++                if (it.next() == INVALID_PROPERTY)
++                    it.remove();
+             }
+             
+-            properties[index] = result.toArray(new PropertyDescriptor[result.size()]); 
++            Collection<PropertyDescriptor> tmp = props.values();
++            properties[index] = tmp.toArray(new PropertyDescriptor[tmp.size()]); 
+         }
+         return properties[index];
+     }
+@@ -269,304 +273,112 @@ public class ReflectionUtils {
+         }
+     }
+     
+-    public static abstract class PropertyDescriptor {
+-        private final String name;
+-        
+-        public PropertyDescriptor(String name) {
++    private static final PropertyDescriptor INVALID_PROPERTY = new PropertyDescriptor(null, null, null, null);
++
++    public static class PropertyDescriptor {
++        private String name;
++        private Class<?> type;
++        private Method getter;
++        private Method setter;
++        private Field field;
++
++        public PropertyDescriptor(String name, Class<?> type, Method getter, Method setter) {
+             this.name = name;
++            this.type = type;
++            this.getter = getter;
++            this.setter = setter;
+         }
+         
++        public PropertyDescriptor(String name, Class<?> type, Field field) {
++            this.name = name;
++            this.type = type;
++            this.field = field;
++            this.getter = null;
++            this.setter = null;
++        }
++
+         public String getName() {
+             return name;
+         }
+         
+-        public abstract boolean allowsGet();
+-        public abstract boolean allowsSet();
++        public boolean allowsGet() {
++            return getter != null || field != null;
++        }
+         
+-        protected abstract Object internalGet(ExtendedBlueprintContainer container, Object instance) throws Exception;
+-        protected abstract void internalSet(ExtendedBlueprintContainer container, Object instance, Object value) throws Exception;        
++        public boolean allowsSet() {
++            return setter != null || field != null;
++        }
+         
+-        public Object get(final Object instance, final ExtendedBlueprintContainer container) throws Exception {            
+-            if (container.getAccessControlContext() == null) {
+-                return internalGet(container, instance);
++        public Object get(final Object instance, AccessControlContext acc) throws Exception {            
++            if (acc == null) {
++                return internalGet(instance);
+             } else {
+                 try {
+                     return AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
+                         public Object run() throws Exception {
+-                            return internalGet(container, instance);
++                            return internalGet(instance);
+                         }            
+-                    }, container.getAccessControlContext());
++                    }, acc);
+                 } catch (PrivilegedActionException e) {
+                     throw e.getException();
+                 }
+             }
+         }
++            
++        private Object internalGet(Object instance) 
++                throws IllegalArgumentException, IllegalAccessException, InvocationTargetException {
++            if (getter != null) {
++                return getter.invoke(instance);
++            } else if (field != null) {
++                field.setAccessible(true);
++                return field.get(instance);
++            } else {
++                throw new UnsupportedOperationException();
++            }
++        }
+ 
+-        public void set(final Object instance, final Object value, final ExtendedBlueprintContainer container) throws Exception {
+-            if (container.getAccessControlContext() == null) {
+-                internalSet(container, instance, value);
++        public void set(final Object instance, final Object value, AccessControlContext acc) throws Exception {
++            if (acc == null) {
++                internalSet(instance, value);
+             } else {
+                 try {
+                     AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
+                         public Object run() throws Exception {
+-                            internalSet(container, instance, value);
++                            internalSet(instance, value);
+                             return null;
+                         }            
+-                    }, container.getAccessControlContext());
++                    }, acc);
+                 } catch (PrivilegedActionException e) {
+                     throw e.getException();
+                 }
+             }            
+         }
+         
+-        protected Object convert(Object obj, Type type) throws Exception {
+-            return ExecutionContext.Holder.getContext().convert(obj, new GenericType(type));
+-        }
+-    }
+-    
+-    private static class JointPropertyDescriptor extends PropertyDescriptor {
+-        private final MethodPropertyDescriptor mpd;
+-        private final FieldPropertyDescriptor fpd;
+-        
+-        public JointPropertyDescriptor(MethodPropertyDescriptor mpd, FieldPropertyDescriptor fpd) {
+-            super(mpd.getName());
+-            this.mpd = mpd;
+-            this.fpd = fpd;
+-        }
+-
+-        @Override
+-        public boolean allowsGet() {
+-            return mpd.allowsGet() || fpd.allowsGet();
+-        }
+-
+-        @Override
+-        public boolean allowsSet() {
+-            return mpd.allowsSet() || fpd.allowsSet();
+-        }
+-
+-        @Override
+-        protected Object internalGet(ExtendedBlueprintContainer container, Object instance) throws Exception {
+-            if (mpd.allowsGet()) return mpd.internalGet(container, instance);
+-            else if (fpd.allowsGet()) return fpd.internalGet(container, instance);
+-            else throw new UnsupportedOperationException();
+-        }
+-
+-        @Override
+-        protected void internalSet(ExtendedBlueprintContainer container, Object instance, Object value) throws Exception {
+-            if (mpd.allowsSet()) mpd.internalSet(container, instance, value);
+-            else if (fpd.allowsSet()) fpd.internalSet(container, instance, value);
+-            else throw new UnsupportedOperationException();
+-        }
+-    }
+-    
+-    private static class FieldPropertyDescriptor extends PropertyDescriptor {
+-        private final Field field;
+-        
+-        public FieldPropertyDescriptor(String name, Field field) {
+-            super(name);
+-            this.field = field;
+-        }
+-
+-        public boolean allowsGet() {
+-            return true;
+-        }
+-
+-        public boolean allowsSet() {
+-            return true;
+-        }
+-
+-        protected Object internalGet(ExtendedBlueprintContainer container, final Object instance) throws IllegalArgumentException, IllegalAccessException {
+-            if (useContainersPermission(container)) {
+-                try {
+-                    return AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
+-                        public Object run() throws Exception {
+-                            field.setAccessible(true);
+-                            return field.get(instance);
+-                        }                        
+-                    });
+-                } catch (PrivilegedActionException pae) {
+-                    Exception e = pae.getException();
+-                    if (e instanceof IllegalAccessException) throw (IllegalAccessException) e;
+-                    else throw (RuntimeException) e;
+-                }
+-            } else {
+-                field.setAccessible(true);
+-                return field.get(instance);
+-            }
+-        }
+-
+-        protected void internalSet(ExtendedBlueprintContainer container, final Object instance, Object value) throws Exception {
+-            final Object convertedValue = convert(value, field.getGenericType());
+-            if (useContainersPermission(container)) {
+-                try {
+-                    AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
+-                        public Object run() throws Exception {
+-                            field.setAccessible(true);
+-                            field.set(instance, convertedValue);
+-                            return null;
+-                        }                        
+-                    });
+-                } catch (PrivilegedActionException pae) {
+-                    throw pae.getException();
+-                }
+-            } else {
+-                field.setAccessible(true);
+-                field.set(instance, convertedValue);
+-            }
+-        }
+-        
+-        /**
+-         * Determine whether the field access (in particular the call to {@link Field#setAccessible(boolean)} should be done with the Blueprint extender's
+-         * permissions, rather than the joint (more restrictive) permissions of the extender plus the Blueprint bundle.
+-         * 
+-         * We currently only allow this for classes that originate from inside the Blueprint bundle. Otherwise this would open a potential security hole.
+-         * @param container
+-         * @return
+-         */
+-        private boolean useContainersPermission(ExtendedBlueprintContainer container) {
+-            ClassLoader loader = AccessController.doPrivileged(new PrivilegedAction<ClassLoader>() {
+-                public ClassLoader run() {
+-                    return field.getDeclaringClass().getClassLoader();
+-                }
+-            });            
+-            
+-            if (loader == null) return false;
+-            
+-            if (loader instanceof BundleReference) {
+-                BundleReference ref = (BundleReference) loader;
+-                return ref.getBundle().equals(container.getBundleContext().getBundle());                
+-            }
+-            
+-            return false;
+-        }
+-    }
+-    
+-    private static class MethodPropertyDescriptor extends PropertyDescriptor {
+-        private final Method getter;
+-        private final Collection<Method> setters;
+-
+-        private MethodPropertyDescriptor(String name, Method getter, Collection<Method> setters) {
+-            super(name);
+-            this.getter = getter;
+-            this.setters = (setters != null) ? setters : Collections.<Method>emptyList();
+-        }
+-        
+-        public boolean allowsGet() {
+-            return getter != null;
+-        }
+-        
+-        public boolean allowsSet() {
+-            return !!!setters.isEmpty();
+-        }
+-        
+-        protected Object internalGet(ExtendedBlueprintContainer container, Object instance) 
++        private void internalSet(Object instance, Object value) 
+                 throws IllegalArgumentException, IllegalAccessException, InvocationTargetException {
+-            if (getter != null) {
+-                return getter.invoke(instance);
++            if (setter != null) {
++                setter.invoke(instance, value);
++            } else if (field != null) {
++                field.setAccessible(true);
++                field.set(instance, value);
+             } else {
+                 throw new UnsupportedOperationException();
+             }
+         }
+         
+-        protected void internalSet(ExtendedBlueprintContainer container, Object instance, Object value) throws Exception {
+-            
+-            Method setterMethod = findSetter(value);
+-
+-            if (setterMethod != null) {
+-                setterMethod.invoke(instance, convert(value, setterMethod.getGenericParameterTypes()[0]));
+-            } else {
+-                throw new ComponentDefinitionException(
+-                        "No converter available to convert value "+value+" into a form applicable for the " + 
+-                        "setters of property "+getName());
+-            }
+-        }
+-        
+-        private Method findSetter(Object value) {
+-            Class<?> valueType = (value == null) ? null : value.getClass();
+-            
+-            Method result = findMethodByClass(valueType);
+-            
+-            if (result == null) result = findMethodWithConversion(value);
+-                        
+-            return result;
+-        }
+-        
+-        private Method findMethodByClass(Class<?> arg)
+-                throws ComponentDefinitionException {
+-            Method result = null;
+-
+-            if (!hasSameTypeSetter()) {
+-                throw new ComponentDefinitionException(
+-                        "At least one Setter method has to match the type of the Getter method for property "
+-                                + getName());
+-            }
+-
+-            if (setters.size() == 1) {
+-                return setters.iterator().next();
+-            }
+-            
+-            for (Method m : setters) {
+-                Class<?> paramType = m.getParameterTypes()[0];
+-
+-                if ((arg == null && Object.class.isAssignableFrom(paramType))
+-                        || (arg != null && paramType.isAssignableFrom(arg))) {
+-
+-                    // pick the method that has the more specific parameter if
+-                    // any
+-                    if (result != null) {
+-                        Class<?> oldParamType = result.getParameterTypes()[0];
+-                        if (paramType.isAssignableFrom(oldParamType)) {
+-                            // do nothing, result is correct
+-                        } else if (oldParamType.isAssignableFrom(paramType)) {
+-                            result = m;
+-                        } else {
+-                            throw new ComponentDefinitionException(
+-                                    "Ambiguous setter method for property "
+-                                            + getName()
+-                                            + ". More than one method matches the  parameter type "
+-                                            + arg);
+-                        }
+-                    } else {
+-                        result = m;
+-                    }
+-                }
+-            }
+-
+-            return result;
+-        }
+-        
+-        // ensure there is a setter that matches the type of the getter
+-        private boolean hasSameTypeSetter() {
+-            if (getter == null) {
+-                return true;
+-            }
+-            Iterator<Method> it = setters.iterator();
+-            while (it.hasNext()) {
+-                Method m = it.next();
+-                if (m.getParameterTypes()[0].equals(getter.getReturnType())) {
+-                    return true;
+-                }
+-            }
+-            return false;
+-        }
+-
+-        private Method findMethodWithConversion(Object value) throws ComponentDefinitionException {
+-            ExecutionContext ctx = ExecutionContext.Holder.getContext();
+-            List<Method> matchingMethods = new ArrayList<Method>();
+-            for (Method m : setters) {
+-                Type paramType = m.getGenericParameterTypes()[0];
+-                if (ctx.canConvert(value, new GenericType(paramType))) matchingMethods.add(m);
+-            }
+-            
+-            if (matchingMethods.isEmpty()) return null;
+-            else if (matchingMethods.size() == 1) return matchingMethods.get(0);
+-            else throw new ComponentDefinitionException(
+-                    "Ambiguous setter method for property "+ getName() + 
+-                    ". More than one method matches the parameter "+value+" after applying conversion.");
++        public Type getGenericType() {
++            if (setter != null)
++                return setter.getGenericParameterTypes()[0];
++            else if (getter != null)
++                return getter.getGenericReturnType();
++            else 
++                return field.getGenericType();
++                
+         }
+         
+         public String toString() {
+-            return "PropertyDescriptor <name: "+getName()+", getter: "+getter+", setter: "+setters;
++            return "PropertyDescriptor <name: "+name+", getter: "+getter+", setter: "+setter+
++                ", field: "+field+">";
+         }
+     }
+ 

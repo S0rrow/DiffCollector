@@ -1,0 +1,21 @@
+diff --git a/hyracks/hyracks-dataflow-std/src/main/java/org/apache/hyracks/dataflow/std/sort/AbstractExternalSortRunMerger.java b/hyracks/hyracks-dataflow-std/src/main/java/org/apache/hyracks/dataflow/std/sort/AbstractExternalSortRunMerger.java
+index 6e2c3f0b7a..24154f75a7 100644
+--- a/hyracks/hyracks-dataflow-std/src/main/java/org/apache/hyracks/dataflow/std/sort/AbstractExternalSortRunMerger.java
++++ b/hyracks/hyracks-dataflow-std/src/main/java/org/apache/hyracks/dataflow/std/sort/AbstractExternalSortRunMerger.java
+@@ -158,14 +158,10 @@ public abstract class AbstractExternalSortRunMerger {
+                 }
+             }
+         } catch (Exception e) {
+-            if (finalWriter != null) {
+-                finalWriter.fail();
+-            }
++            finalWriter.fail();
+             throw new HyracksDataException(e);
+         } finally {
+-            if (finalWriter != null) {
+-                finalWriter.close();
+-            }
++            finalWriter.close();
+         }
+     }
+ 

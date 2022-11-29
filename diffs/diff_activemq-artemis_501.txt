@@ -1,0 +1,39 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageCursorProvider.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageCursorProvider.java
+index c8404ba48e..dff4f34262 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageCursorProvider.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PageCursorProvider.java
+@@ -1,4 +1,4 @@
+-/*
++/**
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements. See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.
+@@ -16,16 +16,16 @@
+  */
+ package org.apache.activemq.artemis.core.paging.cursor;
+ 
+-import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.core.filter.Filter;
+ import org.apache.activemq.artemis.core.paging.PagedMessage;
+ 
+ /**
+  * The provider of Cursor for a given Address
+  */
+-public interface PageCursorProvider {
++public interface PageCursorProvider
++{
+ 
+-   PageCache getPageCache(long pageNr) throws ActiveMQException;
++   PageCache getPageCache(long pageNr);
+ 
+    PagedReference newReference(final PagePosition pos, final PagedMessage msg, PageSubscription sub);
+ 
+@@ -39,7 +39,7 @@ public interface PageCursorProvider {
+ 
+    PageSubscription createSubscription(long queueId, Filter filter, boolean durable);
+ 
+-   PagedMessage getMessage(PagePosition pos) throws ActiveMQException;
++   PagedMessage getMessage(PagePosition pos);
+ 
+    void processReload() throws Exception;
+ 

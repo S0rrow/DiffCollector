@@ -1,0 +1,192 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
+index 4103a82778..30643639a6 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
+@@ -17,7 +17,6 @@
+ package org.apache.activemq.artemis.core.postoffice.impl;
+ 
+ import java.util.ArrayList;
+-import java.util.Collection;
+ import java.util.Collections;
+ import java.util.HashMap;
+ import java.util.HashSet;
+@@ -68,7 +67,6 @@ import org.apache.activemq.artemis.core.server.Queue;
+ import org.apache.activemq.artemis.core.server.QueueFactory;
+ import org.apache.activemq.artemis.core.server.RouteContextList;
+ import org.apache.activemq.artemis.core.server.RoutingContext;
+-import org.apache.activemq.artemis.core.server.RoutingType;
+ import org.apache.activemq.artemis.core.server.ServerMessage;
+ import org.apache.activemq.artemis.core.server.group.GroupingHandler;
+ import org.apache.activemq.artemis.core.server.impl.AddressInfo;
+@@ -134,7 +132,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+ 
+    private final ActiveMQServer server;
+ 
+-   private final Object addressLock = new Object();
++   private Object addressLock = new Object();
+ 
+    public PostOfficeImpl(final ActiveMQServer server,
+                          final StorageManager storageManager,
+@@ -424,84 +422,26 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+    // PostOffice implementation -----------------------------------------------
+ 
+    @Override
+-   public boolean addAddressInfo(AddressInfo addressInfo) {
++   public AddressInfo addAddressInfo(AddressInfo addressInfo) {
+       synchronized (addressLock) {
+-         boolean result = addressManager.addAddressInfo(addressInfo);
+-         // only register address if it is new
+-         if (result) {
+-            try {
+-               managementService.registerAddress(addressInfo);
+-            } catch (Exception e) {
+-               e.printStackTrace();
+-            }
++         try {
++            managementService.registerAddress(addressInfo);
++         } catch (Exception e) {
++            e.printStackTrace();
+          }
+-         return result;
++         return addressManager.addAddressInfo(addressInfo);
+       }
+    }
+ 
+    @Override
+    public AddressInfo addOrUpdateAddressInfo(AddressInfo addressInfo) {
+       synchronized (addressLock) {
+-         final AddressInfo updatedAddressInfo = addressManager.addOrUpdateAddressInfo(addressInfo);
+-         // only register address if it is newly added
+-         final boolean isNew = updatedAddressInfo == addressInfo;
+-         if (isNew) {
+-            try {
+-               managementService.registerAddress(addressInfo);
+-            } catch (Exception e) {
+-               e.printStackTrace();
+-            }
+-         }
+-         return updatedAddressInfo;
+-      }
+-   }
+-
+-   @Override
+-   public QueueBinding updateQueue(SimpleString name,
+-                                   RoutingType routingType,
+-                                   Integer maxConsumers,
+-                                   Boolean deleteOnNoConsumers) throws Exception {
+-      synchronized (addressLock) {
+-         final QueueBinding queueBinding = (QueueBinding) addressManager.getBinding(name);
+-         if (queueBinding == null) {
+-            return null;
+-         }
+-         final Queue queue = queueBinding.getQueue();
+-         //TODO put the whole update logic on Queue
+-         //validate update
+-         if (maxConsumers != null) {
+-            final int consumerCount = queue.getConsumerCount();
+-            if (consumerCount > maxConsumers) {
+-               throw ActiveMQMessageBundle.BUNDLE.invalidMaxConsumersUpdate(name.toString(), maxConsumers, consumerCount);
+-            }
+-         }
+-         if (routingType != null) {
+-            final SimpleString address = queue.getAddress();
+-            final AddressInfo addressInfo = addressManager.getAddressInfo(address);
+-            final Set<RoutingType> addressRoutingTypes = addressInfo.getRoutingTypes();
+-            if (!addressRoutingTypes.contains(routingType)) {
+-               throw ActiveMQMessageBundle.BUNDLE.invalidRoutingTypeUpdate(name.toString(), routingType, address.toString(), addressRoutingTypes);
+-            }
+-         }
+-         //atomic update
+-         if (maxConsumers != null) {
+-            queue.setMaxConsumer(maxConsumers);
+-         }
+-         if (routingType != null) {
+-            queue.setRoutingType(routingType);
+-         }
+-         if (deleteOnNoConsumers != null) {
+-            queue.setDeleteOnNoConsumers(deleteOnNoConsumers);
++         try {
++            managementService.registerAddress(addressInfo);
++         } catch (Exception e) {
++            e.printStackTrace();
+          }
+-         return queueBinding;
+-      }
+-   }
+-
+-   @Override
+-   public AddressInfo updateAddressInfo(SimpleString addressName,
+-                                        Collection<RoutingType> routingTypes) throws Exception {
+-      synchronized (addressLock) {
+-         return addressManager.updateAddressInfo(addressName, routingTypes);
++         return addressManager.addOrUpdateAddressInfo(addressInfo);
+       }
+    }
+ 
+@@ -510,7 +450,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+       synchronized (addressLock) {
+          Bindings bindingsForAddress = getBindingsForAddress(address);
+          if (bindingsForAddress.getBindings().size() > 0) {
+-            throw ActiveMQMessageBundle.BUNDLE.addressHasBindings(address);
++            throw new IllegalStateException("Address has bindings");
+          }
+          managementService.unregisterAddress(address);
+          return addressManager.removeAddressInfo(address);
+@@ -599,8 +539,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+       }
+ 
+       if (binding.getType() == BindingType.LOCAL_QUEUE) {
+-         Queue queue = (Queue) binding.getBindable();
+-         managementService.unregisterQueue(uniqueName, binding.getAddress(), queue.getRoutingType());
++         managementService.unregisterQueue(uniqueName, binding.getAddress());
+       } else if (binding.getType() == BindingType.DIVERT) {
+          managementService.unregisterDivert(uniqueName, binding.getAddress());
+       }
+@@ -716,19 +655,18 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+                               final RoutingContext context,
+                               final boolean direct,
+                               boolean rejectDuplicates) throws Exception {
+-
+       RoutingStatus result = RoutingStatus.OK;
+       // Sanity check
+       if (message.getRefCount() > 0) {
+          throw new IllegalStateException("Message cannot be routed more than once");
+       }
+ 
++      SimpleString address = message.getAddress();
++
+       setPagingStore(message);
+ 
+       AtomicBoolean startedTX = new AtomicBoolean(false);
+ 
+-      final SimpleString address = message.getAddress();
+-
+       applyExpiryDelay(message, address);
+ 
+       if (!checkDuplicateID(message, context, rejectDuplicates, startedTX)) {
+@@ -741,7 +679,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+          cleanupInternalPropertiesBeforeRouting(message);
+       }
+ 
+-      Bindings bindings = addressManager.getBindingsForRoutingAddress(context.getAddress() == null ? message.getAddress() : context.getAddress());
++      Bindings bindings = addressManager.getBindingsForRoutingAddress(address);
+ 
+       // TODO auto-create queues here?
+       // first check for the auto-queue creation thing
+@@ -925,16 +863,6 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+       return addressManager.getAddresses();
+    }
+ 
+-   @Override
+-   public SimpleString getMatchingQueue(SimpleString address, RoutingType routingType) throws Exception {
+-      return addressManager.getMatchingQueue(address, routingType);
+-   }
+-
+-   @Override
+-   public SimpleString getMatchingQueue(SimpleString address, SimpleString queueName, RoutingType routingType) throws Exception {
+-      return addressManager.getMatchingQueue(address, queueName, routingType);
+-   }
+-
+    @Override
+    public void sendQueueInfoToQueue(final SimpleString queueName, final SimpleString address) throws Exception {
+       // We send direct to the queue so we can send it to the same queue that is bound to the notifications address -

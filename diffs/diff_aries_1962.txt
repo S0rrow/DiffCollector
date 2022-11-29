@@ -1,0 +1,46 @@
+diff --git a/blueprint/blueprint-authz/src/main/java/org/apache/aries/blueprint/authorization/impl/AuthorizationNsHandler.java b/blueprint/blueprint-authz/src/main/java/org/apache/aries/blueprint/authorization/impl/AuthorizationNsHandler.java
+index 5acf2c10e..081f71900 100644
+--- a/blueprint/blueprint-authz/src/main/java/org/apache/aries/blueprint/authorization/impl/AuthorizationNsHandler.java
++++ b/blueprint/blueprint-authz/src/main/java/org/apache/aries/blueprint/authorization/impl/AuthorizationNsHandler.java
+@@ -38,30 +38,23 @@ public class AuthorizationNsHandler implements NamespaceHandler {
+         ComponentDefinitionRegistry cdr = pc.getComponentDefinitionRegistry();
+         
+         if ("enable".equals(elt.getLocalName())) {
+-            if (!cdr.containsComponentDefinition(AuthorizationBeanProcessor.AUTH_PROCESSOR_BEAN_NAME)) {
+-                cdr.registerComponentDefinition(authBeanProcessor(pc, cdr));
++            if (!cdr.containsComponentDefinition(AnnotationParser.ANNOTATION_PARSER_BEAN_NAME)) {
++                MutableBeanMetadata meta = pc.createMetadata(MutableBeanMetadata.class);
++                meta.setId(AnnotationParser.ANNOTATION_PARSER_BEAN_NAME);
++                meta.setRuntimeClass(AnnotationParser.class);
++                meta.setProcessor(true);
++                MutablePassThroughMetadata cdrMeta = pc.createMetadata(MutablePassThroughMetadata.class);
++                cdrMeta.setObject(cdr);
++                meta.addProperty("cdr", cdrMeta);
++                cdr.registerComponentDefinition(meta);
+             }
+         }
+     }
+ 
+-    private MutableBeanMetadata authBeanProcessor(ParserContext pc, ComponentDefinitionRegistry cdr) {
+-        MutableBeanMetadata meta = pc.createMetadata(MutableBeanMetadata.class);
+-        meta.setId(AuthorizationBeanProcessor.AUTH_PROCESSOR_BEAN_NAME);
+-        meta.setRuntimeClass(AuthorizationBeanProcessor.class);
+-        meta.setProcessor(true);
+-        meta.addProperty("cdr", passThrough(pc, cdr));
+-        return meta;
+-    }
+-
+-    private MutablePassThroughMetadata passThrough(ParserContext pc, Object o) {
+-        MutablePassThroughMetadata meta = pc.createMetadata(MutablePassThroughMetadata.class);
+-        meta.setObject(o);
+-        return meta;
+-    }
+-
+     public ComponentMetadata decorate(Node node, ComponentMetadata cm, ParserContext pc) {
+         if (node instanceof Element) {
+-            parseElement((Element)node, cm, pc);
++            Element elt = (Element)node;
++            parseElement(elt, cm, pc);
+         }
+         return cm;
+     }

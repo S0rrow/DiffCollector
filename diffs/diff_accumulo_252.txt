@@ -1,0 +1,57 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/client/ClientConfiguration.java b/core/src/main/java/org/apache/accumulo/core/client/ClientConfiguration.java
+index f404bd81cc..0677365b94 100644
+--- a/core/src/main/java/org/apache/accumulo/core/client/ClientConfiguration.java
++++ b/core/src/main/java/org/apache/accumulo/core/client/ClientConfiguration.java
+@@ -119,10 +119,6 @@ public class ClientConfiguration extends CompositeConfiguration {
+       return defaultValue;
+     }
+ 
+-    /**
+-     * @deprecated since 1.7.0 This method returns a type that is not part of the public API and not guaranteed to be stable.
+-     */
+-    @Deprecated
+     public PropertyType getType() {
+       return type;
+     }
+@@ -131,10 +127,6 @@ public class ClientConfiguration extends CompositeConfiguration {
+       return description;
+     }
+ 
+-    /**
+-     * @deprecated since 1.7.0 This method returns a type that is not part of the public API and not guaranteed to be stable.
+-     */
+-    @Deprecated
+     public Property getAccumuloProperty() {
+       return accumuloProperty;
+     }
+@@ -154,7 +146,6 @@ public class ClientConfiguration extends CompositeConfiguration {
+   private ClientConfiguration(PropertiesConfiguration propertiesConfiguration, String configFile) throws ConfigurationException {
+     super(propertiesConfiguration);
+     // Don't do list interpolation
+-    this.setDelimiterParsingDisabled(true);
+     propertiesConfiguration.setDelimiterParsingDisabled(true);
+     propertiesConfiguration.load(configFile);
+   }
+@@ -166,7 +157,6 @@ public class ClientConfiguration extends CompositeConfiguration {
+   private ClientConfiguration(PropertiesConfiguration propertiesConfiguration, File configFile) throws ConfigurationException {
+     super(propertiesConfiguration);
+     // Don't do list interpolation
+-    this.setDelimiterParsingDisabled(true);
+     propertiesConfiguration.setDelimiterParsingDisabled(true);
+     propertiesConfiguration.load(configFile);
+   }
+@@ -304,12 +294,8 @@ public class ClientConfiguration extends CompositeConfiguration {
+   public Map<String,String> getAllPropertiesWithPrefix(ClientProperty property) {
+     checkType(property, PropertyType.PREFIX);
+ 
+-    Map<String,String> propMap = new HashMap<>();
+-    String prefix = property.getKey();
+-    if (prefix.endsWith(".")) {
+-      prefix = prefix.substring(0, prefix.length() - 1);
+-    }
+-    Iterator<?> iter = this.getKeys(prefix);
++    Map<String,String> propMap = new HashMap<String,String>();
++    Iterator<?> iter = this.getKeys(property.getKey());
+     while (iter.hasNext()) {
+       String p = (String) iter.next();
+       propMap.put(p, getString(p));

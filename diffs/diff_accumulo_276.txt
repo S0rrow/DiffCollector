@@ -1,0 +1,57 @@
+diff --git a/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/Tablet.java b/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/Tablet.java
+index b8c260d429..ad3fb473e9 100644
+--- a/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/Tablet.java
++++ b/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/Tablet.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.tserver.tablet;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.io.ByteArrayInputStream;
+@@ -74,7 +73,6 @@ import org.apache.accumulo.core.iterators.IterationInterruptedException;
+ import org.apache.accumulo.core.iterators.IteratorUtil.IteratorScope;
+ import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
+ import org.apache.accumulo.core.iterators.system.SourceSwitchingIterator;
+-import org.apache.accumulo.core.master.thrift.BulkImportState;
+ import org.apache.accumulo.core.master.thrift.TabletLoadState;
+ import org.apache.accumulo.core.metadata.MetadataTable;
+ import org.apache.accumulo.core.metadata.RootTable;
+@@ -151,6 +149,7 @@ import com.google.common.base.Optional;
+ import com.google.common.base.Preconditions;
+ import com.google.common.cache.Cache;
+ import com.google.common.cache.CacheBuilder;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ /**
+  *
+@@ -2162,11 +2161,9 @@ public class Tablet implements TabletCommitter {
+ 
+   public void importMapFiles(long tid, Map<FileRef,MapFileInfo> fileMap, boolean setTime) throws IOException {
+     Map<FileRef,DataFileValue> entries = new HashMap<FileRef,DataFileValue>(fileMap.size());
+-    List<String> files = new ArrayList<>();
+ 
+     for (Entry<FileRef,MapFileInfo> entry : fileMap.entrySet()) {
+       entries.put(entry.getKey(), new DataFileValue(entry.getValue().estimatedSize, 0l));
+-      files.add(entry.getKey().path().toString());
+     }
+ 
+     // Clients timeout and will think that this operation failed.
+@@ -2201,7 +2198,7 @@ public class Tablet implements TabletCommitter {
+ 
+       writesInProgress++;
+     }
+-    tabletServer.updateBulkImportState(files, BulkImportState.LOADING);
++
+     try {
+       getDatafileManager().importMapFiles(tid, entries, setTime);
+       lastMapFileImportTime = System.currentTimeMillis();
+@@ -2230,7 +2227,6 @@ public class Tablet implements TabletCommitter {
+         } catch (Exception ex) {
+           log.info(ex.toString(), ex);
+         }
+-        tabletServer.removeBulkImportState(files);
+       }
+     }
+   }

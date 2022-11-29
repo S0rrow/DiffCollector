@@ -1,0 +1,306 @@
+diff --git a/src/org/apache/axis/encoding/ser/BeanDeserializer.java b/src/org/apache/axis/encoding/ser/BeanDeserializer.java
+index 3f24c174c..2df9a3833 100644
+--- a/src/org/apache/axis/encoding/ser/BeanDeserializer.java
++++ b/src/org/apache/axis/encoding/ser/BeanDeserializer.java
+@@ -1,7 +1,8 @@
+ /*
+  * The Apache Software License, Version 1.1
+  *
+- * Copyright (c) 2001-2002 The Apache Software Foundation.  All rights
++ *
++ * Copyright (c) 2001 The Apache Software Foundation.  All rights
+  * reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+@@ -64,18 +65,16 @@ import org.apache.axis.encoding.TypeMapping;
+ import org.apache.axis.message.SOAPHandler;
+ import org.apache.axis.utils.BeanPropertyDescriptor;
+ import org.apache.axis.utils.JavaUtils;
+-
+-import org.apache.axis.components.logger.LogFactory;
++import org.apache.axis.utils.BeanUtils;
+ import org.apache.commons.logging.Log;
+-
++import org.apache.commons.logging.LogFactory;
+ import org.xml.sax.Attributes;
+ import org.xml.sax.SAXException;
+ 
+-import javax.xml.namespace.QName;
+-
++import javax.xml.rpc.namespace.QName;
+ import java.io.Serializable;
++import java.util.HashMap;
+ import java.util.Iterator;
+-import java.util.Map;
+ 
+ /**
+  * General purpose deserializer for an arbitrary java bean.
+@@ -91,9 +90,11 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+ 
+     QName xmlType;
+     Class javaType;
+-    protected Map propertyMap = null;
++    protected HashMap propertyMap = new HashMap();
+     protected QName prevQName;
+ 
++    public static final String DESERIALIZE_ANY = "DeserializeAny";
++    
+     /** Type metadata about this class for XML deserialization */
+     protected TypeDesc typeDesc = null;
+ 
+@@ -105,20 +106,18 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+         this(javaType, xmlType, TypeDesc.getTypeDescForClass(javaType));
+     }
+ 
+-    // Construct BeanDeserializer for the indicated class/qname and meta Data
++    // Construct BeanSerializer for the indicated class/qname and meta Data
+     public BeanDeserializer(Class javaType, QName xmlType, TypeDesc typeDesc ) {
+-        this(javaType, xmlType, typeDesc,
+-             BeanDeserializerFactory.getProperties(javaType, typeDesc));
+-    }
+-
+-    // Construct BeanDeserializer for the indicated class/qname and meta Data
+-    public BeanDeserializer(Class javaType, QName xmlType, TypeDesc typeDesc,
+-                            Map propertyMap ) {
+         this.xmlType = xmlType;
+         this.javaType = javaType;
+         this.typeDesc = typeDesc;
+-        this.propertyMap = propertyMap;
+-
++        // Get a list of the bean properties
++        BeanPropertyDescriptor[] pd = BeanUtils.getPd(javaType, typeDesc);
++        // loop through properties and grab the names for later
++        for (int i = 0; i < pd.length; i++) {
++            BeanPropertyDescriptor descriptor = pd[i];
++            propertyMap.put(descriptor.getName(), descriptor);
++        }
+         // create a value
+         try {
+             value=javaType.newInstance();
+@@ -138,13 +137,12 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+      * at this point so that it occurs BEFORE href/id processing.
+      * @param namespace is the namespace of the element
+      * @param localName is the name of the element
+-     * @param prefix is the prefix of the element
+-     * @param attributes are the attributes on the element...used to get the
+-     *                   type
++     * @param qName is the prefixed qName of the element
++     * @param attributes are the attributes on the element...used to get the type
+      * @param context is the DeserializationContext
+      */
+     public void startElement(String namespace, String localName,
+-                             String prefix, Attributes attributes,
++                             String qName, Attributes attributes,
+                              DeserializationContext context)
+         throws SAXException
+     {
+@@ -162,7 +160,7 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+         }
+         // Invoke super.startElement to do the href/id processing.
+         super.startElement(namespace, localName, 
+-                           prefix, attributes, context);
++                           qName, attributes, context);
+     }
+ 
+     /**
+@@ -185,10 +183,7 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+         throws SAXException
+     {
+         BeanPropertyDescriptor propDesc = null;
+-
+-        String encodingStyle = context.getMessageContext().getEncodingStyle();
+-        boolean isEncoded = Constants.isSOAP_ENC(encodingStyle);
+-
++        
+         QName elemQName = new QName(namespace, localName);
+         // The collectionIndex needs to be reset for Beans with multiple arrays
+         if ((prevQName == null) || (!prevQName.equals(elemQName))) {
+@@ -204,12 +199,12 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+             // name is not prefixed, lookup the name assuming an unqualified
+             // name.
+             String fieldName = typeDesc.getFieldNameForElement(elemQName, 
+-                                                               isEncoded);
+-//            if (fieldName == null && (prefix == null || prefix.equals(""))) {
+-//                fieldName =
+-//                    typeDesc.getFieldNameForElement(
+-//                      new QName("", elemQName.getLocalPart()), false);
+-//            }
++                                                               false);
++            if (fieldName == null && (prefix == null || prefix.equals(""))) {
++                fieldName = 
++                    typeDesc.getFieldNameForElement(
++                      new QName("", elemQName.getLocalPart()), false);
++            }
+ 
+             propDesc = (BeanPropertyDescriptor)propertyMap.get(fieldName);
+         }
+@@ -219,8 +214,35 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+             propDesc = (BeanPropertyDescriptor) propertyMap.get(localName);
+         }
+ 
+-        // try and see if this is an xsd:any namespace="##any" element before
+-        // reporting a problem
++        // Currently the meta data does not consider inheritance.
++        // Glen is working on a fix.  In the meantime, the following 
++        // code attempts to get the meta data from the base class.  
++        // (this fix does not work in all cases, but is necessary to 
++        // get comprehensive tests Animal - Cat inheritance to work).
++        if (propDesc == null) { 
++            Class superClass = javaType;
++            while (superClass != null && propDesc == null) {
++                superClass = superClass.getSuperclass(); 
++                if (superClass != null) {
++                    TypeDesc td = TypeDesc.getTypeDescForClass(superClass);
++                    if (td != null) {
++                        String fieldName = 
++                            td.getFieldNameForElement(elemQName, 
++                                                      false);
++                        if (fieldName == null && 
++                            (prefix == null || prefix.equals(""))) {
++                            fieldName = 
++                                td.getFieldNameForElement(
++                                new QName("", elemQName.getLocalPart()), false);
++                        }
++                        
++                        propDesc = 
++                            (BeanPropertyDescriptor)propertyMap.get(fieldName);
++                    }
++                }
++            }
++        }
++        // try and see if this is an xsd:any namespace="##any" element before reporting a problem
+         QName qn = null;
+         Deserializer dSer = null;
+         MessageContext messageContext = context.getMessageContext();
+@@ -228,14 +250,14 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+             // try to put unknown elements into an Object property
+             propDesc = getObjectPropertyDesc(elemQName, context);
+             if (propDesc != null) {
+-                dSer = context.getDeserializerForType(elemQName);
++                Boolean deserializeAny =  (Boolean) messageContext.getProperty(DESERIALIZE_ANY);
++                if ((deserializeAny != null) && (deserializeAny.booleanValue())) {
++                  dSer = context.getDeserializerForType(elemQName);
++                }
+                 if (dSer == null)  {
+-                    qn = Constants.XSD_ANY;
+-                    // make sure that the Element Deserializer deserializes
+-                    // the current element and not the child
+-                    messageContext.setProperty(ElementDeserializer.
+-                                                    DESERIALIZE_CURRENT_ELEMENT,
+-                                               Boolean.TRUE);
++                    qn = Constants.XSD_ANYTYPE;
++                    // make sure that the Element Deserializer deserializes the current element and not the child
++                    messageContext.setProperty(ElementDeserializer.DESERIALIZE_CURRENT_ELEMENT, Boolean.TRUE);
+                 } else {
+                     qn = elemQName;
+                 }
+@@ -254,8 +276,7 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+         // Look at the type attribute specified.  If this fails,
+         // use the javaType of the property to get the type qname.
+         if (qn == null) {
+-            qn = context.getTypeFromAttributes(namespace, localName,
+-                                               attributes);
++            qn = context.getTypeFromAttributes(namespace, localName, attributes);
+         }
+         
+         // get the deserializer
+@@ -275,41 +296,28 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+         }
+                 
+         if (propDesc.isWriteable()) {
+-            // If this is an indexed property, and the deserializer we found
+-            // was NOT the ArrayDeserializer, this is a non-SOAP array:
+-            // <bean>
+-            //   <field>value1</field>
+-            //   <field>value2</field>
+-            // ...
+-            // In this case, we want to use the collectionIndex and make sure
+-            // the deserialized value for the child element goes into the
+-            // right place in the collection.
+-            if (propDesc.isIndexed() && !(dSer instanceof ArrayDeserializer)) {
+-                    collectionIndex++;
+-                    dSer.registerValueTarget(new BeanPropertyTarget(value,
+-                                                    propDesc, collectionIndex));
+-            } else {
+-                // If we're here, the element maps to a single field value,
+-                // whether that be a "basic" type or an array, so use the
+-                // normal (non-indexed) BeanPropertyTarget form.
++            if (!propDesc.isIndexed()) {
++                // Success!  Register the target and deserializer.
+                 collectionIndex = -1;
+-                dSer.registerValueTarget(new BeanPropertyTarget(value,
+-                                                                propDesc));
+-            }
++                dSer.registerValueTarget(
++                    new BeanPropertyTarget(value, propDesc));
++            } else {
++                // Success! This is a collection of properties so use the index
++                collectionIndex++;
++                dSer.registerValueTarget(
++                     new BeanPropertyTarget(value, 
++                                            propDesc, 
++                                            collectionIndex));
++        }
+         }
+         return (SOAPHandler)dSer;
+     }
+ 
+-     public BeanPropertyDescriptor
+-             getObjectPropertyDesc(QName qname,
+-                                   DeserializationContext context) {
+-        for (Iterator iterator = propertyMap.values().iterator();
+-             iterator.hasNext();) {
+-            BeanPropertyDescriptor propertyDesc =
+-                    (BeanPropertyDescriptor) iterator.next();
++     public BeanPropertyDescriptor getObjectPropertyDesc(QName qname, DeserializationContext context) {
++        for (Iterator iterator = propertyMap.values().iterator(); iterator.hasNext();) {
++            BeanPropertyDescriptor propertyDesc = (BeanPropertyDescriptor) iterator.next();
+             // try to find xsd:any namespace="##any" property
+-            if (propertyDesc.getName().equals("any") &&
+-                propertyDesc.getType().getName().equals("java.lang.Object")) {
++            if (propertyDesc.getName().equals("any") && propertyDesc.getType().getName().equals("java.lang.Object")) {
+                 return propertyDesc;
+             }
+         }
+@@ -320,17 +328,15 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+      * Set the bean properties that correspond to element attributes.
+      * 
+      * This method is invoked after startElement when the element requires
+-     * deserialization (i.e. the element is not an href and the value is not
+-     * nil.)
++     * deserialization (i.e. the element is not an href and the value is not nil.)
+      * @param namespace is the namespace of the element
+      * @param localName is the name of the element
+-     * @param prefix is the prefix of the element
+-     * @param attributes are the attributes on the element...used to get the
+-     *                   type
++     * @param qName is the prefixed qName of the element
++     * @param attributes are the attributes on the element...used to get the type
+      * @param context is the DeserializationContext
+      */
+     public void onStartElement(String namespace, String localName,
+-                               String prefix, Attributes attributes,
++                               String qName, Attributes attributes,
+                                DeserializationContext context)
+             throws SAXException {
+ 
+@@ -373,8 +379,7 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+                 QName qn = tm.getTypeQName(type);
+                 if (qn == null)
+                     throw new SAXException(
+-                            JavaUtils.getMessage("unregistered00",
+-                                                 type.toString()));
++                            JavaUtils.getMessage("unregistered00", type.toString()));
+                 
+                 // get the deserializer
+                 Deserializer dSer = context.getDeserializerForType(qn);
+@@ -390,8 +395,7 @@ public class BeanDeserializer extends DeserializerImpl implements Serializable
+                 // Success!  Create an object from the string and set
+                 // it in the bean
+                 try {
+-                    dSer.onStartElement(namespace, localName, prefix,
+-                                        attributes, context);
++                    dSer.onStartElement(namespace, localName, qName, attributes, context);
+                     Object val = ((SimpleDeserializer)dSer).
+                         makeValue(attributes.getValue(i));
+                     bpd.set(value, val);

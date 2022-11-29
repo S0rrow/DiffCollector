@@ -1,0 +1,74 @@
+diff --git a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java
+index f64375e60e..d2c12ab019 100644
+--- a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java
++++ b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java
+@@ -16,6 +16,8 @@
+  */
+ package org.apache.activemq.artemis.core.client.impl;
+ 
++import java.io.IOException;
++import java.io.ObjectInputStream;
+ import java.io.ObjectStreamException;
+ import java.io.Serializable;
+ import java.lang.reflect.Array;
+@@ -45,9 +47,9 @@ import org.apache.activemq.artemis.api.core.DiscoveryGroupConfiguration;
+ import org.apache.activemq.artemis.api.core.Interceptor;
+ import org.apache.activemq.artemis.api.core.Pair;
+ import org.apache.activemq.artemis.api.core.TransportConfiguration;
+-import org.apache.activemq.artemis.api.core.client.ActiveMQClient;
+ import org.apache.activemq.artemis.api.core.client.ClientSessionFactory;
+ import org.apache.activemq.artemis.api.core.client.ClusterTopologyListener;
++import org.apache.activemq.artemis.api.core.client.ActiveMQClient;
+ import org.apache.activemq.artemis.api.core.client.TopologyMember;
+ import org.apache.activemq.artemis.api.core.client.loadbalance.ConnectionLoadBalancingPolicy;
+ import org.apache.activemq.artemis.core.client.ActiveMQClientLogger;
+@@ -60,8 +62,8 @@ import org.apache.activemq.artemis.core.remoting.FailureListener;
+ import org.apache.activemq.artemis.spi.core.remoting.ClientProtocolManager;
+ import org.apache.activemq.artemis.spi.core.remoting.ClientProtocolManagerFactory;
+ import org.apache.activemq.artemis.spi.core.remoting.Connector;
+-import org.apache.activemq.artemis.utils.ActiveMQThreadFactory;
+ import org.apache.activemq.artemis.utils.ClassloadingUtil;
++import org.apache.activemq.artemis.utils.ActiveMQThreadFactory;
+ import org.apache.activemq.artemis.utils.UUIDGenerator;
+ 
+ /**
+@@ -101,7 +103,8 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+ 
+    private final Topology topology;
+ 
+-   private final Object topologyArrayGuard = new Object();
++   //needs to be serializable and not final for retrocompatibility
++   private String topologyArrayGuard = new String();
+ 
+    private volatile Pair<TransportConfiguration, TransportConfiguration>[] topologyArray;
+ 
+@@ -178,7 +181,8 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+ 
+    private int initialMessagePacketSize;
+ 
+-   private final Object stateGuard = new Object();
++   //needs to be serializable and not final for retrocompatibility
++   private String stateGuard = new String();
+    private transient STATE state;
+    private transient CountDownLatch latch;
+ 
+@@ -1820,6 +1824,19 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+       }
+    }
+ 
++   private void readObject(ObjectInputStream is) throws ClassNotFoundException, IOException
++   {
++      is.defaultReadObject();
++      if (stateGuard == null)
++      {
++         stateGuard = new String();
++      }
++      if (topologyArrayGuard == null)
++      {
++         topologyArrayGuard = new String();
++      }
++   }
++
+    private final class StaticConnector implements Serializable
+    {
+       private static final long serialVersionUID = 6772279632415242634L;

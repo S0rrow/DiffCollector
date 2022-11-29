@@ -1,0 +1,113 @@
+diff --git a/archiva-database/src/main/java/org/apache/maven/archiva/database/updater/JdoDatabaseUpdater.java b/archiva-database/src/main/java/org/apache/maven/archiva/database/updater/JdoDatabaseUpdater.java
+index 9e8d4dbee..2900a43ae 100644
+--- a/archiva-database/src/main/java/org/apache/maven/archiva/database/updater/JdoDatabaseUpdater.java
++++ b/archiva-database/src/main/java/org/apache/maven/archiva/database/updater/JdoDatabaseUpdater.java
+@@ -25,7 +25,7 @@
+ import org.apache.maven.archiva.consumers.ConsumerException;
+ import org.apache.maven.archiva.database.ArchivaDAO;
+ import org.apache.maven.archiva.database.ArchivaDatabaseException;
+-import org.apache.maven.archiva.database.constraints.ArtifactsProcessedConstraint;
++import org.apache.maven.archiva.database.constraints.UnprocessedArtifactsConstraint;
+ import org.apache.maven.archiva.model.ArchivaArtifact;
+ import org.codehaus.plexus.logging.AbstractLogEnabled;
+ import org.codehaus.plexus.personality.plexus.lifecycle.phase.Initializable;
+@@ -35,7 +35,6 @@
+ 
+ import java.util.ArrayList;
+ import java.util.Collections;
+-import java.util.Date;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Map;
+@@ -64,7 +63,7 @@
+ 
+     /**
+      * The collection of available consumers.
+-     * @plexus.requirement role="org.apache.maven.archiva.consumers.ArchivaArtifactConsumer"
++     * @plexus.requirement role=""
+      */
+     private Map availableConsumers;
+ 
+@@ -83,17 +82,10 @@
+      */
+     private List propertyNameTriggers = new ArrayList();
+ 
+-    public void update()
+-        throws ArchivaDatabaseException
+-    {
+-        updateAllUnprocessed();
+-        updateAllProcessed();
+-    }
+-
+     public void updateAllUnprocessed()
+         throws ArchivaDatabaseException
+     {
+-        List unprocessedArtifacts = dao.getArtifactDAO().queryArtifacts( new ArtifactsProcessedConstraint( false ) );
++        List unprocessedArtifacts = dao.getArtifactDAO().queryArtifacts( new UnprocessedArtifactsConstraint() );
+ 
+         beginConsumerLifecycle( this.activeUnprocessedConsumers );
+ 
+@@ -117,33 +109,6 @@ public void updateAllUnprocessed()
+         }
+     }
+ 
+-    public void updateAllProcessed()
+-        throws ArchivaDatabaseException
+-    {
+-        List processedArtifacts = dao.getArtifactDAO().queryArtifacts( new ArtifactsProcessedConstraint( true ) );
+-
+-        beginConsumerLifecycle( this.activeProcessedConsumers );
+-
+-        try
+-        {
+-            // Process each consumer.
+-            Iterator it = processedArtifacts.iterator();
+-            while ( it.hasNext() )
+-            {
+-                ArchivaArtifact artifact = (ArchivaArtifact) it.next();
+-
+-                if ( !artifact.getModel().isProcessed() )
+-                {
+-                    updateProcessed( artifact );
+-                }
+-            }
+-        }
+-        finally
+-        {
+-            consumerConsumerLifecycle( this.activeProcessedConsumers );
+-        }
+-    }
+-
+     private void consumerConsumerLifecycle( List consumers )
+     {
+         Iterator it = consumers.iterator();
+@@ -177,28 +142,7 @@ public void updateUnprocessed( ArchivaArtifact artifact )
+             }
+             catch ( ConsumerException e )
+             {
+-                getLogger().warn( "Unable to consume (unprocessed) artifact: " + artifact );
+-            }
+-        }
+-
+-        artifact.getModel().setWhenProcessed( new Date() );
+-        dao.getArtifactDAO().saveArtifact( artifact );
+-    }
+-
+-    public void updateProcessed( ArchivaArtifact artifact )
+-        throws ArchivaDatabaseException
+-    {
+-        Iterator it = this.activeProcessedConsumers.iterator();
+-        while ( it.hasNext() )
+-        {
+-            ArchivaArtifactConsumer consumer = (ArchivaArtifactConsumer) it.next();
+-            try
+-            {
+-                consumer.processArchivaArtifact( artifact );
+-            }
+-            catch ( ConsumerException e )
+-            {
+-                getLogger().warn( "Unable to consume (processed)  artifact: " + artifact );
++                getLogger().warn( "Unable to process artifact: " + artifact );
+             }
+         }
+     }

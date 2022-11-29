@@ -1,0 +1,353 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/graph/GraphHelper.java b/repository/src/main/java/org/apache/atlas/repository/graph/GraphHelper.java
+index 6efb22a23..c542ec700 100755
+--- a/repository/src/main/java/org/apache/atlas/repository/graph/GraphHelper.java
++++ b/repository/src/main/java/org/apache/atlas/repository/graph/GraphHelper.java
+@@ -18,9 +18,6 @@
+ 
+ package org.apache.atlas.repository.graph;
+ 
+-import com.google.common.annotations.VisibleForTesting;
+-import com.google.common.collect.BiMap;
+-import com.google.common.collect.HashBiMap;
+ import com.thinkaurelius.titan.core.TitanGraph;
+ import com.thinkaurelius.titan.core.TitanProperty;
+ import com.thinkaurelius.titan.core.TitanVertex;
+@@ -44,13 +41,11 @@ import org.apache.atlas.typesystem.types.DataTypes;
+ import org.apache.atlas.typesystem.types.HierarchicalType;
+ import org.apache.atlas.typesystem.types.IDataType;
+ import org.apache.atlas.typesystem.types.TypeSystem;
+-import org.apache.commons.lang.StringUtils;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import java.util.ArrayList;
+ import java.util.Collection;
+-import java.util.HashMap;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Set;
+@@ -112,13 +107,11 @@ public final class GraphHelper {
+ 
+         // add timestamp information
+         setProperty(vertexWithoutIdentity, Constants.TIMESTAMP_PROPERTY_KEY, RequestContext.get().getRequestTime());
+-        setProperty(vertexWithoutIdentity, Constants.MODIFICATION_TIMESTAMP_PROPERTY_KEY,
+-                RequestContext.get().getRequestTime());
+ 
+         return vertexWithoutIdentity;
+     }
+ 
+-    private Edge addEdge(Vertex fromVertex, Vertex toVertex, String edgeLabel) {
++    public Edge addEdge(Vertex fromVertex, Vertex toVertex, String edgeLabel) {
+         LOG.debug("Adding edge for {} -> label {} -> {}", string(fromVertex), edgeLabel, string(toVertex));
+         Edge edge = titanGraph.addEdge(null, fromVertex, toVertex, edgeLabel);
+ 
+@@ -131,37 +124,13 @@ public final class GraphHelper {
+     }
+ 
+     public Edge getOrCreateEdge(Vertex outVertex, Vertex inVertex, String edgeLabel) {
+-        Iterator<Edge> edges = GraphHelper.getAdjacentEdgesByLabel(inVertex, Direction.IN, edgeLabel);
+-
+-        while (edges.hasNext()) {
+-            Edge edge = edges.next();
+-            if (edge.getVertex(Direction.OUT).getId().toString().equals(outVertex.getId().toString())) {
+-                Id.EntityState edgeState = getState(edge);
+-                if (edgeState == null || edgeState == Id.EntityState.ACTIVE) {
+-                    return edge;
+-                }
+-            }
+-        }
+-        return addEdge(outVertex, inVertex, edgeLabel);
+-    }
+-
+-
+-    public Edge getEdgeByEdgeId(Vertex outVertex, String edgeLabel, String edgeId) {
+-        if (edgeId == null) {
+-            return null;
+-        }
+-        return titanGraph.getEdge(edgeId);
+-
+-        //TODO get edge id is expensive. Use this logic. But doesn't work for now
+-        /**
+-        Iterable<Edge> edges = outVertex.getEdges(Direction.OUT, edgeLabel);
++        Iterable<Edge> edges = inVertex.getEdges(Direction.IN, edgeLabel);
+         for (Edge edge : edges) {
+-            if (edge.getId().toString().equals(edgeId)) {
++            if (edge.getVertex(Direction.OUT).getId().toString().equals(outVertex.getId().toString())) {
+                 return edge;
+             }
+         }
+-        return null;
+-         **/
++        return addEdge(outVertex, inVertex, edgeLabel);
+     }
+ 
+     /**
+@@ -171,7 +140,7 @@ public final class GraphHelper {
+      * @return vertex with the given property keys
+      * @throws EntityNotFoundException
+      */
+-    public Vertex findVertex(Object... args) throws EntityNotFoundException {
++    private Vertex findVertex(Object... args) throws EntityNotFoundException {
+         StringBuilder condition = new StringBuilder();
+         GraphQuery query = titanGraph.query();
+         for (int i = 0 ; i < args.length; i+=2) {
+@@ -195,49 +164,14 @@ public final class GraphHelper {
+         return vertex;
+     }
+ 
+-    //In some cases of parallel APIs, the edge is added, but get edge by label doesn't return the edge. ATLAS-1104
+-    //So traversing all the edges
+-    public static Iterator<Edge> getAdjacentEdgesByLabel(Vertex instanceVertex, Direction direction, final String edgeLabel) {
++    public static Iterator<Edge> getOutGoingEdgesByLabel(Vertex instanceVertex, String edgeLabel) {
+         LOG.debug("Finding edges for {} with label {}", string(instanceVertex), edgeLabel);
+         if(instanceVertex != null && edgeLabel != null) {
+-            final Iterator<Edge> iterator = instanceVertex.getEdges(direction).iterator();
+-            return new Iterator<Edge>() {
+-                private Edge edge = null;
+-
+-                @Override
+-                public boolean hasNext() {
+-                    while (edge == null && iterator.hasNext()) {
+-                        Edge localEdge = iterator.next();
+-                        if (localEdge.getLabel().equals(edgeLabel)) {
+-                            edge = localEdge;
+-                        }
+-                    }
+-                    return edge != null;
+-                }
+-
+-                @Override
+-                public Edge next() {
+-                    if (hasNext()) {
+-                        Edge localEdge = edge;
+-                        edge = null;
+-                        return localEdge;
+-                    }
+-                    return null;
+-                }
+-
+-                @Override
+-                public void remove() {
+-                    throw new IllegalStateException("Not handled");
+-                }
+-            };
++            return instanceVertex.getEdges(Direction.OUT, edgeLabel).iterator();
+         }
+         return null;
+     }
+ 
+-    public static Iterator<Edge> getOutGoingEdgesByLabel(Vertex instanceVertex, String edgeLabel) {
+-        return getAdjacentEdgesByLabel(instanceVertex, Direction.OUT, edgeLabel);
+-    }
+-
+     /**
+      * Returns the active edge for the given edge label.
+      * If the vertex is deleted and there is no active edge, it returns the latest deleted edge
+@@ -246,18 +180,19 @@ public final class GraphHelper {
+      * @return
+      */
+     public static Edge getEdgeForLabel(Vertex vertex, String edgeLabel) {
+-        Iterator<Edge> iterator = GraphHelper.getAdjacentEdgesByLabel(vertex, Direction.OUT, edgeLabel);
++        String vertexState = vertex.getProperty(Constants.STATE_PROPERTY_KEY);
++
++        Iterator<Edge> iterator = GraphHelper.getOutGoingEdgesByLabel(vertex, edgeLabel);
+         Edge latestDeletedEdge = null;
+         long latestDeletedEdgeTime = Long.MIN_VALUE;
+-
+         while (iterator != null && iterator.hasNext()) {
+             Edge edge = iterator.next();
+-            Id.EntityState edgeState = getState(edge);
+-            if (edgeState == null || edgeState == Id.EntityState.ACTIVE) {
++            String edgeState = edge.getProperty(Constants.STATE_PROPERTY_KEY);
++            if (edgeState == null || Id.EntityState.ACTIVE.name().equals(edgeState)) {
+                 LOG.debug("Found {}", string(edge));
+                 return edge;
+             } else {
+-                Long modificationTime = getProperty(edge, Constants.MODIFICATION_TIMESTAMP_PROPERTY_KEY);
++                Long modificationTime = edge.getProperty(Constants.MODIFICATION_TIMESTAMP_PROPERTY_KEY);
+                 if (modificationTime != null && modificationTime >= latestDeletedEdgeTime) {
+                     latestDeletedEdgeTime = modificationTime;
+                     latestDeletedEdge = edge;
+@@ -266,8 +201,19 @@ public final class GraphHelper {
+         }
+ 
+         //If the vertex is deleted, return latest deleted edge
+-        LOG.debug("Found {}", latestDeletedEdge == null ? "null" : string(latestDeletedEdge));
+-        return latestDeletedEdge;
++        if (Id.EntityState.DELETED.equals(vertexState)) {
++            LOG.debug("Found {}", string(latestDeletedEdge));
++            return latestDeletedEdge;
++        }
++
++        return null;
++    }
++
++    public Edge getEdgeById(String edgeId) {
++        if(edgeId != null) {
++            return titanGraph.getEdge(edgeId);
++        }
++        return null;
+     }
+ 
+     public static String vertexString(final Vertex vertex) {
+@@ -286,36 +232,21 @@ public final class GraphHelper {
+ 
+     public static <T extends Element> void setProperty(T element, String propertyName, Object value) {
+         String elementStr = string(element);
+-        String actualPropertyName = GraphHelper.encodePropertyKey(propertyName);
+-        LOG.debug("Setting property {} = \"{}\" to {}", actualPropertyName, value, elementStr);
+-        Object existValue = element.getProperty(actualPropertyName);
++        LOG.debug("Setting property {} = \"{}\" to {}", propertyName, value, elementStr);
++        Object existValue = element.getProperty(propertyName);
+         if(value == null || (value instanceof Collection && ((Collection) value).isEmpty())) {
+             if(existValue != null) {
+-                LOG.info("Removing property - {} value from {}", actualPropertyName, elementStr);
+-                element.removeProperty(actualPropertyName);
++                LOG.info("Removing property - {} value from {}", propertyName, elementStr);
++                element.removeProperty(propertyName);
+             }
+         } else {
+             if (!value.equals(existValue)) {
+-                element.setProperty(actualPropertyName, value);
+-                LOG.debug("Set property {} = \"{}\" to {}", actualPropertyName, value, elementStr);
++                element.setProperty(propertyName, value);
++                LOG.debug("Set property {} = \"{}\" to {}", propertyName, value, elementStr);
+             }
+         }
+     }
+ 
+-    public static <T extends Element, O> O getProperty(T element, String propertyName) {
+-        String elementStr = string(element);
+-        String actualPropertyName = GraphHelper.encodePropertyKey(propertyName);
+-        LOG.debug("Reading property {} from {}", actualPropertyName, elementStr);
+-        return element.getProperty(actualPropertyName);
+-    }
+-
+-    public static Iterable<TitanProperty> getProperties(TitanVertex vertex, String propertyName) {
+-        String elementStr = string(vertex);
+-        String actualPropertyName = GraphHelper.encodePropertyKey(propertyName);
+-        LOG.debug("Reading property {} from {}", actualPropertyName, elementStr);
+-        return vertex.getProperties(actualPropertyName);
+-    }
+-
+     private static <T extends Element> String string(T element) {
+         if (element instanceof Vertex) {
+             return string((Vertex) element);
+@@ -358,6 +289,10 @@ public final class GraphHelper {
+         return findVertex(Constants.GUID_PROPERTY_KEY, guid);
+     }
+ 
++    public Vertex getVertexForProperty(String propertyKey, Object value) throws EntityNotFoundException {
++        return findVertex(propertyKey, value, Constants.STATE_PROPERTY_KEY, Id.EntityState.ACTIVE.name());
++    }
++
+     public static String getQualifiedNameForMapKey(String prefix, String key) {
+         return prefix + "." + key;
+     }
+@@ -396,8 +331,8 @@ public final class GraphHelper {
+     }
+ 
+     public static Id getIdFromVertex(String dataTypeName, Vertex vertex) {
+-        return new Id(getIdFromVertex(vertex),
+-            vertex.<Integer>getProperty(Constants.VERSION_PROPERTY_KEY), dataTypeName, getStateAsString(vertex));
++        return new Id(vertex.<String>getProperty(Constants.GUID_PROPERTY_KEY),
++            vertex.<Integer>getProperty(Constants.VERSION_PROPERTY_KEY), dataTypeName);
+     }
+ 
+     public static String getIdFromVertex(Vertex vertex) {
+@@ -408,15 +343,6 @@ public final class GraphHelper {
+         return instanceVertex.getProperty(Constants.ENTITY_TYPE_PROPERTY_KEY);
+     }
+ 
+-    public static Id.EntityState getState(Element element) {
+-        String state = getStateAsString(element);
+-        return state == null ? null : Id.EntityState.valueOf(state);
+-    }
+-
+-    public static String getStateAsString(Element element) {
+-        return element.getProperty(Constants.STATE_PROPERTY_KEY);
+-    }
+-
+     /**
+      * For the given type, finds an unique attribute and checks if there is an existing instance with the same
+      * unique value
+@@ -434,9 +360,7 @@ public final class GraphHelper {
+             if (attributeInfo.isUnique) {
+                 String propertyKey = getQualifiedFieldName(classType, attributeInfo.name);
+                 try {
+-                    result = findVertex(propertyKey, instance.get(attributeInfo.name),
+-                            Constants.ENTITY_TYPE_PROPERTY_KEY, classType.getName(),
+-                            Constants.STATE_PROPERTY_KEY, Id.EntityState.ACTIVE.name());
++                    result = getVertexForProperty(propertyKey, instance.get(attributeInfo.name));
+                     LOG.debug("Found vertex by unique attribute : " + propertyKey + "=" + instance.get(attributeInfo.name));
+                 } catch (EntityNotFoundException e) {
+                     //Its ok if there is no entity with the same unique value
+@@ -466,63 +390,12 @@ public final class GraphHelper {
+     }
+ 
+     public static String string(Vertex vertex) {
+-        if(vertex == null) {
+-            return "vertex[null]";
+-        } else {
+-            if (LOG.isDebugEnabled()) {
+-                return String.format("vertex[id=%s type=%s guid=%s]", vertex.getId().toString(), getTypeName(vertex),
+-                        getIdFromVertex(vertex));
+-            } else {
+-                return String.format("vertex[id=%s]", vertex.getId().toString());
+-            }
+-        }
++        return String.format("vertex[id=%s type=%s guid=%s]", vertex.getId().toString(), getTypeName(vertex),
++                getIdFromVertex(vertex));
+     }
+ 
+     public static String string(Edge edge) {
+-        if(edge == null) {
+-            return "edge[null]";
+-        } else {
+-            if (LOG.isDebugEnabled()) {
+-                return String.format("edge[id=%s label=%s from %s -> to %s]", edge.getId().toString(), edge.getLabel(),
+-                        string(edge.getVertex(Direction.OUT)), string(edge.getVertex(Direction.IN)));
+-            } else {
+-                return String.format("edge[id=%s]", edge.getId().toString());
+-            }
+-        }
+-    }
+-
+-    @VisibleForTesting
+-    //Keys copied from com.thinkaurelius.titan.graphdb.types.StandardRelationTypeMaker
+-    //Titan checks that these chars are not part of any keys. So, encoding...
+-    public static BiMap<String, String> RESERVED_CHARS_ENCODE_MAP =
+-            HashBiMap.create(new HashMap<String, String>() {{
+-                put("{", "_o");
+-                put("}", "_c");
+-                put("\"", "_q");
+-                put("$", "_d");
+-                put("%", "_p");
+-            }});
+-
+-
+-    public static String encodePropertyKey(String key) {
+-        if (StringUtils.isBlank(key)) {
+-            return key;
+-        }
+-
+-        for (String str : RESERVED_CHARS_ENCODE_MAP.keySet()) {
+-            key = key.replace(str, RESERVED_CHARS_ENCODE_MAP.get(str));
+-        }
+-        return key;
+-    }
+-
+-    public static String decodePropertyKey(String key) {
+-        if (StringUtils.isBlank(key)) {
+-            return key;
+-        }
+-
+-        for (String encodedStr : RESERVED_CHARS_ENCODE_MAP.values()) {
+-            key = key.replace(encodedStr, RESERVED_CHARS_ENCODE_MAP.inverse().get(encodedStr));
+-        }
+-        return key;
++        return String.format("edge[id=%s label=%s from %s -> to %s]", edge.getId().toString(), edge.getLabel(),
++                string(edge.getVertex(Direction.OUT)), string(edge.getVertex(Direction.IN)));
+     }
+ }
+\ No newline at end of file

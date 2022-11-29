@@ -1,0 +1,54 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PagedReferenceImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PagedReferenceImpl.java
+index 27e6167545..0f265f8a4e 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PagedReferenceImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/cursor/PagedReferenceImpl.java
+@@ -23,7 +23,6 @@ import java.util.function.Consumer;
+ import org.apache.activemq.artemis.api.core.Message;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.paging.PagedMessage;
+-import org.apache.activemq.artemis.core.paging.PagingStore;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+ import org.apache.activemq.artemis.core.server.MessageReference;
+ import org.apache.activemq.artemis.core.server.Queue;
+@@ -101,6 +100,7 @@ public class PagedReferenceImpl extends LinkedListImpl.Node<PagedReferenceImpl>
+ 
+    @Override
+    public void onDelivery(Consumer<? super MessageReference> onDelivery) {
++      assert this.onDelivery == null;
+       this.onDelivery = onDelivery;
+    }
+ 
+@@ -252,16 +252,6 @@ public class PagedReferenceImpl extends LinkedListImpl.Node<PagedReferenceImpl>
+       getQueue().referenceHandled(this);
+    }
+ 
+-   @Override
+-   public void setInDelivery(boolean inDelivery) {
+-
+-   }
+-
+-   @Override
+-   public boolean isInDelivery() {
+-      return false;
+-   }
+-
+    @Override
+    public void setAlreadyAcked() {
+       alreadyAcked = true;
+@@ -406,16 +396,6 @@ public class PagedReferenceImpl extends LinkedListImpl.Node<PagedReferenceImpl>
+       return messageSize;
+    }
+ 
+-   @Override
+-   public PagingStore getOwner() {
+-      return null;
+-   }
+-
+-   @Override
+-   public void setOwner(PagingStore owner) {
+-
+-   }
+-
+    @Override
+    public boolean isDurable() {
+       if (durable == UNDEFINED_IS_DURABLE) {

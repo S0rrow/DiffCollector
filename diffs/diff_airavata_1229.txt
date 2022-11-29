@@ -1,0 +1,87 @@
+diff --git a/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ProcessStatusEntity.java b/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ProcessStatusEntity.java
+index ec39672b2..7a3c30ef9 100644
+--- a/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ProcessStatusEntity.java
++++ b/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ProcessStatusEntity.java
+@@ -21,40 +21,20 @@
+ package org.apache.airavata.registry.core.entities.expcatalog;
+ 
+ import javax.persistence.*;
+-import java.io.Serializable;
+-import java.sql.Timestamp;
+ 
+-/**
+- * The persistent class for the process_status database table.
+- */
+ @Entity
+-@Table(name = "PROCESS_STATUS")
++@Table(name = "EXPCAT_PROCESS_STATUS")
+ @IdClass(ProcessStatusPK.class)
+-public class ProcessStatusEntity implements Serializable {
+-    private static final long serialVersionUID = 1L;
+-
+-    @Id
+-    @Column(name = "PROCESS_ID")
++public class ProcessStatusEntity {
+     private String processId;
+-
+-    @Id
+-    @Column(name = "STATE")
+     private String state;
+-
+-    @Column(name = "TIME_OF_STATE_CHANGE")
+-    private Timestamp timeOfStateChange;
+-
+-    @Lob
+-    @Column(name = "REASON")
++    private long timeOfStateChange;
+     private String reason;
+ 
+-    @ManyToOne(targetEntity = ProcessEntity.class, cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+-    @JoinColumn(name = "PROCESS_ID", referencedColumnName = "PROCESS_ID")
+     private ProcessEntity process;
+ 
+-    public ProcessStatusEntity() {
+-    }
+-
++    @Id
++    @Column(name = "PROCESS_ID")
+     public String getProcessId() {
+         return processId;
+     }
+@@ -63,6 +43,8 @@ public class ProcessStatusEntity implements Serializable {
+         this.processId = processId;
+     }
+ 
++    @Id
++    @Column(name = "STATE")
+     public String getState() {
+         return state;
+     }
+@@ -71,14 +53,16 @@ public class ProcessStatusEntity implements Serializable {
+         this.state = state;
+     }
+ 
+-    public Timestamp getTimeOfStateChange() {
++    @Column(name = "TIME_OF_STATE_CHANGE")
++    public long getTimeOfStateChange() {
+         return timeOfStateChange;
+     }
+ 
+-    public void setTimeOfStateChange(Timestamp timeOfStateChange) {
++    public void setTimeOfStateChange(long timeOfStateChange) {
+         this.timeOfStateChange = timeOfStateChange;
+     }
+ 
++    @Column(name = "REASON")
+     public String getReason() {
+         return reason;
+     }
+@@ -87,6 +71,8 @@ public class ProcessStatusEntity implements Serializable {
+         this.reason = reason;
+     }
+ 
++    @ManyToOne(targetEntity = ProcessEntity.class, cascade = CascadeType.ALL, fetch = FetchType.LAZY)
++    @JoinColumn(name = "PROCESS_ID", referencedColumnName = "PROCESS_ID")
+     public ProcessEntity getProcess() {
+         return process;
+     }

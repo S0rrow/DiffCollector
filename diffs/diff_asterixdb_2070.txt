@@ -1,0 +1,58 @@
+diff --git a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
+index 00902ee126..d4fa95b469 100644
+--- a/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
++++ b/asterix-transactions/src/main/java/edu/uci/ics/asterix/transaction/management/service/locking/ConcurrentLockManager.java
+@@ -854,6 +854,26 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         return holder;
+     }
+ 
++    private String resQueueToString(long resSlot) {
++        return appendResQueue(new StringBuilder(), resSlot).toString();
++    }
++    
++    private StringBuilder appendResQueue(StringBuilder sb, long resSlot) {
++        resArenaMgr.appendRecord(sb, resSlot);
++        sb.append("\n");
++        appendReqQueue(sb, resArenaMgr.getLastHolder(resSlot));
++        return sb;
++    }
++    
++    private StringBuilder appendReqQueue(StringBuilder sb, long head) {
++        while (head != -1) {
++            reqArenaMgr.appendRecord(sb, head);
++            sb.append("\n");
++            head = reqArenaMgr.getNextRequest(head);
++        }
++        return sb;
++    }
++    
+     private int determineNewMaxMode(long resource, int oldMaxMode) {
+         int newMaxMode = LockMode.NL;
+         long holder = resArenaMgr.getLastHolder(resource);
+@@ -996,26 +1016,6 @@ public class ConcurrentLockManager implements ILockManager, ILifeCycleComponent
+         return -1;
+     }
+ 
+-    private String resQueueToString(long resSlot) {
+-        return appendResQueue(new StringBuilder(), resSlot).toString();
+-    }
+-    
+-    private StringBuilder appendResQueue(StringBuilder sb, long resSlot) {
+-        resArenaMgr.appendRecord(sb, resSlot);
+-        sb.append("\n");
+-        appendReqQueue(sb, resArenaMgr.getLastHolder(resSlot));
+-        return sb;
+-    }
+-    
+-    private StringBuilder appendReqQueue(StringBuilder sb, long head) {
+-        while (head != -1) {
+-            reqArenaMgr.appendRecord(sb, head);
+-            sb.append("\n");
+-            head = reqArenaMgr.getNextRequest(head);
+-        }
+-        return sb;
+-    }
+-    
+     public StringBuilder append(StringBuilder sb) {
+         table.getAllLatches();
+         try {

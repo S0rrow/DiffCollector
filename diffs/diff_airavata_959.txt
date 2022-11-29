@@ -1,0 +1,174 @@
+diff --git a/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/GramProvider.java b/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/GramProvider.java
+index 5786e1748..970976705 100644
+--- a/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/GramProvider.java
++++ b/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/GramProvider.java
+@@ -49,8 +49,6 @@ import org.apache.airavata.core.gfac.utils.GfacUtils;
+ import org.apache.airavata.core.gfac.utils.OutputUtils;
+ import org.apache.airavata.schemas.gfac.ApplicationDeploymentDescriptionType;
+ import org.apache.airavata.schemas.gfac.GlobusHostType;
+-import org.apache.airavata.schemas.gfac.StdErrParameterType;
+-import org.apache.airavata.schemas.gfac.StdOutParameterType;
+ import org.apache.airavata.schemas.gfac.URIArrayType;
+ import org.apache.airavata.schemas.gfac.URIParameterType;
+ import org.apache.airavata.schemas.wec.WorkflowOutputDataHandlingDocument;
+@@ -87,7 +85,7 @@ public class GramProvider extends AbstractProvider {
+             }
+ 
+             boolean success = false;
+-            ProviderException pe = null;// = new ProviderException("");
++            ProviderException pe = new ProviderException("");
+ 
+             for (String endpoint : host.getGridFTPEndPointArray()) {
+                 try {
+@@ -111,17 +109,17 @@ public class GramProvider extends AbstractProvider {
+                     success = true;
+                     break;
+                 } catch (URISyntaxException e) {
+-                    pe = new ProviderException("URI is malformatted:" + e.getMessage(), e,invocationContext);
++                    pe = new ProviderException("URI is malformatted:" + e.getMessage(), e);
+ 
+                 } catch (ToolsException e) {
+-                    pe = new ProviderException(e.getMessage(), e,invocationContext);
++                    pe = new ProviderException(e.getMessage(), e);
+                 }
+             }
+             if (success == false) {
+                 throw pe;
+             }
+         } catch (SecurityException e) {
+-            throw new ProviderException(e.getMessage(), e,invocationContext);
++            throw new ProviderException(e.getMessage(), e);
+         }
+     }
+ 
+@@ -153,7 +151,7 @@ public class GramProvider extends AbstractProvider {
+             job.addListener(listener);
+ 
+         } catch (ToolsException te) {
+-            throw new ProviderException(te.getMessage(), te, invocationContext);
++            throw new ProviderException(te.getMessage(), te);
+         }
+ 
+     }
+@@ -216,21 +214,21 @@ public class GramProvider extends AbstractProvider {
+                 String errorMsg = "Job " + job.getID() + " on host " + host.getHostAddress() + " Job Exit Code = "
+                         + listener.getError();
+                 JobSubmissionFault error = new JobSubmissionFault(this, new Exception(errorMsg), "GFAC HOST",
+-                        gateKeeper, job.getRSL(),invocationContext);
++                        gateKeeper, job.getRSL());
+                 errorReason(errCode, error);
+                 invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,error,errorMsg);
+                 throw error;
+             }
+          } catch (GramException e) {
+-            JobSubmissionFault error = new JobSubmissionFault(this, e, host.getHostAddress(), gateKeeper, job.getRSL(), invocationContext);
++            JobSubmissionFault error = new JobSubmissionFault(this, e, host.getHostAddress(), gateKeeper, job.getRSL());
+             int errCode = listener.getError();
+ 		    throw errorReason(errCode, error);
+         } catch (GSSException e) {
+-            throw new ProviderException(e.getMessage(), e, invocationContext);
++            throw new ProviderException(e.getMessage(), e);
+         } catch (InterruptedException e) {
+-            throw new ProviderException("Thread", e,invocationContext);
++            throw new ProviderException("Thread", e);
+         } catch (SecurityException e) {
+-            throw new ProviderException(e.getMessage(), e,invocationContext);
++            throw new ProviderException(e.getMessage(), e);
+         } finally {
+             if (job != null) {
+                 try {
+@@ -263,7 +261,7 @@ public class GramProvider extends AbstractProvider {
+             if (hostgridFTP == null || hostgridFTP.length == 0) {
+                 hostgridFTP = new String[] { host.getHostAddress() };
+             }
+-            ProviderException pe = null;
++            ProviderException pe = new ProviderException("");
+             for (String endpoint : host.getGridFTPEndPointArray()) {
+                 try {
+                     /*
+@@ -303,13 +301,13 @@ public class GramProvider extends AbstractProvider {
+ 						}
+                     	else{
+                     	// This is to handle exception during the output parsing.
+-                        stringMap = OutputUtils.fillOutputFromStdout(invocationContext.<ActualParameter>getOutput(), stdout,stderr);
++                        stringMap = OutputUtils.fillOutputFromStdout(invocationContext.<ActualParameter>getOutput(), stdout);
+                         String paramValue = output.getStringValue(paramName);
+                         if(paramValue == null || paramValue.isEmpty()){
+                             int errCode = listener.getError();
+                             String errorMsg = "Job " + job.getID() + " on host " + host.getHostAddress();
+                             JobSubmissionFault error = new JobSubmissionFault(this, new Exception(errorMsg), "GFAC HOST",
+-                                    gateKeeper, job.getRSL(), invocationContext);
++                                    gateKeeper, job.getRSL());
+                             errorReason(errCode, error);
+                             invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,error,
+                                     readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+@@ -318,7 +316,7 @@ public class GramProvider extends AbstractProvider {
+                         }
+                     }
+                     if(stringMap == null || stringMap.isEmpty()){
+-                    	ProviderException exception = new ProviderException("Gram provider: Error creating job output", invocationContext);
++                    	ProviderException exception = new ProviderException("Error creating job output");
+                     	 invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,exception,exception.getLocalizedMessage());
+                          throw exception;
+                     }
+@@ -336,18 +334,18 @@ public class GramProvider extends AbstractProvider {
+                     }
+                     return stringMap;
+                 }catch (XmlException e) {
+-//                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+-                    throw new ProviderException(e.getMessage(), e,invocationContext,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++                    throw new ProviderException(e.getMessage(), e);
+                 }
+                 catch (ToolsException e) {
+-//                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+-                    throw new ProviderException(e.getMessage(), e,invocationContext,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++                    throw new ProviderException(e.getMessage(), e);
+                 } catch (URISyntaxException e) {
+-//                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+-                    throw new ProviderException("URI is malformatted:" + e.getMessage(), e, invocationContext,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++                    throw new ProviderException("URI is malformatted:" + e.getMessage(), e);
+                 }catch (NullPointerException e) {
+-//                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,e.getMessage());
+-                    throw new ProviderException("Output is not produced in stdout:" + e.getMessage(), e, invocationContext, readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++                    invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,e.getMessage());
++                    throw new ProviderException("Outupt is not produced in stdout:" + e.getMessage(), e);
+                 }
+             }
+ 
+@@ -357,8 +355,8 @@ public class GramProvider extends AbstractProvider {
+             throw pe;
+ 
+         } catch (Exception e) {
+-//            invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
+-            throw new ProviderException(e.getMessage(), e, invocationContext, readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++            invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,readLastLinesofStdOut(localStdErrFile.getPath(), 20));
++            throw new ProviderException(e.getMessage(), e);
+         }
+ 
+     }
+@@ -388,8 +386,8 @@ public class GramProvider extends AbstractProvider {
+ 			inputNew.add(paramName, actualParameter);
+ 		}
+         }catch (Exception e){
+-//           invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,"Error during Input File staging");
+-            throw new ProviderException("Error while input File Staging", e.getCause(),invocationContext, "Error during Input File staging");
++           invocationContext.getExecutionContext().getNotifier().executionFail(invocationContext,e,"Error during Input File staging");
++            throw new ProviderException("Error while input File Staging", e.getCause());
+         }
+         invocationContext.setInput(inputNew);
+ 		return null;
+@@ -467,9 +465,9 @@ public class GramProvider extends AbstractProvider {
+ 
+                 }
+             } catch (URISyntaxException e) {
+-                throw new ProviderException(e.getMessage(), e, invocationContext);
++                throw new ProviderException(e.getMessage(), e);
+             } catch (ToolsException e) {
+-                throw new ProviderException(e.getMessage(), e, invocationContext);
++                throw new ProviderException(e.getMessage(), e);
+             }
+             outputNew.add(paramName, actualParameter);
+         }

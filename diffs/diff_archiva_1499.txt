@@ -1,0 +1,42 @@
+diff --git a/archiva-modules/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/content/ManagedDefaultRepositoryContent.java b/archiva-modules/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/content/ManagedDefaultRepositoryContent.java
+index 91bea7167..a000748a1 100644
+--- a/archiva-modules/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/content/ManagedDefaultRepositoryContent.java
++++ b/archiva-modules/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/content/ManagedDefaultRepositoryContent.java
+@@ -19,7 +19,6 @@
+  * under the License.
+  */
+ 
+-import org.apache.archiva.metadata.repository.storage.maven2.DefaultArtifactMappingProvider;
+ import org.apache.commons.io.FileUtils;
+ import org.apache.maven.archiva.common.utils.PathUtil;
+ import org.apache.maven.archiva.configuration.FileTypes;
+@@ -34,7 +33,6 @@
+ 
+ import java.io.File;
+ import java.io.IOException;
+-import java.util.Collections;
+ import java.util.HashSet;
+ import java.util.Set;
+ 
+@@ -43,6 +41,8 @@
+  *
+  * @version $Id$
+  * 
++ * @todo no need to be a component when filetypes is not
++ * 
+  * @plexus.component 
+  *      role="org.apache.maven.archiva.repository.ManagedRepositoryContent"
+  *      role-hint="default"
+@@ -59,12 +59,6 @@
+ 
+     private ManagedRepositoryConfiguration repository;
+ 
+-    public ManagedDefaultRepositoryContent()
+-    {
+-        // default to use if there are none supplied as components
+-        this.artifactMappingProviders = Collections.singletonList( new DefaultArtifactMappingProvider() );
+-    }
+-
+     public void deleteVersion( VersionedReference reference )
+         throws ContentNotFoundException
+     {

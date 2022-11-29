@@ -1,0 +1,22 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/StartAll.java b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/StartAll.java
+index 64d9abd2c9..cfc0053de2 100644
+--- a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/StartAll.java
++++ b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/StartAll.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.randomwalk.concurrent;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.Properties;
+ import java.util.concurrent.TimeUnit;
+ 
+@@ -34,6 +32,8 @@ import org.apache.accumulo.test.randomwalk.Environment;
+ import org.apache.accumulo.test.randomwalk.State;
+ import org.apache.accumulo.test.randomwalk.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class StartAll extends Test {
+ 
+   @Override

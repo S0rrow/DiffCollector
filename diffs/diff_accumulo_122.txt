@@ -1,0 +1,49 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Config.java b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Config.java
+index f6dbf40d40..4846efbb1c 100644
+--- a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Config.java
++++ b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Config.java
+@@ -1,19 +1,3 @@
+-/*
+- * Licensed to the Apache Software Foundation (ASF) under one or more
+- * contributor license agreements.  See the NOTICE file distributed with
+- * this work for additional information regarding copyright ownership.
+- * The ASF licenses this file to You under the Apache License, Version 2.0
+- * (the "License"); you may not use this file except in compliance with
+- * the License.  You may obtain a copy of the License at
+- *
+- *     http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+ package org.apache.accumulo.test.randomwalk.concurrent;
+ 
+ import java.util.Properties;
+@@ -110,10 +94,8 @@ public class Config extends Test {
+       String table = parts[0];
+       int choice = Integer.parseInt(parts[1]);
+       Property property = tableSettings[choice].property;
+-      if (state.getConnector().tableOperations().exists(table)) {
+-        log.debug("Setting " + property.getKey() + " on " + table + " back to " + property.getDefaultValue());
+-        state.getConnector().tableOperations().setProperty(table, property.getKey(), property.getDefaultValue());
+-      }
++      log.debug("Setting " + property.getKey() + " on " + table + " back to " + property.getDefaultValue());
++      state.getConnector().tableOperations().setProperty(table, property.getKey(), property.getDefaultValue());
+     }
+     state.getMap().remove(LAST_SETTING);
+     state.getMap().remove(LAST_TABLE_SETTING);
+@@ -138,9 +120,9 @@ public class Config extends Test {
+     
+     // generate a random value
+     long newValue = random.nextLong(setting.min, setting.max);
+-    state.getMap().put(LAST_TABLE_SETTING, table + "," + choice);
++    state.getMap().put(LAST_TABLE_SETTING, "" + choice);
+     log.debug("Setting " + setting.property.getKey() + " on table " + table + " to " + newValue);
+-    state.getConnector().tableOperations().setProperty(table, setting.property.getKey(), "" + newValue);
++    state.getConnector().instanceOperations().setProperty(setting.property.getKey(), table + "," + newValue);
+   }
+   
+   private void changeSetting(RandomData random, State state, Properties props) throws Exception {

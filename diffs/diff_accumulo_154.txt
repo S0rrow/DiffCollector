@@ -1,0 +1,33 @@
+diff --git a/server/src/main/java/org/apache/accumulo/server/tabletserver/MinorCompactor.java b/server/src/main/java/org/apache/accumulo/server/tabletserver/MinorCompactor.java
+index 4478f8e2bd..4f8f398325 100644
+--- a/server/src/main/java/org/apache/accumulo/server/tabletserver/MinorCompactor.java
++++ b/server/src/main/java/org/apache/accumulo/server/tabletserver/MinorCompactor.java
+@@ -25,17 +25,17 @@ import org.apache.accumulo.core.client.impl.Tables;
+ import org.apache.accumulo.core.data.KeyExtent;
+ import org.apache.accumulo.core.iterators.IteratorUtil.IteratorScope;
+ import org.apache.accumulo.core.master.state.tables.TableState;
+-import org.apache.accumulo.core.metadata.schema.DataFileValue;
++import org.apache.accumulo.core.util.MetadataTable.DataFileValue;
+ import org.apache.accumulo.core.util.UtilWaitThread;
+ import org.apache.accumulo.server.client.HdfsZooInstance;
+ import org.apache.accumulo.server.conf.TableConfiguration;
+-import org.apache.accumulo.server.fs.FileRef;
+-import org.apache.accumulo.server.fs.VolumeManager;
+ import org.apache.accumulo.server.problems.ProblemReport;
+ import org.apache.accumulo.server.problems.ProblemReports;
+ import org.apache.accumulo.server.problems.ProblemType;
+ import org.apache.accumulo.server.tabletserver.Tablet.MinorCompactionReason;
+ import org.apache.hadoop.conf.Configuration;
++import org.apache.accumulo.server.fs.FileRef;
++import org.apache.accumulo.server.fs.VolumeManager;
+ import org.apache.hadoop.fs.Path;
+ import org.apache.log4j.Logger;
+ 
+@@ -138,7 +138,6 @@ public class MinorCompactor extends Compactor {
+         
+       } while (true);
+     } finally {
+-      thread = null;
+       runningCompactions.remove(this);
+     }
+   }

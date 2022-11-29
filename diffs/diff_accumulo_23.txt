@@ -1,0 +1,94 @@
+diff --git a/src/core/src/main/java/org/apache/accumulo/core/iterators/IteratorUtil.java b/src/core/src/main/java/org/apache/accumulo/core/iterators/IteratorUtil.java
+index 530a1a0b10..2beab120bb 100644
+--- a/src/core/src/main/java/org/apache/accumulo/core/iterators/IteratorUtil.java
++++ b/src/core/src/main/java/org/apache/accumulo/core/iterators/IteratorUtil.java
+@@ -27,8 +27,6 @@ import java.util.Map;
+ import java.util.Map.Entry;
+ import java.util.TreeMap;
+ 
+-import org.apache.accumulo.core.client.IteratorSetting;
+-import org.apache.accumulo.core.client.admin.TableOperations;
+ import org.apache.accumulo.core.conf.AccumuloConfiguration;
+ import org.apache.accumulo.core.conf.Property;
+ import org.apache.accumulo.core.data.Key;
+@@ -36,11 +34,12 @@ import org.apache.accumulo.core.data.KeyExtent;
+ import org.apache.accumulo.core.data.Range;
+ import org.apache.accumulo.core.data.thrift.IterInfo;
+ import org.apache.accumulo.core.iterators.conf.PerColumnIteratorConfig;
+-import org.apache.accumulo.core.iterators.user.VersioningIterator;
+ import org.apache.accumulo.start.classloader.AccumuloClassLoader;
+ import org.apache.hadoop.io.Writable;
+ import org.apache.hadoop.io.WritableComparable;
+ import org.apache.log4j.Logger;
++
++@SuppressWarnings("deprecation")
+ public class IteratorUtil {
+   
+   private static final Logger log = Logger.getLogger(IteratorUtil.class);
+@@ -65,14 +64,17 @@ public class IteratorUtil {
+    * 
+    * @see {@link TableOperations#attachIterators(String, IteratorSetting)}
+    */
+-  public static Map<String,String> generateAggTableProperties(List<? extends PerColumnIteratorConfig> aggregators) {
++  public static Map<String,String> generateInitialTableProperties(List<? extends PerColumnIteratorConfig> aggregators) {
+     
+-    Map<String,String> props = new TreeMap<String,String>();
++    TreeMap<String,String> props = new TreeMap<String,String>();
+     
+     for (IteratorScope iterScope : IteratorScope.values()) {
+       if (aggregators.size() > 0) {
+         props.put(Property.TABLE_ITERATOR_PREFIX + iterScope.name() + ".agg", "10," + AggregatingIterator.class.getName());
+       }
++      
++      props.put(Property.TABLE_ITERATOR_PREFIX + iterScope.name() + ".vers", "20," + VersioningIterator.class.getName());
++      props.put(Property.TABLE_ITERATOR_PREFIX + iterScope.name() + ".vers.opt.maxVersions", "1");
+     }
+     
+     for (PerColumnIteratorConfig ac : aggregators) {
+@@ -84,16 +86,6 @@ public class IteratorUtil {
+     return props;
+   }
+   
+-  public static Map<String,String> generateInitialTableProperties() {
+-    TreeMap<String,String> props = new TreeMap<String,String>();
+-    
+-    for (IteratorScope iterScope : IteratorScope.values()) {
+-      props.put(Property.TABLE_ITERATOR_PREFIX + iterScope.name() + ".vers", "20," + VersioningIterator.class.getName());
+-      props.put(Property.TABLE_ITERATOR_PREFIX + iterScope.name() + ".vers.opt.maxVersions", "1");
+-    }
+-    return props;
+-  }
+-  
+   public static int getMaxPriority(IteratorScope scope, AccumuloConfiguration conf) {
+     List<IterInfo> iters = new ArrayList<IterInfo>();
+     parseIterConf(scope, iters, new HashMap<String,Map<String,String>>(), conf);
+@@ -101,8 +93,7 @@ public class IteratorUtil {
+     int max = 0;
+     
+     for (IterInfo iterInfo : iters) {
+-      if (iterInfo.priority > max)
+-        max = iterInfo.priority;
++      if (iterInfo.priority > max) max = iterInfo.priority;
+     }
+     
+     return max;
+@@ -191,8 +182,7 @@ public class IteratorUtil {
+     parseIterConf(scope, iters, allOptions, conf);
+     
+     for (Entry<String,Map<String,String>> entry : ssio.entrySet()) {
+-      if (entry.getValue() == null)
+-        continue;
++      if (entry.getValue() == null) continue;
+       Map<String,String> options = allOptions.get(entry.getKey());
+       if (options == null) {
+         allOptions.put(entry.getKey(), entry.getValue());
+@@ -217,8 +207,7 @@ public class IteratorUtil {
+         
+         Map<String,String> options = iterOpts.get(iterInfo.iterName);
+         
+-        if (options == null)
+-          options = Collections.emptyMap();
++        if (options == null) options = Collections.emptyMap();
+         
+         skvi.init(prev, options, env);
+         prev = skvi;

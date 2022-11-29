@@ -1,0 +1,22 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/OfflineTable.java b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/OfflineTable.java
+index d06ad9a50f..b5af0b7467 100644
+--- a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/OfflineTable.java
++++ b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/OfflineTable.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.randomwalk.concurrent;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.List;
+ import java.util.Properties;
+ import java.util.Random;
+@@ -29,6 +27,8 @@ import org.apache.accumulo.test.randomwalk.Environment;
+ import org.apache.accumulo.test.randomwalk.State;
+ import org.apache.accumulo.test.randomwalk.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class OfflineTable extends Test {
+ 
+   @Override

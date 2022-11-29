@@ -1,0 +1,38 @@
+diff --git a/server/monitor/src/main/java/org/apache/accumulo/monitor/ZooKeeperStatus.java b/server/monitor/src/main/java/org/apache/accumulo/monitor/ZooKeeperStatus.java
+index 62f872f061..7e992e0762 100644
+--- a/server/monitor/src/main/java/org/apache/accumulo/monitor/ZooKeeperStatus.java
++++ b/server/monitor/src/main/java/org/apache/accumulo/monitor/ZooKeeperStatus.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.monitor;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.util.Collection;
+@@ -34,6 +33,7 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.net.HostAndPort;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class ZooKeeperStatus implements Runnable {
+ 
+@@ -82,7 +82,7 @@ public class ZooKeeperStatus implements Runnable {
+     }
+   }
+ 
+-  private static SortedSet<ZooKeeperState> status = new TreeSet<>();
++  private static SortedSet<ZooKeeperState> status = new TreeSet<ZooKeeperState>();
+ 
+   public static Collection<ZooKeeperState> getZooKeeperStatus() {
+     return status;
+@@ -93,7 +93,7 @@ public class ZooKeeperStatus implements Runnable {
+ 
+     while (!stop) {
+ 
+-      TreeSet<ZooKeeperState> update = new TreeSet<>();
++      TreeSet<ZooKeeperState> update = new TreeSet<ZooKeeperState>();
+ 
+       String zookeepers[] = SiteConfiguration.getInstance().get(Property.INSTANCE_ZK_HOST).split(",");
+       for (String keeper : zookeepers) {

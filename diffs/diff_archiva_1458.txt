@@ -1,0 +1,115 @@
+diff --git a/archiva-modules/archiva-base/archiva-consumers/archiva-lucene-consumers/src/main/java/org/apache/archiva/consumers/lucene/NexusIndexerConsumer.java b/archiva-modules/archiva-base/archiva-consumers/archiva-lucene-consumers/src/main/java/org/apache/archiva/consumers/lucene/NexusIndexerConsumer.java
+index b9d61d451..8a34836de 100644
+--- a/archiva-modules/archiva-base/archiva-consumers/archiva-lucene-consumers/src/main/java/org/apache/archiva/consumers/lucene/NexusIndexerConsumer.java
++++ b/archiva-modules/archiva-base/archiva-consumers/archiva-lucene-consumers/src/main/java/org/apache/archiva/consumers/lucene/NexusIndexerConsumer.java
+@@ -27,7 +27,6 @@
+ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Set;
+-import java.util.zip.ZipException;
+ 
+ import org.apache.lucene.document.Document;
+ import org.apache.lucene.index.IndexReader;
+@@ -58,11 +57,11 @@
+ {
+     private static final Logger log = LoggerFactory.getLogger( NexusIndexerConsumer.class );
+ 
+-    private NexusIndexer indexer;
++    private final NexusIndexer indexer;
+ 
+-    private ArtifactContextProducer artifactContextProducer;
++    private final ArtifactContextProducer artifactContextProducer;
+ 
+-    private IndexPacker indexPacker;
++    private final IndexPacker indexPacker;
+ 
+     private ManagedDefaultRepositoryContent repositoryContent;
+ 
+@@ -106,6 +105,7 @@ public void beginScan( ManagedRepositoryConfiguration repository, Date whenGathe
+         File indexDirectory = null;
+         if( indexDir != null && !"".equals( indexDir ) )
+         {
++            //indexDirectory = new File( managedRepository, repository.getIndexDir() );
+             indexDirectory = new File( repository.getIndexDir() );
+         }
+         else
+@@ -135,9 +135,6 @@ public void beginScan( ManagedRepositoryConfiguration repository, Date whenGathe
+                         Document d = r.document( i );          
+                         String uinfo = d.get( ArtifactInfo.UINFO );
+           
+-                     // should we add a check here if the contents of the document still exist in the file system
+-                     // for cases when there is already an existing index & the contents of that index doesn't exist
+-                     // in the file system & in the database? 
+                         if ( uinfo != null )
+                         {
+                             uinfos.add( uinfo );
+@@ -149,11 +146,11 @@ public void beginScan( ManagedRepositoryConfiguration repository, Date whenGathe
+             }
+             catch ( UnsupportedExistingLuceneIndexException e )
+             {
+-                throw new ConsumerException( "Could not create index at " + indexDirectory.getAbsoluteFile(), e );
++                log.error( "Could not create index at " + indexDirectory.getAbsoluteFile(), e );
+             }
+             catch ( IOException e )
+             {
+-                throw new ConsumerException( "Could not create index at " + indexDirectory.getAbsoluteFile(), e );
++                log.error( "Could not create index at " + indexDirectory.getAbsoluteFile(), e );
+             }
+         }
+     }
+@@ -161,12 +158,6 @@ public void beginScan( ManagedRepositoryConfiguration repository, Date whenGathe
+     public void processFile( String path )
+         throws ConsumerException
+     {
+-        if ( context == null )
+-        {
+-            // didn't start correctly, so skip
+-            return;
+-        }
+-        
+         File artifactFile = new File( managedRepository, path );        
+         ArtifactContext artifactContext = artifactContextProducer.getArtifactContext( context, artifactFile );
+         
+@@ -188,11 +179,6 @@ public void processFile( String path )
+                     indexerEngine.index( context, artifactContext );
+                 }    
+             }
+-            catch ( ZipException e )
+-            {
+-                // invalid JAR file
+-                log.info( e.getMessage() );
+-            }
+             catch ( IOException e )
+             {
+                 throw new ConsumerException( e.getMessage(), e );
+@@ -202,20 +188,17 @@ public void processFile( String path )
+ 
+     public void completeScan()
+     {   
+-        synchronized( indexer )
++        final File indexLocation = new File( managedRepository, ".index" );
++        try
+         {
+-            final File indexLocation = new File( managedRepository, ".index" );
+-            try
+-            {
+-                indexerEngine.endIndexing( context );            
+-                indexPacker.packIndex( context, indexLocation );
+-                indexer.removeIndexingContext( context, false );
+-                uinfos = null;
+-            }
+-            catch ( IOException e )
+-            {
+-                log.error( "Could not pack index" + indexLocation.getAbsolutePath(), e );
+-            }
++            indexerEngine.endIndexing( context );            
++            indexPacker.packIndex( context, indexLocation );
++            indexer.removeIndexingContext( context, false );
++            uinfos = null;
++        }
++        catch ( IOException e )
++        {
++            log.error( "Could not pack index" + indexLocation.getAbsolutePath(), e );
+         }
+     }
+ 

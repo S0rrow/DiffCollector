@@ -1,0 +1,22 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Shutdown.java b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Shutdown.java
+index 3887a2ab0e..eeaeea64f0 100644
+--- a/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Shutdown.java
++++ b/test/src/main/java/org/apache/accumulo/test/randomwalk/concurrent/Shutdown.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.randomwalk.concurrent;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.Properties;
+ import java.util.concurrent.TimeUnit;
+ 
+@@ -33,6 +31,8 @@ import org.apache.accumulo.test.randomwalk.Environment;
+ import org.apache.accumulo.test.randomwalk.State;
+ import org.apache.accumulo.test.randomwalk.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class Shutdown extends Test {
+ 
+   @Override

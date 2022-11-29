@@ -1,0 +1,42 @@
+diff --git a/repository/src/main/java/org/apache/atlas/glossary/GlossaryService.java b/repository/src/main/java/org/apache/atlas/glossary/GlossaryService.java
+index 1da32795e..d630f669e 100644
+--- a/repository/src/main/java/org/apache/atlas/glossary/GlossaryService.java
++++ b/repository/src/main/java/org/apache/atlas/glossary/GlossaryService.java
+@@ -149,7 +149,7 @@ public class GlossaryService {
+         }
+ 
+         if (glossaryExists(atlasGlossary)) {
+-            throw new AtlasBaseException(AtlasErrorCode.GLOSSARY_ALREADY_EXISTS, atlasGlossary.getName());
++            throw new AtlasBaseException(AtlasErrorCode.GLOSSARY_ALREADY_EXISTS, atlasGlossary.getQualifiedName());
+         }
+ 
+         AtlasGlossary storeObject = dataAccess.save(atlasGlossary);
+@@ -409,10 +409,14 @@ public class GlossaryService {
+ 
+         AtlasGlossaryTerm storeObject = dataAccess.load(atlasGlossaryTerm);
+         if (!storeObject.equals(atlasGlossaryTerm)) {
+-            atlasGlossaryTerm.setGuid(storeObject.getGuid());
+-            atlasGlossaryTerm.setQualifiedName(storeObject.getQualifiedName());
++            try {
++                atlasGlossaryTerm.setGuid(storeObject.getGuid());
++                atlasGlossaryTerm.setQualifiedName(storeObject.getQualifiedName());
+ 
+-            storeObject = dataAccess.save(atlasGlossaryTerm);
++                storeObject = dataAccess.save(atlasGlossaryTerm);
++            } catch (AtlasBaseException e) {
++                LOG.debug("Glossary term had no immediate attr updates. Exception: {}", e.getMessage());
++            }
+ 
+             glossaryTermUtils.processTermRelations(storeObject, atlasGlossaryTerm, GlossaryUtils.RelationshipOperation.UPDATE);
+ 
+@@ -1104,9 +1108,7 @@ public class GlossaryService {
+             try {
+                 ret.add(createTerm(glossaryTerm));
+             } catch (AtlasBaseException e) {
+-                if (!e.getAtlasErrorCode().equals(AtlasErrorCode.GLOSSARY_TERM_ALREADY_EXISTS)) {
+-                    throw new AtlasBaseException(AtlasErrorCode.FAILED_TO_CREATE_GLOSSARY_TERM, e);
+-                }
++                throw new AtlasBaseException(AtlasErrorCode.FAILED_TO_CREATE_GLOSSARY_TERM, e);
+             }
+         }
+ 

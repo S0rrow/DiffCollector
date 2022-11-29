@@ -1,0 +1,158 @@
+diff --git a/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java b/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java
+index 57d5c39f28..7f74f5284d 100644
+--- a/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java
++++ b/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManager.java
+@@ -67,7 +67,6 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+     private final MutableLong flushLSN;
+     private LinkedBlockingQueue<LogBuffer> emptyQ;
+     private LinkedBlockingQueue<LogBuffer> flushQ;
+-    private LinkedBlockingQueue<LogBuffer> stashQ;
+     protected final AtomicLong appendLSN;
+     private FileChannel appendChannel;
+     protected LogBuffer appendPage;
+@@ -82,8 +81,8 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+ 
+     public LogManager(TransactionSubsystem txnSubsystem) {
+         this.txnSubsystem = txnSubsystem;
+-        logManagerProperties = new LogManagerProperties(this.txnSubsystem.getTransactionProperties(),
+-                this.txnSubsystem.getId());
++        logManagerProperties =
++                new LogManagerProperties(this.txnSubsystem.getTransactionProperties(), this.txnSubsystem.getId());
+         logFileSize = logManagerProperties.getLogPartitionSize();
+         logPageSize = logManagerProperties.getLogPageSize();
+         numLogPages = logManagerProperties.getNumLogPages();
+@@ -98,9 +97,8 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+     }
+ 
+     private void initializeLogManager(long nextLogFileId) {
+-        emptyQ = new LinkedBlockingQueue<>(numLogPages);
+-        flushQ = new LinkedBlockingQueue<>(numLogPages);
+-        stashQ = new LinkedBlockingQueue<>(numLogPages);
++        emptyQ = new LinkedBlockingQueue<LogBuffer>(numLogPages);
++        flushQ = new LinkedBlockingQueue<LogBuffer>(numLogPages);
+         for (int i = 0; i < numLogPages; i++) {
+             emptyQ.offer(new LogBuffer(txnSubsystem, logPageSize, flushLSN));
+         }
+@@ -111,7 +109,7 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+         }
+         appendChannel = getFileChannel(appendLSN.get(), false);
+         getAndInitNewPage(INITIAL_LOG_SIZE);
+-        logFlusher = new LogFlusher(this, emptyQ, flushQ, stashQ);
++        logFlusher = new LogFlusher(this, emptyQ, flushQ);
+         futureLogFlusher = txnSubsystem.getAsterixAppRuntimeContextProvider().getThreadExecutor().submit(logFlusher);
+         if (!flushLogsLogger.isAlive()) {
+             txnSubsystem.getAsterixAppRuntimeContextProvider().getThreadExecutor().execute(flushLogsLogger);
+@@ -159,12 +157,12 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+          * written at the last offset of the current file.
+          */
+         final int logSize = logRecord.getLogSize();
+-        // Make sure the log will not exceed the log file size
+-        if (getLogFileOffset(appendLSN.get()) + logSize >= logFileSize) {
+-            prepareNextLogFile();
+-            prepareNextPage(logSize);
+-        } else if (!appendPage.hasSpace(logSize)) {
+-            prepareNextPage(logSize);
++        if (!appendPage.hasSpace(logSize)) {
++            if (getLogFileOffset(appendLSN.get()) + logSize >= logFileSize) {
++                prepareNextLogFile();
++            }
++            appendPage.isFull(true);
++            getAndInitNewPage(logSize);
+         }
+         appendPage.append(logRecord, appendLSN.get());
+ 
+@@ -177,25 +175,10 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+         appendLSN.addAndGet(logSize);
+     }
+ 
+-    protected void prepareNextPage(int logSize) {
+-        appendPage.isFull(true);
+-        getAndInitNewPage(logSize);
+-    }
+-
+     protected void getAndInitNewPage(int logSize) {
+         if (logSize > logPageSize) {
+-            // before creating a new page, we need to stash a normal sized page since our queues have fixed capacity
+-            appendPage = null;
+-            while (appendPage == null) {
+-                try {
+-                    appendPage = emptyQ.take();
+-                    stashQ.add(appendPage);
+-                } catch (InterruptedException e) {
+-                    //ignore
+-                }
+-            }
+             // for now, alloc a new buffer for each large page
+-            // TODO: pool large pages??
++            // TODO: pool large pages
+             appendPage = new LogBuffer(txnSubsystem, logSize, flushLSN);
+             appendPage.setFileChannel(appendChannel);
+             flushQ.offer(appendPage);
+@@ -215,8 +198,6 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+     }
+ 
+     protected void prepareNextLogFile() {
+-        // Make sure to flush whatever left in the log tail.
+-        appendPage.isFull(true);
+         //wait until all log records have been flushed in the current file
+         synchronized (flushLSN) {
+             try {
+@@ -313,6 +294,10 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+         }
+     }
+ 
++    public MutableLong getFlushLSN() {
++        return flushLSN;
++    }
++
+     private long initializeLogAnchor(long nextLogFileId) {
+         long fileId = 0;
+         long offset = 0;
+@@ -433,7 +418,7 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+         }
+     }
+ 
+-    public List<Long> getLogFileIds() {
++    private List<Long> getLogFileIds() {
+         File fileLogDir = new File(logDir);
+         String[] logFileNames = null;
+         List<Long> logFileIds = null;
+@@ -448,7 +433,7 @@ public class LogManager implements ILogManager, ILifeCycleComponent {
+                 }
+             });
+             if (logFileNames != null && logFileNames.length != 0) {
+-                logFileIds = new ArrayList<>();
++                logFileIds = new ArrayList<Long>();
+                 for (String fileName : logFileNames) {
+                     logFileIds.add(Long.parseLong(fileName.substring(logFilePrefix.length() + 1)));
+                 }
+@@ -629,17 +614,14 @@ class LogFlusher implements Callable<Boolean> {
+     private final LogManager logMgr;//for debugging
+     private final LinkedBlockingQueue<LogBuffer> emptyQ;
+     private final LinkedBlockingQueue<LogBuffer> flushQ;
+-    private final LinkedBlockingQueue<LogBuffer> stashQ;
+     private LogBuffer flushPage;
+     private final AtomicBoolean isStarted;
+     private final AtomicBoolean terminateFlag;
+ 
+-    public LogFlusher(LogManager logMgr, LinkedBlockingQueue<LogBuffer> emptyQ, LinkedBlockingQueue<LogBuffer> flushQ,
+-            LinkedBlockingQueue<LogBuffer> stashQ) {
++    public LogFlusher(LogManager logMgr, LinkedBlockingQueue<LogBuffer> emptyQ, LinkedBlockingQueue<LogBuffer> flushQ) {
+         this.logMgr = logMgr;
+         this.emptyQ = emptyQ;
+         this.flushQ = flushQ;
+-        this.stashQ = stashQ;
+         flushPage = null;
+         isStarted = new AtomicBoolean(false);
+         terminateFlag = new AtomicBoolean(false);
+@@ -691,7 +673,9 @@ class LogFlusher implements Callable<Boolean> {
+                     }
+                 }
+                 flushPage.flush();
+-                emptyQ.offer(flushPage.getLogPageSize() == logMgr.getLogPageSize() ? flushPage : stashQ.remove());
++                if (flushPage.getLogPageSize() == logMgr.getLogPageSize()) {
++                    emptyQ.offer(flushPage);
++                }
+             }
+         } catch (Exception e) {
+             if (LOGGER.isLoggable(Level.INFO)) {

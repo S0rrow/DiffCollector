@@ -1,0 +1,78 @@
+diff --git a/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/ActiveMQMessageProducer.java b/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/ActiveMQMessageProducer.java
+index 9f86e493e2..5cbd40fd97 100644
+--- a/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/ActiveMQMessageProducer.java
++++ b/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/ActiveMQMessageProducer.java
+@@ -36,13 +36,11 @@ import javax.jms.TopicPublisher;
+ 
+ import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.api.core.ActiveMQInterruptedException;
+-import org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.api.core.client.ClientMessage;
+ import org.apache.activemq.artemis.api.core.client.ClientProducer;
+ import org.apache.activemq.artemis.api.core.client.ClientSession;
+ import org.apache.activemq.artemis.api.core.client.SendAcknowledgementHandler;
+-import org.apache.activemq.artemis.api.core.RoutingType;
+ import org.apache.activemq.artemis.utils.UUID;
+ import org.apache.activemq.artemis.utils.UUIDGenerator;
+ 
+@@ -336,7 +334,7 @@ public class ActiveMQMessageProducer implements MessageProducer, QueueSender, To
+     */
+    private void checkDefaultDestination() {
+       if (defaultDestination == null) {
+-         throw new UnsupportedOperationException("Producer does not have a default destination");
++         throw new UnsupportedOperationException("Cannot specify destination if producer has a default destination");
+       }
+    }
+ 
+@@ -406,33 +404,22 @@ public class ActiveMQMessageProducer implements MessageProducer, QueueSender, To
+                ClientSession.AddressQuery query = clientSession.addressQuery(address);
+ 
+                if (!query.isExists()) {
+-                  if (destination.isQueue() && query.isAutoCreateQueues()) {
+-                     clientSession.createAddress(address, RoutingType.ANYCAST, true);
++                  if (destination.isQueue() && query.isAutoCreateJmsQueues()) {
++                     clientSession.createAddress(address, false, true);
+                      if (destination.isTemporary()) {
+                         // TODO is it right to use the address for the queue name here?
+-                        clientSession.createTemporaryQueue(address, RoutingType.ANYCAST, address);
++                        clientSession.createTemporaryQueue(address, address);
+                      } else {
+-                        clientSession.createQueue(address, RoutingType.ANYCAST, address, null, true, true, query.getDefaultMaxConsumers(), query.isDefaultPurgeOnNoConsumers());
++                        clientSession.createQueue(address, address, null, true);
+                      }
+-                  } else if (!destination.isQueue() && query.isAutoCreateAddresses()) {
+-                     clientSession.createAddress(address, RoutingType.MULTICAST, true);
+-                  } else if ((destination.isQueue() && !query.isAutoCreateQueues()) || (!destination.isQueue() && !query.isAutoCreateAddresses())) {
++                  } else if (!destination.isQueue() && query.isAutoCreateJmsTopics()) {
++                     clientSession.createAddress(address, true, true);
++                  } else if ((destination.isQueue() && !query.isAutoCreateJmsQueues()) || (!destination.isQueue() && !query.isAutoCreateJmsTopics())) {
+                      throw new InvalidDestinationException("Destination " + address + " does not exist");
+                   }
+                } else {
+-                  ClientSession.QueueQuery queueQuery = clientSession.queueQuery(address);
+-                  if (queueQuery.isExists()) {
+-                     connection.addKnownDestination(address);
+-                  } else if (destination.isQueue() && query.isAutoCreateQueues()) {
+-                     if (destination.isTemporary()) {
+-                        clientSession.createTemporaryQueue(address, RoutingType.ANYCAST, address);
+-                     } else {
+-                        clientSession.createQueue(address, RoutingType.ANYCAST, address, null, true, true, query.getDefaultMaxConsumers(), query.isDefaultPurgeOnNoConsumers());
+-                     }
+-                  }
++                  connection.addKnownDestination(address);
+                }
+-            } catch (ActiveMQQueueExistsException e) {
+-               // The queue was created by another client/admin between the query check and send create queue packet
+             } catch (ActiveMQException e) {
+                throw JMSExceptionHelper.convertFromActiveMQException(e);
+             }
+@@ -503,8 +490,6 @@ public class ActiveMQMessageProducer implements MessageProducer, QueueSender, To
+       ClientMessage coreMessage = activeMQJmsMessage.getCoreMessage();
+       coreMessage.putStringProperty(ActiveMQConnection.CONNECTION_ID_PROPERTY_NAME, connID);
+ 
+-      coreMessage.setRoutingType(destination.isQueue() ? RoutingType.ANYCAST : RoutingType.MULTICAST);
+-
+       try {
+          /**
+           * Using a completionListener requires wrapping using a {@link CompletionListenerWrapper},

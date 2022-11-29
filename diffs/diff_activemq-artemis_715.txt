@@ -1,0 +1,103 @@
+diff --git a/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java b/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java
+index 44b291606d..07ed9e943c 100644
+--- a/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java
++++ b/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java
+@@ -20,6 +20,7 @@ package org.apache.activemq.artemis.utils.actors;
+ import java.util.Queue;
+ import java.util.concurrent.ConcurrentLinkedQueue;
+ import java.util.concurrent.Executor;
++import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+ 
+ public abstract class ProcessorBase<T> {
+@@ -33,9 +34,6 @@ public abstract class ProcessorBase<T> {
+ 
+    private final ExecutorTask task = new ExecutorTask();
+ 
+-   private final Object startedGuard = new Object();
+-   private volatile boolean started = true;
+-
+    // used by stateUpdater
+    @SuppressWarnings("unused")
+    private volatile int state = 0;
+@@ -51,18 +49,8 @@ public abstract class ProcessorBase<T> {
+             if (stateUpdater.compareAndSet(ProcessorBase.this, STATE_NOT_RUNNING, STATE_RUNNING)) {
+                T task = tasks.poll();
+                //while the queue is not empty we process in order
+-
+-               // All we care on started, is that a current task is not running as we call shutdown.
+-               // for that reason this first run doesn't need to be under any lock
+-               while (task != null && started) {
+-
+-                  // Synchronized here is just to guarantee that a current task is finished before
+-                  // the started update can be taken as false
+-                  synchronized (startedGuard) {
+-                     if (started) {
+-                        doTask(task);
+-                     }
+-                  }
++               while (task != null) {
++                  doTask(task);
+                   task = tasks.poll();
+                }
+                //set state back to not running.
+@@ -78,32 +66,43 @@ public abstract class ProcessorBase<T> {
+       }
+    }
+ 
+-   /** It will wait the current execution (if there is one) to finish
+-    *  but will not complete any further executions */
+-   public void shutdownNow() {
+-      synchronized (startedGuard) {
+-         started = false;
+-      }
+-      tasks.clear();
+-   }
+-
+    protected abstract void doTask(T task);
+ 
+    public ProcessorBase(Executor parent) {
+       this.delegate = parent;
+    }
+ 
+-   public final boolean isFlushed() {
++   public final boolean flush() {
++      return flush(30, TimeUnit.SECONDS);
++   }
++
++   /**
++    * WARNING: This will only flush when all the activity is suspended.
++    *          don't expect success on this call if another thread keeps feeding the queue
++    *          this is only valid on situations where you are not feeding the queue,
++    *          like in shutdown and failover situations.
++    * */
++   public final boolean flush(long timeout, TimeUnit unit) {
++      if (stateUpdater.get(this) == STATE_NOT_RUNNING) {
++         // quick test, most of the time it will be empty anyways
++         return true;
++      }
++
++      long timeLimit = System.currentTimeMillis() + unit.toMillis(timeout);
++      try {
++         while (stateUpdater.get(this) == STATE_RUNNING && timeLimit > System.currentTimeMillis()) {
++            Thread.sleep(10);
++         }
++      } catch (InterruptedException e) {
++         // ignored
++      }
++
+       return stateUpdater.get(this) == STATE_NOT_RUNNING;
+    }
+ 
+    protected void task(T command) {
+-      // There is no need to verify the lock here.
+-      // you can only turn of running once
+-      if (started) {
+-         tasks.add(command);
+-         startPoller();
+-      }
++      tasks.add(command);
++      startPoller();
+    }
+ 
+    protected void startPoller() {

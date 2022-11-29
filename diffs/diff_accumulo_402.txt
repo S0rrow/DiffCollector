@@ -1,0 +1,20 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/TotalQueuedIT.java b/test/src/main/java/org/apache/accumulo/test/TotalQueuedIT.java
+index ea3f680590..be800addb7 100644
+--- a/test/src/main/java/org/apache/accumulo/test/TotalQueuedIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/TotalQueuedIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertTrue;
+ 
+ import java.util.Random;
+@@ -39,6 +38,7 @@ import org.apache.hadoop.conf.Configuration;
+ import org.junit.Test;
+ 
+ import com.google.common.net.HostAndPort;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ // see ACCUMULO-1950
+ public class TotalQueuedIT extends ConfigurableMacBase {

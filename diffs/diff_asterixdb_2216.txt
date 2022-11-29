@@ -1,0 +1,23 @@
+diff --git a/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java b/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java
+index 5b3872c81d..5a6f391a9f 100644
+--- a/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java
++++ b/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java
+@@ -27,6 +27,7 @@ import org.apache.hyracks.dataflow.common.data.accessors.ITupleReference;
+ import org.apache.hyracks.storage.am.common.api.IIndexOperationContext;
+ import org.apache.hyracks.storage.am.lsm.common.impls.LSMHarness;
+ import org.apache.hyracks.storage.common.IIndex;
++import org.apache.hyracks.storage.common.IIndexBulkLoader;
+ import org.apache.hyracks.storage.common.IIndexCursor;
+ import org.apache.hyracks.storage.common.IModificationOperationCallback;
+ import org.apache.hyracks.storage.common.ISearchOperationCallback;
+@@ -152,8 +153,7 @@ public interface ILSMIndex extends IIndex {
+      * @return
+      * @throws HyracksDataException
+      */
+-    ILSMDiskComponentBulkLoader createComponentBulkLoader(ILSMDiskComponent component, float fillFactor,
+-            boolean verifyInput, long numElementsHint, boolean checkIfEmptyIndex, boolean withFilter)
+-            throws HyracksDataException;
++    IIndexBulkLoader createComponentBulkLoader(ILSMDiskComponent component, float fillFactor, boolean verifyInput,
++            long numElementsHint, boolean checkIfEmptyIndex, boolean withFilter) throws HyracksDataException;
+ 
+ }

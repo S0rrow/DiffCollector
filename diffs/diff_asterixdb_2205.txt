@@ -1,0 +1,190 @@
+diff --git a/hyracks-fullstack/hyracks/hyracks-control/hyracks-control-cc/src/main/java/org/apache/hyracks/control/cc/dataset/DatasetDirectoryService.java b/hyracks-fullstack/hyracks/hyracks-control/hyracks-control-cc/src/main/java/org/apache/hyracks/control/cc/dataset/DatasetDirectoryService.java
+index 927d4998bc..46a173e93d 100644
+--- a/hyracks-fullstack/hyracks/hyracks-control/hyracks-control-cc/src/main/java/org/apache/hyracks/control/cc/dataset/DatasetDirectoryService.java
++++ b/hyracks-fullstack/hyracks/hyracks-control/hyracks-control-cc/src/main/java/org/apache/hyracks/control/cc/dataset/DatasetDirectoryService.java
+@@ -18,7 +18,6 @@
+  */
+ package org.apache.hyracks.control.cc.dataset;
+ 
+-import java.io.PrintWriter;
+ import java.util.Arrays;
+ import java.util.HashMap;
+ import java.util.LinkedHashMap;
+@@ -32,15 +31,15 @@ import java.util.logging.Logger;
+ import org.apache.hyracks.api.comm.NetworkAddress;
+ import org.apache.hyracks.api.dataset.DatasetDirectoryRecord;
+ import org.apache.hyracks.api.dataset.DatasetJobRecord;
+-import org.apache.hyracks.api.dataset.DatasetJobRecord.State;
++import org.apache.hyracks.api.dataset.DatasetJobRecord.Status;
+ import org.apache.hyracks.api.dataset.IDatasetStateRecord;
+ import org.apache.hyracks.api.dataset.ResultSetId;
+ import org.apache.hyracks.api.dataset.ResultSetMetaData;
+ import org.apache.hyracks.api.exceptions.ErrorCode;
+ import org.apache.hyracks.api.exceptions.HyracksDataException;
+ import org.apache.hyracks.api.exceptions.HyracksException;
++import org.apache.hyracks.api.job.IActivityClusterGraphGeneratorFactory;
+ import org.apache.hyracks.api.job.JobId;
+-import org.apache.hyracks.api.job.JobSpecification;
+ import org.apache.hyracks.control.common.dataset.ResultStateSweeper;
+ import org.apache.hyracks.control.common.work.IResultCallback;
+ 
+@@ -73,7 +72,8 @@ public class DatasetDirectoryService implements IDatasetDirectoryService {
+     }
+ 
+     @Override
+-    public synchronized void notifyJobCreation(JobId jobId, JobSpecification spec) throws HyracksException {
++    public synchronized void notifyJobCreation(JobId jobId, IActivityClusterGraphGeneratorFactory acggf)
++            throws HyracksException {
+         if (LOGGER.isLoggable(Level.INFO)) {
+             LOGGER.info(getClass().getSimpleName() + " notified of new job " + jobId);
+         }
+@@ -84,7 +84,7 @@ public class DatasetDirectoryService implements IDatasetDirectoryService {
+     }
+ 
+     @Override
+-    public synchronized void notifyJobStart(JobId jobId) throws HyracksException {
++    public void notifyJobStart(JobId jobId) throws HyracksException {
+         jobResultLocations.get(jobId).getRecord().start();
+     }
+ 
+@@ -98,18 +98,18 @@ public class DatasetDirectoryService implements IDatasetDirectoryService {
+         return jri == null ? null : jri.getRecord();
+     }
+ 
+-    private DatasetJobRecord getNonNullDatasetJobRecord(JobId jobId) throws HyracksDataException {
++    private DatasetJobRecord getNonNullDatasetJobRecord(JobId jobId) {
+         final DatasetJobRecord djr = getDatasetJobRecord(jobId);
+         if (djr == null) {
+-            throw HyracksDataException.create(ErrorCode.NO_RESULTSET, jobId);
++            throw new NullPointerException();
+         }
+         return djr;
+     }
+ 
+     @Override
+     public synchronized void registerResultPartitionLocation(JobId jobId, ResultSetId rsId, boolean orderedResult,
+-            boolean emptyResult, int partition, int nPartitions, NetworkAddress networkAddress)
+-            throws HyracksDataException {
++            boolean emptyResult, int partition, int nPartitions, NetworkAddress networkAddress) throws
++            HyracksDataException {
+         DatasetJobRecord djr = getNonNullDatasetJobRecord(jobId);
+         djr.setResultSetMetaData(rsId, orderedResult, nPartitions);
+         DatasetDirectoryRecord record = djr.getOrCreateDirectoryRecord(rsId, partition);
+@@ -139,51 +139,54 @@ public class DatasetDirectoryService implements IDatasetDirectoryService {
+             throws HyracksDataException {
+         DatasetJobRecord djr = getNonNullDatasetJobRecord(jobId);
+         djr.getDirectoryRecord(rsId, partition).writeEOS();
+-        djr.updateState(rsId);
++        djr.updateStatus(rsId);
+         notifyAll();
+     }
+ 
+     @Override
+     public synchronized void reportResultPartitionFailure(JobId jobId, ResultSetId rsId, int partition) {
+-        DatasetJobRecord djr = getDatasetJobRecord(jobId);
+-        if (djr != null) {
+-            djr.fail(rsId, partition);
+-        }
++        DatasetJobRecord djr = getNonNullDatasetJobRecord(jobId);
++        djr.fail(rsId, partition);
+         jobResultLocations.get(jobId).setException(new Exception());
+         notifyAll();
+     }
+ 
+     @Override
+     public synchronized void reportJobFailure(JobId jobId, List<Exception> exceptions) {
+-        DatasetJobRecord djr = getDatasetJobRecord(jobId);
+-        if (djr != null) {
+-            djr.fail(exceptions);
+-        }
++        DatasetJobRecord djr = getNonNullDatasetJobRecord(jobId);
++        djr.fail(exceptions);
+         // TODO(tillw) throwing an NPE here hangs the system, why?
+-        // TODO(tillw) still run into NPE here ..
+         jobResultLocations.get(jobId).setException(exceptions.isEmpty() ? null : exceptions.get(0));
+         notifyAll();
+     }
+ 
+     @Override
+-    public synchronized DatasetJobRecord.Status getResultStatus(JobId jobId, ResultSetId rsId)
+-            throws HyracksDataException {
+-        return getNonNullDatasetJobRecord(jobId).getStatus();
++    public synchronized Status getResultStatus(JobId jobId, ResultSetId rsId) throws HyracksDataException {
++        DatasetJobRecord djr;
++        while ((djr = getDatasetJobRecord(jobId)) == null) {
++            try {
++                wait();
++            } catch (InterruptedException e) {
++                throw new HyracksDataException(e);
++            }
++        }
++        return djr.getStatus();
+     }
+ 
+     @Override
+-    public synchronized Set<JobId> getJobIds() {
++    public Set<JobId> getJobIds() {
+         return jobResultLocations.keySet();
+     }
+ 
+     @Override
+-    public synchronized IDatasetStateRecord getState(JobId jobId) {
++    public IDatasetStateRecord getState(JobId jobId) {
+         return getDatasetJobRecord(jobId);
+     }
+ 
+     @Override
+-    public synchronized void deinitState(JobId jobId) {
+-        jobResultLocations.remove(jobId);
++    public void deinitState(JobId jobId) {
++        // See ASTERIXDB-1614 - DatasetDirectoryService.deinitState() fix intermittently fails
++        // jobResultLocations.remove(jobId);
+     }
+ 
+     @Override
+@@ -215,12 +218,12 @@ public class DatasetDirectoryService implements IDatasetDirectoryService {
+      *             TODO(madhusudancs): Think about caching (and still be stateless) instead of this ugly O(n) iterations for
+      *             every check. This already looks very expensive.
+      */
+-    private DatasetDirectoryRecord[] updatedRecords(JobId jobId, ResultSetId rsId,
+-            DatasetDirectoryRecord[] knownRecords) throws HyracksDataException {
++    private DatasetDirectoryRecord[] updatedRecords(JobId jobId, ResultSetId rsId, DatasetDirectoryRecord[] knownRecords)
++            throws HyracksDataException {
+         DatasetJobRecord djr = getNonNullDatasetJobRecord(jobId);
+ 
+-        if (djr.getStatus().getState() == State.FAILED) {
+-            List<Exception> caughtExceptions = djr.getStatus().getExceptions();
++        if (djr.getStatus() == Status.FAILED) {
++            List<Exception> caughtExceptions = djr.getExceptions();
+             if (caughtExceptions != null && !caughtExceptions.isEmpty()) {
+                 final Exception cause = caughtExceptions.get(caughtExceptions.size() - 1);
+                 if (cause instanceof HyracksDataException) {
+@@ -240,16 +243,6 @@ public class DatasetDirectoryService implements IDatasetDirectoryService {
+ 
+         return Arrays.equals(records, knownRecords) ? null : records;
+     }
+-
+-    public PrintWriter print(PrintWriter pw) {
+-        for (JobId jId : getJobIds()) {
+-            pw.print(jId.toString());
+-            pw.print(" - ");
+-            pw.println(String.valueOf(getDatasetJobRecord(jId)));
+-        }
+-        pw.flush();
+-        return pw;
+-    }
+ }
+ 
+ class JobResultInfo {
+@@ -289,11 +282,6 @@ class JobResultInfo {
+             }
+         }
+     }
+-
+-    @Override
+-    public String toString() {
+-        return record.toString();
+-    }
+ }
+ 
+ class Waiters extends HashMap<ResultSetId, Waiter> {

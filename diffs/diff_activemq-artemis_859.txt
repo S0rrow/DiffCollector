@@ -1,0 +1,32 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/transaction/impl/TransactionImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/transaction/impl/TransactionImpl.java
+index 8e22bbb5d0..95983b7b7b 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/transaction/impl/TransactionImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/transaction/impl/TransactionImpl.java
+@@ -357,27 +357,6 @@ public class TransactionImpl implements Transaction {
+       state = State.COMMITTED;
+    }
+ 
+-   @Override
+-   public void rollbackIfPossible() {
+-      synchronized (timeoutLock) {
+-         if (state == State.ROLLEDBACK) {
+-            // I don't think this could happen, but just in case
+-            logger.debug("TransactionImpl::rollbackIfPossible::" + this + " is being ignored");
+-            return;
+-         }
+-         if (state != State.PREPARED) {
+-            try {
+-               internalRollback(sorted);
+-            } catch (Exception e) {
+-               // nothing we can do beyond logging
+-               // no need to special handler here as this was not even supposed to happen at this point
+-               // even if it happenes this would be the exception of the exception, so we just log here
+-               logger.warn(e.getMessage(), e);
+-            }
+-         }
+-      }
+-   }
+-
+    @Override
+    public void rollback() throws Exception {
+       if (logger.isTraceEnabled()) {

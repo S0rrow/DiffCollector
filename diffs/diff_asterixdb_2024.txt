@@ -1,0 +1,54 @@
+diff --git a/hyracks/hyracks-control/hyracks-control-nc/src/main/java/edu/uci/ics/hyracks/control/nc/dataset/DatasetPartitionManager.java b/hyracks/hyracks-control/hyracks-control-nc/src/main/java/edu/uci/ics/hyracks/control/nc/dataset/DatasetPartitionManager.java
+index b4b9bfc197..9d9d5fce96 100644
+--- a/hyracks/hyracks-control/hyracks-control-nc/src/main/java/edu/uci/ics/hyracks/control/nc/dataset/DatasetPartitionManager.java
++++ b/hyracks/hyracks-control/hyracks-control-nc/src/main/java/edu/uci/ics/hyracks/control/nc/dataset/DatasetPartitionManager.java
+@@ -21,7 +21,6 @@ import java.util.concurrent.Executor;
+ import edu.uci.ics.hyracks.api.comm.IFrameWriter;
+ import edu.uci.ics.hyracks.api.context.IHyracksTaskContext;
+ import edu.uci.ics.hyracks.api.dataset.IDatasetPartitionManager;
+-import edu.uci.ics.hyracks.api.dataset.ResultSetId;
+ import edu.uci.ics.hyracks.api.exceptions.HyracksException;
+ import edu.uci.ics.hyracks.api.io.IWorkspaceFileFactory;
+ import edu.uci.ics.hyracks.api.job.JobId;
+@@ -50,13 +49,12 @@ public class DatasetPartitionManager implements IDatasetPartitionManager {
+     }
+ 
+     @Override
+-    public IFrameWriter createDatasetPartitionWriter(IHyracksTaskContext ctx, ResultSetId rsId, boolean orderedResult,
+-            byte[] serializedRecordDescriptor, int partition, int nPartitions) throws HyracksException {
++    public IFrameWriter createDatasetPartitionWriter(IHyracksTaskContext ctx, int partition, int nPartitions)
++            throws HyracksException {
+         DatasetPartitionWriter dpw = null;
+         JobId jobId = ctx.getJobletContext().getJobId();
+         try {
+-            ncs.getClusterController().registerResultPartitionLocation(jobId, rsId, orderedResult,
+-                    serializedRecordDescriptor, partition, nPartitions,
++            ncs.getClusterController().registerResultPartitionLocation(jobId, partition, nPartitions,
+                     ncs.getDatasetNetworkManager().getNetworkAddress());
+             dpw = new DatasetPartitionWriter(ctx, this, partition, executor);
+ 
+@@ -73,24 +71,6 @@ public class DatasetPartitionManager implements IDatasetPartitionManager {
+         return dpw;
+     }
+ 
+-    @Override
+-    public void reportPartitionWriteCompletion(JobId jobId, ResultSetId rsId, int partition) throws HyracksException {
+-        try {
+-            ncs.getClusterController().reportResultPartitionWriteCompletion(jobId, rsId, partition);
+-        } catch (Exception e) {
+-            throw new HyracksException(e);
+-        }
+-    }
+-
+-    @Override
+-    public void reportPartitionFailure(JobId jobId, ResultSetId rsId, int partition) throws HyracksException {
+-        try {
+-            ncs.getClusterController().reportResultPartitionFailure(jobId, rsId, partition);
+-        } catch (Exception e) {
+-            throw new HyracksException(e);
+-        }
+-    }
+-
+     @Override
+     public void initializeDatasetPartitionReader(JobId jobId, int partition, IFrameWriter writer)
+             throws HyracksException {

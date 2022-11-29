@@ -1,0 +1,565 @@
+diff --git a/src/main/java/org/apache/felix/blueprint/context/Parser.java b/src/main/java/org/apache/felix/blueprint/context/Parser.java
+index e44cd9015..d864b169d 100644
+--- a/src/main/java/org/apache/felix/blueprint/context/Parser.java
++++ b/src/main/java/org/apache/felix/blueprint/context/Parser.java
+@@ -19,7 +19,6 @@
+ package org.apache.felix.blueprint.context;
+ 
+ import java.io.InputStream;
+-import java.net.URI;
+ import java.net.URL;
+ import java.util.ArrayList;
+ import java.util.Collections;
+@@ -33,12 +32,17 @@ import java.util.Set;
+ import javax.xml.parsers.DocumentBuilder;
+ import javax.xml.parsers.DocumentBuilderFactory;
+ 
+-import org.apache.felix.blueprint.NamespaceHandlerRegistry;
++import org.w3c.dom.CharacterData;
++import org.w3c.dom.Comment;
++import org.w3c.dom.Document;
++import org.w3c.dom.Element;
++import org.w3c.dom.EntityReference;
++import org.w3c.dom.Node;
++import org.w3c.dom.NodeList;
++import org.w3c.dom.Attr;
++
+ import org.apache.felix.blueprint.namespace.ComponentDefinitionRegistryImpl;
+-import org.apache.felix.blueprint.namespace.ParserContextImpl;
+-import org.apache.felix.blueprint.reflect.ArrayValueImpl;
+-import org.apache.felix.blueprint.reflect.BindingListenerMetadataImpl;
+-import org.apache.felix.blueprint.reflect.CollectionBasedServiceReferenceComponentMetadataImpl;
++import org.apache.felix.blueprint.namespace.NamespaceHandlerRegistry;
+ import org.apache.felix.blueprint.reflect.ComponentValueImpl;
+ import org.apache.felix.blueprint.reflect.ListValueImpl;
+ import org.apache.felix.blueprint.reflect.LocalComponentMetadataImpl;
+@@ -53,12 +57,13 @@ import org.apache.felix.blueprint.reflect.ServiceReferenceComponentMetadataImpl;
+ import org.apache.felix.blueprint.reflect.SetValueImpl;
+ import org.apache.felix.blueprint.reflect.TypedStringValueImpl;
+ import org.apache.felix.blueprint.reflect.UnaryServiceReferenceComponentMetadataImpl;
++import org.apache.felix.blueprint.reflect.BindingListenerMetadataImpl;
++import org.apache.felix.blueprint.reflect.ComponentMetadataImpl;
++import org.apache.felix.blueprint.reflect.CollectionBasedServiceReferenceComponentMetadataImpl;
++import org.apache.felix.blueprint.reflect.ArrayValueImpl;
++import org.apache.felix.blueprint.convert.ConversionServiceImpl;
+ import org.osgi.service.blueprint.context.ComponentDefinitionException;
+-import org.osgi.service.blueprint.namespace.NamespaceHandler;
+-import org.osgi.service.blueprint.reflect.ArrayValue;
+-import org.osgi.service.blueprint.reflect.BindingListenerMetadata;
+-import org.osgi.service.blueprint.reflect.CollectionBasedServiceReferenceComponentMetadata;
+-import org.osgi.service.blueprint.reflect.ComponentMetadata;
++import org.osgi.service.blueprint.convert.ConversionService;
+ import org.osgi.service.blueprint.reflect.ListValue;
+ import org.osgi.service.blueprint.reflect.LocalComponentMetadata;
+ import org.osgi.service.blueprint.reflect.MapValue;
+@@ -69,15 +74,11 @@ import org.osgi.service.blueprint.reflect.ServiceExportComponentMetadata;
+ import org.osgi.service.blueprint.reflect.ServiceReferenceComponentMetadata;
+ import org.osgi.service.blueprint.reflect.SetValue;
+ import org.osgi.service.blueprint.reflect.Value;
+-import org.w3c.dom.Attr;
+-import org.w3c.dom.CharacterData;
+-import org.w3c.dom.Comment;
+-import org.w3c.dom.Document;
+-import org.w3c.dom.Element;
+-import org.w3c.dom.EntityReference;
+-import org.w3c.dom.NamedNodeMap;
+-import org.w3c.dom.Node;
+-import org.w3c.dom.NodeList;
++import org.osgi.service.blueprint.reflect.BindingListenerMetadata;
++import org.osgi.service.blueprint.reflect.ComponentMetadata;
++import org.osgi.service.blueprint.reflect.CollectionBasedServiceReferenceComponentMetadata;
++import org.osgi.service.blueprint.reflect.ArrayValue;
++import org.xml.sax.EntityResolver;
+ import org.xml.sax.InputSource;
+ 
+ /**
+@@ -179,7 +180,8 @@ public class Parser {
+ 
+     private DocumentBuilderFactory documentBuilderFactory;
+     private ComponentDefinitionRegistryImpl registry;
+-    private NamespaceHandlerRegistry namespaceHandlerRegistry;
++    private ConversionService conversionService;
++    private NamespaceHandlerRegistry namespaceHandlerRegistry;  
+     private int nameCounter;
+     private String defaultTimeout;
+     private String defaultAvailability;
+@@ -189,18 +191,15 @@ public class Parser {
+ 
+     public Parser() {
+         registry = new ComponentDefinitionRegistryImpl();
++        conversionService = new ConversionServiceImpl();
+         // TODO: Register conversionService, bundle, bundleContext, moduleContext in the registry
+     }
+ 
+-    public void setNamespaceHandlerRegistry(NamespaceHandlerRegistry namespaceHandlerRegistry) {
+-        this.namespaceHandlerRegistry = namespaceHandlerRegistry;
+-    }
+-    
+     public ComponentDefinitionRegistryImpl getRegistry() {
+         return registry;
+     }
+ 
+-    public void parse(List<URL> urls) throws Exception {
++    public void parse(URL[] urls) throws Exception {
+         List<Document> documents = new ArrayList<Document>();
+         // Load documents
+         for (URL url : urls) {
+@@ -266,22 +265,15 @@ public class Parser {
+         if (root.hasAttribute(DEFAULT_AVAILABILITY_ATTRIBUTE)) {
+             defaultAvailability = root.getAttribute(DEFAULT_AVAILABILITY_ATTRIBUTE);
+         }
+-        /*
+         // Parse custom attributes
+-        NamedNodeMap attributes = root.getAttributes();
+-        if (attributes != null) {
+-            for (int i = 0; i < attributes.getLength(); i++) {
+-                Node node = attributes.item(i);
+-                if (node instanceof Attr && 
+-                    node.getNamespaceURI() != null && 
+-                    !isBlueprintNamespace(node.getNamespaceURI())) {
+-                    decorateCustomNode(node, null);
+-                }
++        NodeList nl = root.getChildNodes();
++        for (int i = 0; i < nl.getLength(); i++) {
++            Node node = nl.item(i);
++            if (node instanceof Attr && !isBlueprintNamespace(node.getNamespaceURI())) {
++                decorateCustomNode(node, null);
+             }
+         }
+-        */
+         // Parse elements
+-        NodeList nl = root.getChildNodes();
+         for (int i = 0; i < nl.getLength(); i++) {
+             Node node = nl.item(i);
+             if (node instanceof Element) {
+@@ -292,10 +284,7 @@ public class Parser {
+                 } else if (isBlueprintCompendiumNamespace(namespaceUri)) {
+                     parseBlueprintCompendiumElement(element);
+                 } else {
+-                    ComponentMetadata component = parseCustomElement(element, null);
+-                    if (component != null) {
+-                        registry.registerComponentDefinition(component);
+-                    }
++                    parseCustomElement(element, null);
+                 }
+             }
+         }
+@@ -307,19 +296,24 @@ public class Parser {
+         } else if (nodeNameEquals(element, TYPE_CONVERTERS_ELEMENT)) {
+             parseTypeConverters(element);
+         } else if (nodeNameEquals(element, COMPONENT_ELEMENT)) {
+-            LocalComponentMetadata component = parseComponentMetadata(element);
++            LocalComponentMetadataImpl component = parseComponentMetadata(element);
++            generateBeanNameIfNeeded(component);
+             registry.registerComponentDefinition(component);
+         } else if (nodeNameEquals(element, SERVICE_ELEMENT)) {
+-            ServiceExportComponentMetadata service = parseService(element);
++            ServiceExportComponentMetadataImpl service = parseService(element);
++            generateBeanNameIfNeeded(service);
+             registry.registerComponentDefinition(service);
+         } else if (nodeNameEquals(element, REFERENCE_ELEMENT)) {
+-            ServiceReferenceComponentMetadata reference = parseUnaryReference(element);
++            ServiceReferenceComponentMetadataImpl reference = parseUnaryReference(element);
++            generateBeanNameIfNeeded(reference);
+             registry.registerComponentDefinition(reference);
+         } else if (nodeNameEquals(element, REFLIST_ELEMENT) ) {
+-            CollectionBasedServiceReferenceComponentMetadata references = parseReferenceCollection(element, List.class);
++            CollectionBasedServiceReferenceComponentMetadataImpl references = parseReferenceCollection(element);
++            generateBeanNameIfNeeded(references);
+             registry.registerComponentDefinition(references);
+         } else if (nodeNameEquals(element, REFSET_ELEMENT)) {
+-            CollectionBasedServiceReferenceComponentMetadata references = parseReferenceCollection(element, Set.class);
++            CollectionBasedServiceReferenceComponentMetadataImpl references = parseReferenceCollection(element);
++            generateBeanNameIfNeeded(references);
+             registry.registerComponentDefinition(references);
+         } else {
+             throw new ComponentDefinitionException("Unknown element " + element.getNodeName() + " in namespace " + BLUEPRINT_NAMESPACE);
+@@ -348,9 +342,11 @@ public class Parser {
+         }
+     }
+ 
+-    private LocalComponentMetadata parseComponentMetadata(Element element) {
++    private LocalComponentMetadataImpl parseComponentMetadata(Element element) {
+         LocalComponentMetadataImpl metadata = new LocalComponentMetadataImpl();
+-        metadata.setName(getName(element));
++        if (element.hasAttribute(ID_ATTRIBUTE)) {
++            metadata.setName(element.getAttribute(ID_ATTRIBUTE));
++        }
+         if (element.hasAttribute(CLASS_ATTRIBUTE)) {
+             metadata.setClassName(element.getAttribute(CLASS_ATTRIBUTE));
+         }
+@@ -371,7 +367,7 @@ public class Parser {
+             throw new ComponentDefinitionException("Attribute " + LAZY_INIT_ATTRIBUTE + " must be equals to " + BOOLEAN_DEFAULT + ", " + BOOLEAN_TRUE + " or " + BOOLEAN_FALSE);
+         }
+         if (element.hasAttribute(DEPENDS_ON_ATTRIBUTE)) {
+-            metadata.setExplicitDependencies(parseListAsSet(element.getAttribute(DEPENDS_ON_ATTRIBUTE)));
++            metadata.setDependsOn(element.getAttribute(DEPENDS_ON_ATTRIBUTE));
+         }
+         if (element.hasAttribute(INIT_METHOD_ATTRIBUTE)) {
+             metadata.setInitMethodName(element.getAttribute(INIT_METHOD_ATTRIBUTE));
+@@ -383,45 +379,45 @@ public class Parser {
+         } else {
+             metadata.setInitMethodName(defaultDestroyMethod);
+         }
+-
+-        // Parse elements
++        // Parse custom elements and attributes
+         int indexConstructor = 0;
+         NodeList nl = element.getChildNodes();
+         for (int i = 0; i < nl.getLength(); i++) {
+             Node node = nl.item(i);
+-            if (node instanceof Element) {
+-                Element e = (Element) node;
+-                if (isBlueprintNamespace(node.getNamespaceURI())) {                
++            if (isBlueprintNamespace(node.getNamespaceURI())) {
++                if (node instanceof Element) {
+                     if (nodeNameEquals(node, CONSTRUCTOR_ARG_ELEMENT)) {
+                         // TODO: all indexes attributes must be set or none according to the spec
++                        Element e = (Element) node;
+                         int index = e.hasAttribute(INDEX_ATTRIBUTE) ? Integer.parseInt(e.getAttribute(INDEX_ATTRIBUTE)) : indexConstructor;
+                         String type = e.hasAttribute(TYPE_ATTRIBUTE) ? e.getAttribute(TYPE_ATTRIBUTE) : null;
+                         Value value = parseValue(e, metadata);
+                         metadata.addConsuctorArg(new ParameterSpecificationImpl(value, type, index));
+                         indexConstructor++;
+                     } else if (nodeNameEquals(node, PROPERTY_ELEMENT)) {
++                        Element e = (Element) node;
+                         String name = e.hasAttribute(NAME_ATTRIBUTE) ? e.getAttribute(NAME_ATTRIBUTE) : null;
+                         Value value = parseValue(e, metadata);
+                         metadata.addProperty(new PropertyInjectionMetadataImpl(name, value));
+                     }
+                 }
++            } else {
++                if (node instanceof Element) {
++                    decorateCustomNode(node, metadata);
++                } else if (node instanceof Attr) {
++                    decorateCustomNode(node, metadata);
++                }
+             }
+         }
+-        
+-        ComponentMetadata m = metadata;
+-        
+-        // Parse custom attributes
+-        m = handleCustomAttributes(element.getAttributes(), m);
+-        
+-        // Parse custom elements;
+-        m = handleCustomElements(element, m);
+-        
+-        return (LocalComponentMetadata)m;
++        return metadata;
+     }
+ 
+-    private ServiceExportComponentMetadata parseService(Element element) {
++    private ServiceExportComponentMetadataImpl parseService(Element element) {
+         ServiceExportComponentMetadataImpl service = new ServiceExportComponentMetadataImpl();
+-        service.setName(getName(element));
++        // Parse attributes
++        if (element.hasAttribute(ID_ATTRIBUTE)) {
++            service.setName(element.getAttribute(ID_ATTRIBUTE));
++        }
+         if (element.hasAttribute(INTERFACE_ATTRIBUTE)) {
+             service.setInterfaceNames(Collections.singleton(element.getAttribute(INTERFACE_ATTRIBUTE)));
+         }
+@@ -429,7 +425,7 @@ public class Parser {
+             service.setExportedComponent(new ReferenceValueImpl(element.getAttribute(REF_ATTRIBUTE)));
+         }
+         if (element.hasAttribute(DEPENDS_ON_ATTRIBUTE)) {
+-            service.setExplicitDependencies(parseListAsSet(element.getAttribute(DEPENDS_ON_ATTRIBUTE)));
++            service.setDependsOn(element.getAttribute(DEPENDS_ON_ATTRIBUTE));
+         }
+         String autoExport = element.hasAttribute(AUTO_EXPORT_ATTRIBUTE) ? element.getAttribute(AUTO_EXPORT_ATTRIBUTE) : AUTO_EXPORT_DEFAULT;
+         if (AUTO_EXPORT_DISABLED.equals(autoExport)) {
+@@ -471,6 +467,11 @@ public class Parser {
+                         }
+                         service.setExportedComponent(new ComponentValueImpl(parseComponentMetadata(e)));
+                     }
++                } else {
++                    if (service.getExportedComponent() != null) {
++                        throw new ComponentDefinitionException("Only one of " + REF_ATTRIBUTE + " attribute, " + COMPONENT_ELEMENT + " element or custom inner element can be set");
++                    }
++                    service.setExportedComponent(new ComponentValueImpl(parseCustomElement(e, service)));
+                 }
+             }
+         }
+@@ -478,13 +479,7 @@ public class Parser {
+         if (service.getExportedComponent() == null) {
+             throw new ComponentDefinitionException("One of " + REF_ATTRIBUTE + " attribute, " + COMPONENT_ELEMENT + " element or custom inner element must be set");
+         }
+-        
+-        ComponentMetadata s = service;
+-        
+-        // Parse custom elements;
+-        s = handleCustomElements(element, s);
+-        
+-        return (ServiceExportComponentMetadata)s;
++        return service;
+     }
+ 
+     private ArrayValue parseArray(Element element, ComponentMetadata enclosingComponent) {
+@@ -639,13 +634,16 @@ public class Parser {
+                     }
+                     listenerComponent = new ReferenceValueImpl(component);
+                 } else if (nodeNameEquals(e, COMPONENT_ELEMENT)) {
+-                    LocalComponentMetadata component = parseComponentMetadata(e);
++                    LocalComponentMetadataImpl component = parseComponentMetadata(e);
++                    generateBeanNameIfNeeded(component);
+                     listenerComponent = new ComponentValueImpl(component);
+                 } else if (nodeNameEquals(e, REFERENCE_ELEMENT)) {
+-                    ServiceReferenceComponentMetadata reference = parseUnaryReference(e);
++                    ServiceReferenceComponentMetadataImpl reference = parseUnaryReference(e);
++                    generateBeanNameIfNeeded(reference);
+                     listenerComponent = new ComponentValueImpl(reference);
+                 } else if (nodeNameEquals(e, SERVICE_ELEMENT)) {
+-                    ServiceExportComponentMetadata service = parseService(e);
++                    ServiceExportComponentMetadataImpl service = parseService(e);
++                    generateBeanNameIfNeeded(service);
+                     listenerComponent = new ComponentValueImpl(service);
+                 }
+             }
+@@ -668,9 +666,8 @@ public class Parser {
+         return listener;
+     }
+ 
+-    private ServiceReferenceComponentMetadata parseUnaryReference(Element element) {
++    private ServiceReferenceComponentMetadataImpl parseUnaryReference(Element element) {
+         UnaryServiceReferenceComponentMetadataImpl reference = new UnaryServiceReferenceComponentMetadataImpl();
+-        reference.setName(getName(element));
+         parseReference(element, reference);
+         String timeout = element.hasAttribute(TIMEOUT_ATTRIBUTE) ? element.getAttribute(TIMEOUT_ATTRIBUTE) : this.defaultTimeout;
+         try {
+@@ -678,20 +675,16 @@ public class Parser {
+         } catch (NumberFormatException e) {
+             throw new ComponentDefinitionException("Attribute " + TIMEOUT_ATTRIBUTE + " must be a valid long (was: " + timeout + ")");
+         }
+-        
+-        ComponentMetadata r = reference;
+-        
+-        // Parse custom elements;
+-        r = handleCustomElements(element, r);
+-        
+-        return (ServiceReferenceComponentMetadata)r;
++        return reference;
+     }
+ 
+-    private CollectionBasedServiceReferenceComponentMetadata parseReferenceCollection(Element element, Class collectionType) {
++    private CollectionBasedServiceReferenceComponentMetadataImpl parseReferenceCollection(Element element) {
+         CollectionBasedServiceReferenceComponentMetadataImpl references = new CollectionBasedServiceReferenceComponentMetadataImpl();
+-        references.setName(getName(element));
+-        references.setCollectionType(collectionType);
+-
++        if (nodeNameEquals(element, REFLIST_ELEMENT)) {
++            references.setCollectionType(List.class);
++        } else /*if (nodeNameEquals(element, REFSET_ELEMENT))*/ {
++            references.setCollectionType(Set.class);
++        }
+         if (element.hasAttribute(COMPARATOR_REF_ATTRIBUTE)) {
+             references.setComparator(new ReferenceValueImpl(element.getAttribute(COMPARATOR_REF_ATTRIBUTE)));
+         }
+@@ -725,13 +718,7 @@ public class Parser {
+                 }
+             }
+         }
+-        
+-        ComponentMetadata r = references;
+-        
+-        // Parse custom elements;
+-        r = handleCustomElements(element, r);
+-        
+-        return (CollectionBasedServiceReferenceComponentMetadata)r;
++        return references;
+     }
+ 
+     private void parseComparator(Element element, CollectionBasedServiceReferenceComponentMetadataImpl references) {
+@@ -749,13 +736,16 @@ public class Parser {
+                         }
+                         comparator = new ReferenceValueImpl(component);
+                     } else if (nodeNameEquals(e, COMPONENT_ELEMENT)) {
+-                        LocalComponentMetadata component = parseComponentMetadata(e);
++                        LocalComponentMetadataImpl component = parseComponentMetadata(e);
++                        generateBeanNameIfNeeded(component);
+                         comparator = new ComponentValueImpl(component);
+                     } else if (nodeNameEquals(e, REFERENCE_ELEMENT)) {
+-                        ServiceReferenceComponentMetadata reference = parseUnaryReference(e);
++                        ServiceReferenceComponentMetadataImpl reference = parseUnaryReference(e);
++                        generateBeanNameIfNeeded(reference);
+                         comparator = new ComponentValueImpl(reference);
+                     } else if (nodeNameEquals(e, SERVICE_ELEMENT)) {
+-                        ServiceExportComponentMetadata service = parseService(e);
++                        ServiceExportComponentMetadataImpl service = parseService(e);
++                        generateBeanNameIfNeeded(service);
+                         comparator = new ComponentValueImpl(service);
+                     }
+                 } else {
+@@ -772,6 +762,9 @@ public class Parser {
+ 
+     private void parseReference(Element element, ServiceReferenceComponentMetadataImpl reference) {
+         // Parse attributes
++        if (element.hasAttribute(ID_ATTRIBUTE)) {
++            reference.setName(element.getAttribute(ID_ATTRIBUTE));
++        }
+         if (element.hasAttribute(INTERFACE_ATTRIBUTE)) {
+             reference.setInterfaceNames(Collections.singleton(element.getAttribute(INTERFACE_ATTRIBUTE)));
+         }
+@@ -783,9 +776,9 @@ public class Parser {
+         }
+         String availability = element.hasAttribute(AVAILABILITY_ATTRIBUTE) ? element.getAttribute(AVAILABILITY_ATTRIBUTE) : defaultAvailability;
+         if (AVAILABILITY_MANDATORY.equals(availability)) {
+-            reference.setServiceAvailabilitySpecification(ServiceReferenceComponentMetadata.MANDATORY_AVAILABILITY);
++            reference.setServiceAvailabilitySpecification(ServiceReferenceComponentMetadata.AVAILABILITY_MANDATORY);
+         } else if (AVAILABILITY_OPTIONAL.equals(availability)) {
+-            reference.setServiceAvailabilitySpecification(ServiceReferenceComponentMetadata.OPTIONAL_AVAILABILITY);
++            reference.setServiceAvailabilitySpecification(ServiceReferenceComponentMetadata.AVAILABILITY_OPTIONAL);
+         } else {
+             throw new ComponentDefinitionException("Illegal value for " + AVAILABILITY_ATTRIBUTE + " attribute: " + availability);
+         }
+@@ -818,6 +811,7 @@ public class Parser {
+         listener.setBindMethodName(element.getAttribute(BIND_METHOD_ATTRIBUTE));
+         listener.setUnbindMethodName(element.getAttribute(UNBIND_METHOD_ATTRIBUTE));
+         // Parse elements
++        Value listenerComponent = null;
+         NodeList nl = element.getChildNodes();
+         for (int i = 0; i < nl.getLength(); i++) {
+             Node node = nl.item(i);
+@@ -837,19 +831,22 @@ public class Parser {
+                         if (listener.getListenerComponent() != null) {
+                             throw new ComponentDefinitionException("Attribute " + REF_ATTRIBUTE + " can not be set in addition to a child element");
+                         }
+-                        LocalComponentMetadata component = parseComponentMetadata(e);
++                        LocalComponentMetadataImpl component = parseComponentMetadata(e);
++                        generateBeanNameIfNeeded(component);
+                         listener.setListenerComponent(new ComponentValueImpl(component));
+                     } else if (nodeNameEquals(e, REFERENCE_ELEMENT)) {
+                         if (listener.getListenerComponent() != null) {
+                             throw new ComponentDefinitionException("Attribute " + REF_ATTRIBUTE + " can not be set in addition to a child element");
+                         }
+-                        ServiceReferenceComponentMetadata reference = parseUnaryReference(e);
++                        ServiceReferenceComponentMetadataImpl reference = parseUnaryReference(e);
++                        generateBeanNameIfNeeded(reference);
+                         listener.setListenerComponent(new ComponentValueImpl(reference));
+                     } else if (nodeNameEquals(e, SERVICE_ELEMENT)) {
+                         if (listener.getListenerComponent() != null) {
+                             throw new ComponentDefinitionException("Attribute " + REF_ATTRIBUTE + " can not be set in addition to a child element");
+                         }
+-                        ServiceExportComponentMetadata service = parseService(e);
++                        ServiceExportComponentMetadataImpl service = parseService(e);
++                        generateBeanNameIfNeeded(service);
+                         listener.setListenerComponent(new ComponentValueImpl(service));
+                     }
+                 } else {
+@@ -892,14 +889,13 @@ public class Parser {
+             for (int i = 0; i < nl.getLength(); i++) {
+                 Node node = nl.item(i);
+                 if (node instanceof Element) {
+-                    Element e = (Element) node;
+                     if (isBlueprintNamespace(node.getNamespaceURI())) {
+                         // Ignore description elements
+                         if (!nodeNameEquals(node, DESCRIPTION_ELEMENT)) {
+-                            return parseValueElement(e, enclosingComponent);
++                            return parseValueElement((Element) node, enclosingComponent);
+                         }
+                     } else {
+-                        ComponentMetadata innerComponent = parseCustomElement(e, enclosingComponent);
++                        ComponentMetadata innerComponent = parseCustomElement((Element) node, enclosingComponent);
+                         return new ComponentValueImpl(innerComponent);
+                     }
+                 }
+@@ -947,58 +943,15 @@ public class Parser {
+         }
+     }
+ 
+-    private ComponentMetadata handleCustomAttributes(NamedNodeMap attributes, ComponentMetadata enclosingComponent) {
+-        if (attributes != null) {
+-            for (int i = 0; i < attributes.getLength(); i++) {
+-                Node node = attributes.item(i);
+-                if (node instanceof Attr && 
+-                    node.getNamespaceURI() != null && 
+-                    !isBlueprintNamespace(node.getNamespaceURI())) {
+-                    enclosingComponent = decorateCustomNode(node, enclosingComponent);
+-                }
+-            }
+-        }
+-        return enclosingComponent;
+-    }
+-    
+-    private ComponentMetadata handleCustomElements(Element element, ComponentMetadata enclosingComponent) {
+-        NodeList nl = element.getChildNodes();
+-        for (int i = 0; i < nl.getLength(); i++) {
+-            Node node = nl.item(i);
+-            if (node instanceof Element) {
+-                Element e = (Element) node;
+-                if (!isBlueprintNamespace(node.getNamespaceURI())) {
+-                    enclosingComponent = decorateCustomNode(node, enclosingComponent);
+-                }
+-            }
+-        }
+-        return enclosingComponent;
+-    }
+-    
+-    private ComponentMetadata decorateCustomNode(Node node, ComponentMetadata enclosingComponent) {
+-        NamespaceHandler handler = getNamespaceHandler(node);
+-        ParserContextImpl context = new ParserContextImpl(registry, enclosingComponent, node);
+-        return handler.decorate(node, enclosingComponent, context);
++    private void decorateCustomNode(Node node, ComponentMetadata enclosingComponent) {
++        // TODO: decorate custom nodes
+     }
+ 
+     private ComponentMetadata parseCustomElement(Element element, ComponentMetadata enclosingComponent) {
+-        NamespaceHandler handler = getNamespaceHandler(element);
+-        ParserContextImpl context = new ParserContextImpl(registry, enclosingComponent, element);
+-        return handler.parse(element, context);
++        // TODO: parse custom elements
++        throw new ComponentDefinitionException("Unsupported custom element");
+     }
+ 
+-    private NamespaceHandler getNamespaceHandler(Node node) {
+-        if (namespaceHandlerRegistry == null) {
+-            throw new ComponentDefinitionException("Unsupported node (namespace handler registry is not set): " + node);
+-        }
+-        URI ns = URI.create(node.getNamespaceURI());
+-        NamespaceHandler handler = this.namespaceHandlerRegistry.getNamespaceHandler(ns);
+-        if (handler == null) {
+-            throw new ComponentDefinitionException("Unsupported node namespace: " + node.getNamespaceURI());
+-        }
+-        return handler;
+-    }
+-    
+     private boolean isBlueprintNamespace(String ns) {
+         return BLUEPRINT_NAMESPACE.equals(ns);
+     }
+@@ -1014,31 +967,17 @@ public class Parser {
+         }
+         return documentBuilderFactory;
+     }
+-    
+-    private String getName(Element element) {
+-        if (element.hasAttribute(ID_ATTRIBUTE)) {
+-            return element.getAttribute(ID_ATTRIBUTE);
+-        } else {
+-            return "component-" + ++nameCounter;
++
++    private void generateBeanNameIfNeeded(ComponentMetadataImpl component) {
++        if (component.getName() == null) {
++            component.setName("component-" + ++nameCounter);
+         }
+     }
+-    
++
+     private static boolean nodeNameEquals(Node node, String name) {
+         return (name.equals(node.getNodeName()) || name.equals(node.getLocalName()));
+     }
+ 
+-    private static Set<String> parseListAsSet(String list) {
+-        String[] items = list.split(",");
+-        Set<String> set = new HashSet<String>();
+-        for (String item : items) {
+-            item = item.trim();
+-            if (item.length() > 0) {
+-                set.add(item);
+-            }
+-        }
+-        return set;                   
+-    }
+-
+     private static String getTextValue(Element element) {
+         StringBuffer value = new StringBuffer();
+         NodeList nl = element.getChildNodes();

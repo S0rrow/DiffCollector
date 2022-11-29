@@ -1,0 +1,342 @@
+diff --git a/src/main/java/org/apache/aries/web/converter/impl/WarToWabConverterImpl.java b/src/main/java/org/apache/aries/web/converter/impl/WarToWabConverterImpl.java
+index 6c01f5524..c5dcd21d8 100644
+--- a/src/main/java/org/apache/aries/web/converter/impl/WarToWabConverterImpl.java
++++ b/src/main/java/org/apache/aries/web/converter/impl/WarToWabConverterImpl.java
+@@ -19,6 +19,7 @@
+ package org.apache.aries.web.converter.impl;
+ 
+ import static org.apache.aries.web.converter.WarToWabConverter.WEB_CONTEXT_PATH;
++import static org.apache.aries.web.converter.WarToWabConverter.WEB_JSP_EXTRACT_LOCATION;
+ 
+ import java.io.ByteArrayInputStream;
+ import java.io.ByteArrayOutputStream;
+@@ -28,10 +29,10 @@ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.HashMap;
+ import java.util.HashSet;
+-import java.util.List;
+ import java.util.Map;
+ import java.util.Properties;
+ import java.util.Set;
++import java.util.StringTokenizer;
+ import java.util.jar.Attributes;
+ import java.util.jar.JarInputStream;
+ import java.util.jar.JarOutputStream;
+@@ -47,7 +48,7 @@ import org.osgi.framework.Constants;
+ public class WarToWabConverterImpl {
+   private static final String DEFAULT_BUNDLE_VERSION = "1.0";
+   private static final String DEFAULT_BUNDLE_MANIFESTVERSION = "2";
+-  private static final String INITIAL_CLASSPATH_ENTRY = "WEB-INF/classes";
++  private static final String INITIAL_CLASSPATH_ENTRY = "WEB-INF/classes/";
+   private static final String CLASSPATH_LIB_PREFIX = "WEB-INF/lib/";
+   private static final String DEFAULT_IMPORT_PACKAGE_LIST = "javax.servlet;version=2.5,"
+       + "javax.servlet.http;version=2.5,"
+@@ -56,6 +57,9 @@ public class WarToWabConverterImpl {
+       + "javax.servlet.jsp.el;version=2.1,"
+       + "javax.servlet.jsp.tagext;version=2.1";
+ 
++  private static final String DEFAULT_WEB_CONTEXT_PATH = "/";
++  private static final String DEFAULT_WEB_JSP_EXTRACT_LOCATION = "/";
++
+   private Properties properties;
+ 
+   // InputStream for the new WAB file
+@@ -88,14 +92,11 @@ public class WarToWabConverterImpl {
+ 
+     try {
+       jarInput = new JarInputStream(input.getInputStream());
++      scanForDependencies(jarInput);
++
++      // Add the new properties to the manifest byte stream
+       Manifest manifest = jarInput.getManifest();
+-      if (isBundle(manifest)) {
+-          wabManifest = updateBundleManifest(manifest);
+-      } else {
+-          scanForDependencies(jarInput);
+-          // Add the new properties to the manifest byte stream
+-          wabManifest = updateManifest(manifest);
+-      }
++      wabManifest = updateManifest(manifest);
+     } 
+     finally {
+       try { if (jarInput != null) jarInput.close(); } catch (IOException e) { e.printStackTrace(); }
+@@ -128,18 +129,6 @@ public class WarToWabConverterImpl {
+     wabFile = output.toByteArray();
+   }
+ 
+-  private boolean isBundle(Manifest manifest)  {
+-      if (manifest == null) {
+-          return false;          
+-      }
+-      Attributes attributes = manifest.getMainAttributes();
+-      // TODO: need to check for other headers too
+-      if (attributes.getValue(Constants.BUNDLE_SYMBOLICNAME) != null) {
+-          return true;
+-      }
+-      return false;
+-  }
+-  
+   private void scanRecursive(final JarInputStream jarInput, boolean topLevel) throws IOException 
+   {
+     ZipEntry entry;
+@@ -201,36 +190,6 @@ public class WarToWabConverterImpl {
+         importPackages.remove(s);
+   }
+ 
+-  protected Manifest updateBundleManifest(Manifest manifest) throws IOException {
+-      String webCPath = properties.getProperty(WEB_CONTEXT_PATH);
+-      if (webCPath == null) {
+-          webCPath = manifest.getMainAttributes().getValue(WEB_CONTEXT_PATH);
+-      }
+-      if (webCPath == null) {
+-          throw new IOException("Must specify " + WEB_CONTEXT_PATH + " parameter. The " + 
+-                                WEB_CONTEXT_PATH + " header is not defined in the source bundle.");
+-      } else {
+-          webCPath = addSlash(webCPath);
+-          manifest.getMainAttributes().put(new Attributes.Name(WEB_CONTEXT_PATH), webCPath);
+-      }
+-      
+-      // converter is not allowed to specify and override the following properties
+-      // when source is already a bundle
+-      checkParameter(Constants.BUNDLE_VERSION);
+-      checkParameter(Constants.BUNDLE_MANIFESTVERSION);
+-      checkParameter(Constants.BUNDLE_SYMBOLICNAME);
+-      checkParameter(Constants.IMPORT_PACKAGE);
+-      checkParameter(Constants.BUNDLE_CLASSPATH);
+-              
+-      return manifest;
+-  }
+-  
+-  private void checkParameter(String parameter) throws IOException {
+-      if (properties.containsKey(parameter)) {
+-          throw new IOException("Cannot override " + parameter + " parameter when converting a bundle");
+-      }
+-  }
+-  
+   protected Manifest updateManifest(Manifest manifest) throws IOException
+   {
+     // If for some reason no manifest was generated, we start our own so that we don't null pointer later on
+@@ -240,16 +199,6 @@ public class WarToWabConverterImpl {
+     }
+     
+     // Compare the manifest and the supplied properties
+-    
+-    //
+-    // Web-ContextPath
+-    //
+-
+-    String webCPath = properties.getProperty(WEB_CONTEXT_PATH);
+-    if (webCPath == null) {
+-        throw new IOException(WEB_CONTEXT_PATH + " parameter is required.");
+-    }
+-    properties.put(WEB_CONTEXT_PATH, addSlash(webCPath));  
+ 
+     //
+     // Bundle-Version
+@@ -266,7 +215,8 @@ public class WarToWabConverterImpl {
+ 
+     if (manifest.getMainAttributes().getValue(Constants.BUNDLE_MANIFESTVERSION) == null
+         && !properties.containsKey(Constants.BUNDLE_MANIFESTVERSION)) {
+-      properties.put(Constants.BUNDLE_MANIFESTVERSION, DEFAULT_BUNDLE_MANIFESTVERSION);
++      properties.put(Constants.BUNDLE_MANIFESTVERSION,
++          DEFAULT_BUNDLE_MANIFESTVERSION);
+     }
+ 
+     //
+@@ -275,7 +225,8 @@ public class WarToWabConverterImpl {
+ 
+     if (manifest.getMainAttributes().getValue(Constants.BUNDLE_SYMBOLICNAME) == null
+         && !properties.containsKey(Constants.BUNDLE_SYMBOLICNAME)) {
+-      properties.put(Constants.BUNDLE_SYMBOLICNAME, warName + "_" + manifest.hashCode());
++      properties.put(Constants.BUNDLE_SYMBOLICNAME, warName + "_"
++          + manifest.hashCode());
+     }
+ 
+     // 
+@@ -285,17 +236,19 @@ public class WarToWabConverterImpl {
+     ArrayList<String> classpath = new ArrayList<String>();
+ 
+     // Set initial entry into classpath
+-    classpath.add(INITIAL_CLASSPATH_ENTRY);
++    classpath.add(0, INITIAL_CLASSPATH_ENTRY);
+ 
+     // Add any files from the WEB-INF/lib directory + their dependencies
+     classpath.addAll(classPath);
+     
+     // Get the list from the URL and add to classpath (removing duplicates)
+-    mergePathList(properties.getProperty(Constants.BUNDLE_CLASSPATH), classpath, ",");
++    mergePathList(properties.getProperty(Constants.BUNDLE_CLASSPATH),
++        classpath, ",");
+ 
+     // Get the existing list from the manifest file and add to classpath
+     // (removing duplicates)
+-    mergePathList(manifest.getMainAttributes().getValue(Constants.BUNDLE_CLASSPATH), classpath, ",");
++    mergePathList(manifest.getMainAttributes().getValue(
++        Constants.BUNDLE_CLASSPATH), classpath, ",");
+ 
+     // Construct the classpath string and set it into the properties
+     StringBuffer classPathValue = new StringBuffer();
+@@ -304,9 +257,9 @@ public class WarToWabConverterImpl {
+       classPathValue.append(entry);
+     }
+ 
+-    if (!classpath.isEmpty()) {
+-      properties.put(Constants.BUNDLE_CLASSPATH, classPathValue.toString().substring(1));
+-    }
++    if (!classpath.isEmpty())
++      properties.put(Constants.BUNDLE_CLASSPATH, classPathValue.toString()
++          .substring(1));
+ 
+     ArrayList<String> packages = new ArrayList<String>() {
+       @Override
+@@ -338,13 +291,15 @@ public class WarToWabConverterImpl {
+     // Import-Package
+     //
+     packages.clear();
+-    
++
+     // Get the list from the URL and add to classpath (removing duplicates)
+-    mergePathList(properties.getProperty(Constants.IMPORT_PACKAGE), packages, ",");
++    mergePathList(properties.getProperty(Constants.IMPORT_PACKAGE), packages,
++        ",");
+ 
+     // Get the existing list from the manifest file and add to classpath
+     // (removing duplicates)
+-    mergePathList(manifest.getMainAttributes().getValue(Constants.IMPORT_PACKAGE), packages, ",");
++    mergePathList(manifest.getMainAttributes().getValue(
++        Constants.IMPORT_PACKAGE), packages, ",");
+ 
+     // Add the default set of packages
+     mergePathList(DEFAULT_IMPORT_PACKAGE_LIST, packages, ",");
+@@ -368,89 +323,58 @@ public class WarToWabConverterImpl {
+       importValues.append(",");
+       importValues.append(entry);
+     }
+-    if (!packages.isEmpty()) {
+-      properties.put(Constants.IMPORT_PACKAGE, importValues.toString().substring(1));
++    if (!packages.isEmpty())
++      properties.put(Constants.IMPORT_PACKAGE, importValues.toString()
++          .substring(1));
++
++    //
++    // Web-ContextPath
++    //
++
++    String webCPath = properties.getProperty(WEB_CONTEXT_PATH);
++    if (webCPath == null) {
++        webCPath = manifest.getMainAttributes().getValue(WEB_CONTEXT_PATH);
++    }
++    if (webCPath == null) {
++        properties.put(WEB_CONTEXT_PATH, DEFAULT_WEB_CONTEXT_PATH);
++    } else {
++        // always ensure context path starts with slash
++        if (!webCPath.startsWith("/")) {
++            webCPath = "/" + webCPath;
++        }
++        properties.put(WEB_CONTEXT_PATH, webCPath);
+     }
+-     
+-    // Take the properties map and add them to the manifest file
+-    for (Map.Entry<Object, Object> entry : properties.entrySet()) {
+-        String key = entry.getKey().toString();
+-        String value = entry.getValue().toString();
+-        manifest.getMainAttributes().put(new Attributes.Name(key), value);
++
++    //
++    // Web-JSPExtractLocation
++    //
++
++    if (manifest.getMainAttributes().getValue(WEB_JSP_EXTRACT_LOCATION) == null
++        && !properties.containsKey(WEB_JSP_EXTRACT_LOCATION)) {
++      properties
++          .put(WEB_JSP_EXTRACT_LOCATION, DEFAULT_WEB_JSP_EXTRACT_LOCATION);
+     }
++
++    // Take the properties map and add them to the manifest file
++    for (Object s : properties.keySet())
++      manifest.getMainAttributes().put(new Attributes.Name((String) s), properties.get(s));
+     
+     return manifest;
+   }
+ 
+-  private static String addSlash(String contextPath) {
+-      if (!contextPath.startsWith("/")) {
+-          contextPath = "/" + contextPath;
+-      }
+-      return contextPath;
+-  }
+-  
+   // pathlist = A "delim" delimitted list of path entries
+-  private static void mergePathList(String pathlist, ArrayList<String> paths, String delim) {
+-      if (pathlist != null) {
+-          List<String> tokens = parseDelimitedString(pathlist, delim, true);
+-          for (String token : tokens) {
+-              if (!paths.contains(token)) {
+-                  paths.add(token);
+-              }
+-          }
++  public static void mergePathList(String pathlist, ArrayList<String> classpath,
++      String delim) {
++    if (pathlist != null) {
++      StringTokenizer tok = new StringTokenizer(pathlist, delim);
++      while (tok.hasMoreTokens()) {
++        String token = tok.nextToken().trim();
++        if (!classpath.contains(token))
++          classpath.add(token);
+       }
++    }
+   }
+-  
+-  private static List<String> parseDelimitedString(String value, String delim, boolean includeQuotes) {   
+-      if (value == null) {       
+-          value = "";
+-      }
+ 
+-      List<String> list = new ArrayList<String>();
+-
+-      int CHAR = 1;
+-      int DELIMITER = 2;
+-      int STARTQUOTE = 4;
+-      int ENDQUOTE = 8;
+-
+-      StringBuffer sb = new StringBuffer();
+-
+-      int expecting = (CHAR | DELIMITER | STARTQUOTE);
+-
+-      for (int i = 0; i < value.length(); i++) {        
+-          char c = value.charAt(i);
+-
+-          boolean isDelimiter = (delim.indexOf(c) >= 0);
+-          boolean isQuote = (c == '"');
+-
+-          if (isDelimiter && ((expecting & DELIMITER) > 0)) {            
+-              list.add(sb.toString().trim());
+-              sb.delete(0, sb.length());
+-              expecting = (CHAR | DELIMITER | STARTQUOTE);
+-          } else if (isQuote && ((expecting & STARTQUOTE) > 0)) { 
+-              if (includeQuotes) {
+-                  sb.append(c);
+-              }
+-              expecting = CHAR | ENDQUOTE;
+-          } else if (isQuote && ((expecting & ENDQUOTE) > 0)) {    
+-              if (includeQuotes) {
+-                  sb.append(c);
+-              }
+-              expecting = (CHAR | STARTQUOTE | DELIMITER);
+-          } else if ((expecting & CHAR) > 0) {            
+-              sb.append(c);
+-          } else {
+-              throw new IllegalArgumentException("Invalid delimited string: " + value);
+-          }
+-      }
+-
+-      if (sb.length() > 0) {        
+-          list.add(sb.toString().trim());
+-      }
+-
+-      return list;
+-  }
+-  
+   public InputStream getWAB() throws IOException {
+     ensureConverted();
+     return new ByteArrayInputStream(wabFile);

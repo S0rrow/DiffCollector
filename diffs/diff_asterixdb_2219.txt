@@ -1,0 +1,20 @@
+diff --git a/asterixdb/asterix-metadata/src/main/java/org/apache/asterix/metadata/utils/IndexUtil.java b/asterixdb/asterix-metadata/src/main/java/org/apache/asterix/metadata/utils/IndexUtil.java
+index 411f866143..9e55a9733a 100644
+--- a/asterixdb/asterix-metadata/src/main/java/org/apache/asterix/metadata/utils/IndexUtil.java
++++ b/asterixdb/asterix-metadata/src/main/java/org/apache/asterix/metadata/utils/IndexUtil.java
+@@ -103,14 +103,7 @@ public class IndexUtil {
+             Dataset dataset) throws AlgebricksException {
+         SecondaryIndexOperationsHelper secondaryIndexHelper = SecondaryIndexOperationsHelper
+                 .createIndexOperationsHelper(dataset, index, metadataProvider, physicalOptimizationConfig);
+-        return secondaryIndexHelper.buildDropJobSpec(false);
+-    }
+-
+-    public static JobSpecification buildDropIndexJobSpec(Index index, MetadataProvider metadataProvider,
+-            Dataset dataset, boolean failSilently) throws AlgebricksException {
+-        SecondaryIndexOperationsHelper secondaryIndexHelper = SecondaryIndexOperationsHelper
+-                .createIndexOperationsHelper(dataset, index, metadataProvider, physicalOptimizationConfig);
+-        return secondaryIndexHelper.buildDropJobSpec(failSilently);
++        return secondaryIndexHelper.buildDropJobSpec();
+     }
+ 
+     public static JobSpecification buildSecondaryIndexCreationJobSpec(Dataset dataset, Index index,

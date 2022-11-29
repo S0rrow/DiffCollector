@@ -1,0 +1,79 @@
+diff --git a/webapp/src/main/java/org/apache/atlas/web/resources/AdminResource.java b/webapp/src/main/java/org/apache/atlas/web/resources/AdminResource.java
+index 3a46068e5..606800770 100755
+--- a/webapp/src/main/java/org/apache/atlas/web/resources/AdminResource.java
++++ b/webapp/src/main/java/org/apache/atlas/web/resources/AdminResource.java
+@@ -18,19 +18,7 @@
+ 
+ package org.apache.atlas.web.resources;
+ 
+-import java.util.Collection;
+-import java.util.HashSet;
+-import java.util.Set;
+-
+-import javax.inject.Singleton;
+-import javax.ws.rs.GET;
+-import javax.ws.rs.Path;
+-import javax.ws.rs.Produces;
+-import javax.ws.rs.WebApplicationException;
+-import javax.ws.rs.core.MediaType;
+-import javax.ws.rs.core.Response;
+-
+-import org.apache.atlas.AtlasClient;
++import com.google.inject.Inject;
+ import org.apache.atlas.web.service.ServiceState;
+ import org.apache.atlas.web.util.Servlets;
+ import org.apache.commons.configuration.ConfigurationException;
+@@ -38,11 +26,14 @@ import org.apache.commons.configuration.PropertiesConfiguration;
+ import org.apache.commons.lang.StringUtils;
+ import org.codehaus.jettison.json.JSONException;
+ import org.codehaus.jettison.json.JSONObject;
+-import org.springframework.security.core.Authentication;
+-import org.springframework.security.core.GrantedAuthority;
+-import org.springframework.security.core.context.SecurityContextHolder;
+ 
+-import com.google.inject.Inject;
++import javax.inject.Singleton;
++import javax.ws.rs.GET;
++import javax.ws.rs.Path;
++import javax.ws.rs.Produces;
++import javax.ws.rs.WebApplicationException;
++import javax.ws.rs.core.MediaType;
++import javax.ws.rs.core.Response;
+ 
+ /**
+  * Jersey Resource for admin operations.
+@@ -122,33 +113,7 @@ public class AdminResource {
+     public Response getStatus() {
+         JSONObject responseData = new JSONObject();
+         try {
+-            responseData.put(AtlasClient.STATUS, serviceState.getState().toString());
+-            Response response = Response.ok(responseData).build();
+-            return response;
+-        } catch (JSONException e) {
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+-        }
+-    }
+-    
+-    @GET
+-    @Path("session")
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response getUserProfile() {
+-        JSONObject responseData = new JSONObject();
+-        try {
+-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+-            String userName = null;
+-            Set<String> groups = new HashSet<String>();
+-            if (auth != null) {
+-                userName = auth.getName();
+-                Collection<? extends GrantedAuthority> authorities = auth.getAuthorities();
+-                for (GrantedAuthority c : authorities) {
+-                    groups.add(c.getAuthority());
+-                }
+-            } 
+-            
+-            responseData.put("userName", userName);
+-            responseData.put("groups", groups);
++            responseData.put("Status", serviceState.getState().toString());
+             Response response = Response.ok(responseData).build();
+             return response;
+         } catch (JSONException e) {

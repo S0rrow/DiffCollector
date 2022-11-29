@@ -1,0 +1,206 @@
+diff --git a/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/external/GridFtp.java b/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/external/GridFtp.java
+index d8210dc66..986dfdbd6 100644
+--- a/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/external/GridFtp.java
++++ b/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/external/GridFtp.java
+@@ -21,13 +21,16 @@
+ 
+ package org.apache.airavata.core.gfac.external;
+ 
++import java.io.BufferedInputStream;
+ import java.io.BufferedReader;
+ import java.io.File;
++import java.io.FileInputStream;
+ import java.io.FileNotFoundException;
+ import java.io.FileReader;
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.net.URI;
++import java.nio.CharBuffer;
+ 
+ import org.apache.airavata.core.gfac.exception.GfacException;
+ import org.apache.airavata.core.gfac.exception.ToolsException;
+@@ -47,9 +50,6 @@ import org.ietf.jgss.GSSCredential;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-/**
+- * GridFTP tools
+- */
+ public class GridFtp {
+ 
+     public static final Logger log = LoggerFactory.getLogger(GridFtp.class);
+@@ -58,7 +58,7 @@ public class GridFtp {
+ 
+     /**
+      * Make directory at remote location
+-     *
++     * 
+      * @param destURI
+      * @param gssCred
+      * @throws ServerException
+@@ -118,13 +118,13 @@ public class GridFtp {
+ 
+     /**
+      * Upload file from stream
+-     *
++     * 
+      * @param destURI
+      * @param gsCredential
+      * @param localFile
+      * @throws GfacException
+      */
+-    public void uploadFile(URI destURI, GSSCredential gsCredential, InputStream io) throws ToolsException {
++    public void updateFile(URI destURI, GSSCredential gsCredential, InputStream io) throws ToolsException {
+         GridFTPClient ftpClient = null;
+         GridFTPContactInfo contactInfo = new GridFTPContactInfo(destURI.getHost(), destURI.getPort());
+ 
+@@ -166,55 +166,15 @@ public class GridFtp {
+         }
+     }
+ 
+-    public void uploadFile(URI srcURI,  URI destURI, GSSCredential gsCredential) throws ToolsException {
+-        GridFTPClient ftpClient = null;
+-        GridFTPContactInfo contactInfo = new GridFTPContactInfo(destURI.getHost(), destURI.getPort());
+-
+-        try {
+-
+-            String remoteFile = destURI.getPath();
+-            log.info("The remote file is " + remoteFile);
+-
+-            log.debug("Setup GridFTP Client");
+-
+-            ftpClient = new GridFTPClient(contactInfo.hostName, contactInfo.port);
+-            ftpClient.setAuthorization(new HostAuthorization("host"));
+-            ftpClient.authenticate(gsCredential);
+-            ftpClient.setDataChannelAuthentication(DataChannelAuthentication.SELF);
+-
+-            log.debug("Uploading file");
+-
+-//            ftpClient.put(remoteFile, new DataSourceStream(io), new MarkerListener() {
+-//                public void markerArrived(Marker marker) {
+-//                }
+-//            });
+-
+-            log.info("Upload file to:" + remoteFile + " is done");
+-
+-        } catch (ServerException e) {
+-            throw new ToolsException("Cannot upload file to GridFTP:" + contactInfo.toString(), e);
+-        } catch (IOException e) {
+-            throw new ToolsException("Cannot upload file to GridFTP:" + contactInfo.toString(), e);
+-        } finally {
+-            if (ftpClient != null) {
+-                try {
+-                    ftpClient.close();
+-                } catch (Exception e) {
+-                    log.warn("Cannot close GridFTP client connection");
+-                }
+-            }
+-        }
+-    }
+-
+     /**
+      * Upload file to remote location
+-     *
++     * 
+      * @param destURI
+      * @param gsCredential
+      * @param localFile
+      * @throws GfacException
+      */
+-    public void uploadFile(URI destURI, GSSCredential gsCredential, File localFile) throws ToolsException {
++    public void updateFile(URI destURI, GSSCredential gsCredential, File localFile) throws ToolsException {
+         GridFTPClient ftpClient = null;
+         GridFTPContactInfo contactInfo = new GridFTPContactInfo(destURI.getHost(), destURI.getPort());
+         try {
+@@ -256,7 +216,7 @@ public class GridFtp {
+ 
+     /**
+      * Download File from remote location
+-     *
++     * 
+      * @param destURI
+      * @param gsCredential
+      * @param localFile
+@@ -303,7 +263,7 @@ public class GridFtp {
+ 
+     /**
+      * Stream remote file
+-     *
++     * 
+      * @param destURI
+      * @param gsCredential
+      * @param localFile
+@@ -320,7 +280,7 @@ public class GridFtp {
+             } else {
+                 localTempfile = localFile;
+             }
+-
++            
+             log.debug("Loca temporary file:" + localTempfile);
+ 
+             downloadFile(destURI, gsCredential, localTempfile);
+@@ -332,9 +292,9 @@ public class GridFtp {
+                 buff.append(temp);
+                 buff.append(GFacConstants.NEWLINE);
+             }
+-
++            
+             log.debug("finish read file:" + localTempfile);
+-
++            
+             return buff.toString();
+         } catch (FileNotFoundException e) {
+             throw new ToolsException("Cannot read localfile file:" + localTempfile, e);
+@@ -353,7 +313,7 @@ public class GridFtp {
+ 
+     /**
+      * Transfer data from one GridFTp Endpoint to another GridFTP Endpoint
+-     *
++     * 
+      * @param srchost
+      * @param desthost
+      * @param gssCred
+@@ -372,7 +332,6 @@ public class GridFtp {
+             destClient.authenticate(gssCred);
+             destClient.setType(Session.TYPE_IMAGE);
+ 
+-
+             srcClient = new GridFTPClient(srchost.getHost(), srchost.getPort());
+             srcClient.setAuthorization(new HostAuthorization("host"));
+             srcClient.authenticate(gssCred);
+@@ -387,28 +346,26 @@ public class GridFtp {
+                 HostPort hp = srcClient.setPassive();
+                 destClient.setActive(hp);
+             }
+-
++            
+             log.debug("Start transfer file from GridFTP:" + srchost.toString() + " to " + desthost.toString());
+ 
+             /**
+-             * Transfer a file. The transfer() function blocks until the transfer is complete.
++             * Transfer a file. The transfer() function blocks until the
++             * transfer is complete.
+              */
+             srcClient.transfer(srchost.getPath(), destClient, desthost.getPath(), false, null);
+             if (srcClient.getSize(srchost.getPath()) == destClient.getSize(desthost.getPath())) {
+                 log.debug("CHECK SUM OK");
+             } else {
+-                log.debug("****CHECK SUM FAILED****");
++                log.debug("CHECK SUM OK");
+             }
+ 
+         } catch (ServerException e) {
+-            throw new ToolsException("Cannot transfer file from GridFTP:" + srchost.toString() + " to "
+-                    + desthost.toString(), e);
++            throw new ToolsException("Cannot transfer file from GridFTP:" + srchost.toString() + " to " + desthost.toString(), e);
+         } catch (IOException e) {
+-            throw new ToolsException("Cannot transfer file from GridFTP:" + srchost.toString() + " to "
+-                    + desthost.toString(), e);
++            throw new ToolsException("Cannot transfer file from GridFTP:" + srchost.toString() + " to " + desthost.toString(), e);
+         } catch (ClientException e) {
+-            throw new ToolsException("Cannot transfer file from GridFTP:" + srchost.toString() + " to "
+-                    + desthost.toString(), e);
++            throw new ToolsException("Cannot transfer file from GridFTP:" + srchost.toString() + " to " + desthost.toString(), e);
+         } finally {
+             if (destClient != null) {
+                 try {

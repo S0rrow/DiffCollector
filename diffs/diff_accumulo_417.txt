@@ -1,0 +1,32 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ClassLoaderIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ClassLoaderIT.java
+index 9c2b71ff66..29f2780445 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ClassLoaderIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ClassLoaderIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertFalse;
+ import static org.junit.Assert.assertTrue;
+@@ -42,7 +41,6 @@ import org.apache.accumulo.core.iterators.IteratorUtil.IteratorScope;
+ import org.apache.accumulo.core.security.Authorizations;
+ import org.apache.accumulo.harness.AccumuloClusterHarness;
+ import org.apache.accumulo.minicluster.impl.MiniAccumuloClusterImpl;
+-import org.apache.accumulo.test.categories.MiniClusterOnlyTests;
+ import org.apache.hadoop.fs.FSDataOutputStream;
+ import org.apache.hadoop.fs.FileSystem;
+ import org.apache.hadoop.fs.Path;
+@@ -50,9 +48,9 @@ import org.hamcrest.CoreMatchers;
+ import org.junit.Assume;
+ import org.junit.Before;
+ import org.junit.Test;
+-import org.junit.experimental.categories.Category;
+ 
+-@Category(MiniClusterOnlyTests.class)
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class ClassLoaderIT extends AccumuloClusterHarness {
+ 
+   private static final long ZOOKEEPER_PROPAGATION_TIME = 10 * 1000;

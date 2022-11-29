@@ -1,0 +1,321 @@
+diff --git a/maven-repository-converter/src/main/java/org/apache/maven/repository/converter/DefaultRepositoryConverter.java b/maven-repository-converter/src/main/java/org/apache/maven/repository/converter/DefaultRepositoryConverter.java
+index 0158c9ce2..5ee18a4c0 100644
+--- a/maven-repository-converter/src/main/java/org/apache/maven/repository/converter/DefaultRepositoryConverter.java
++++ b/maven-repository-converter/src/main/java/org/apache/maven/repository/converter/DefaultRepositoryConverter.java
+@@ -18,34 +18,18 @@
+ 
+ import org.apache.maven.artifact.Artifact;
+ import org.apache.maven.artifact.factory.ArtifactFactory;
+-import org.apache.maven.artifact.metadata.ArtifactMetadata;
+ import org.apache.maven.artifact.repository.ArtifactRepository;
+-import org.apache.maven.artifact.repository.metadata.ArtifactRepositoryMetadata;
+-import org.apache.maven.artifact.repository.metadata.Metadata;
+-import org.apache.maven.artifact.repository.metadata.Snapshot;
+-import org.apache.maven.artifact.repository.metadata.SnapshotArtifactRepositoryMetadata;
+-import org.apache.maven.artifact.repository.metadata.Versioning;
+-import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader;
+-import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Writer;
+ import org.apache.maven.model.converter.ArtifactPomRewriter;
+-import org.apache.maven.repository.digest.Digester;
+-import org.apache.maven.repository.reporting.ArtifactReporter;
+-import org.codehaus.plexus.i18n.I18N;
+ import org.codehaus.plexus.util.FileUtils;
+ import org.codehaus.plexus.util.IOUtil;
+-import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
+ 
+ import java.io.File;
+-import java.io.FileReader;
+ import java.io.FileWriter;
+ import java.io.IOException;
+ import java.io.StringReader;
+ import java.io.Writer;
+-import java.security.NoSuchAlgorithmException;
+ import java.util.Iterator;
+ import java.util.List;
+-import java.util.Locale;
+-import java.util.regex.Matcher;
+ 
+ /**
+  * Implementation of repository conversion class.
+@@ -56,11 +40,6 @@
+ public class DefaultRepositoryConverter
+     implements RepositoryConverter
+ {
+-    /**
+-     * @plexus.requirement
+-     */
+-    private Digester digester;
+-
+     /**
+      * @plexus.requirement
+      */
+@@ -72,130 +51,28 @@
+     private ArtifactPomRewriter rewriter;
+ 
+     /**
+-     * @plexus.configuration default-value="false"
++     * @plexus.configuration
+      */
+     private boolean force;
+ 
+     /**
+-     * @plexus.configuration default-value="false"
++     * @plexus.configuration
+      */
+     private boolean dryrun;
+ 
+-    /**
+-     * @plexus.requirement
+-     */
+-    private I18N i18n;
+-
+-    public void convert( Artifact artifact, ArtifactRepository targetRepository, ArtifactReporter reporter )
++    public void convert( Artifact artifact, ArtifactRepository targetRepository )
+         throws RepositoryConversionException
+     {
+-        if ( copyArtifact( artifact, targetRepository, reporter ) )
+-        {
+-            copyPom( artifact, targetRepository, reporter );
+-
+-            Metadata metadata = createBaseMetadata( artifact );
+-            Versioning versioning = new Versioning();
+-            versioning.addVersion( artifact.getBaseVersion() );
+-            metadata.setVersioning( versioning );
+-            updateMetadata( new ArtifactRepositoryMetadata( artifact ), targetRepository, metadata );
+-
+-            metadata = createBaseMetadata( artifact );
+-            metadata.setVersion( artifact.getBaseVersion() );
+-            versioning = new Versioning();
++        copyArtifact( artifact, targetRepository );
+ 
+-            Matcher matcher = Artifact.VERSION_FILE_PATTERN.matcher( artifact.getVersion() );
+-            if ( matcher.matches() )
+-            {
+-                Snapshot snapshot = new Snapshot();
+-                snapshot.setBuildNumber( Integer.valueOf( matcher.group( 3 ) ).intValue() );
+-                snapshot.setTimestamp( matcher.group( 2 ) );
+-                versioning.setSnapshot( snapshot );
+-            }
+-
+-            // TODO: merge latest/release/snapshot from source instead
+-            metadata.setVersioning( versioning );
+-            updateMetadata( new SnapshotArtifactRepositoryMetadata( artifact ), targetRepository, metadata );
+-
+-            reporter.addSuccess( artifact );
+-        }
++        copyPom( artifact, targetRepository );
+     }
+ 
+-    private static Metadata createBaseMetadata( Artifact artifact )
+-    {
+-        Metadata metadata = new Metadata();
+-        metadata.setArtifactId( artifact.getArtifactId() );
+-        metadata.setGroupId( artifact.getGroupId() );
+-        return metadata;
+-    }
+-
+-    private void updateMetadata( ArtifactMetadata artifactMetadata, ArtifactRepository targetRepository,
+-                                 Metadata newMetadata )
+-        throws RepositoryConversionException
+-    {
+-        File file = new File( targetRepository.getBasedir(),
+-                              targetRepository.pathOfRemoteRepositoryMetadata( artifactMetadata ) );
+-
+-        Metadata metadata;
+-        boolean changed;
+-
+-        if ( file.exists() )
+-        {
+-            MetadataXpp3Reader reader = new MetadataXpp3Reader();
+-            FileReader fileReader = null;
+-            try
+-            {
+-                fileReader = new FileReader( file );
+-                metadata = reader.read( fileReader );
+-            }
+-            catch ( IOException e )
+-            {
+-                throw new RepositoryConversionException( "Error reading target metadata", e );
+-            }
+-            catch ( XmlPullParserException e )
+-            {
+-                throw new RepositoryConversionException( "Error reading target metadata", e );
+-            }
+-            finally
+-            {
+-                IOUtil.close( fileReader );
+-            }
+-            changed = metadata.merge( newMetadata );
+-        }
+-        else
+-        {
+-            changed = true;
+-            metadata = newMetadata;
+-        }
+-
+-        if ( changed )
+-        {
+-            Writer writer = null;
+-            try
+-            {
+-                file.getParentFile().mkdirs();
+-                writer = new FileWriter( file );
+-
+-                MetadataXpp3Writer mappingWriter = new MetadataXpp3Writer();
+-
+-                mappingWriter.write( writer, metadata );
+-            }
+-            catch ( IOException e )
+-            {
+-                throw new RepositoryConversionException( "Error writing target metadata", e );
+-            }
+-            finally
+-            {
+-                IOUtil.close( writer );
+-            }
+-        }
+-    }
+-
+-    private void copyPom( Artifact artifact, ArtifactRepository targetRepository, ArtifactReporter reporter )
++    private void copyPom( Artifact artifact, ArtifactRepository targetRepository )
+         throws RepositoryConversionException
+     {
+         Artifact pom = artifactFactory.createProjectArtifact( artifact.getGroupId(), artifact.getArtifactId(),
+                                                               artifact.getVersion() );
+-        pom.setBaseVersion( artifact.getBaseVersion() );
+         ArtifactRepository repository = artifact.getRepository();
+         File file = new File( repository.getBasedir(), repository.pathOf( pom ) );
+ 
+@@ -204,22 +81,17 @@ private void copyPom( Artifact artifact, ArtifactRepository targetRepository, Ar
+             // TODO: utility methods in the model converter
+             File targetFile = new File( targetRepository.getBasedir(), targetRepository.pathOf( pom ) );
+ 
+-            String contents = null;
+-            boolean checksumsValid = false;
++            String contents;
+             try
+             {
+-                if ( testChecksums( artifact, file, reporter ) )
+-                {
+-                    checksumsValid = true;
+-                    contents = FileUtils.fileRead( file );
+-                }
++                contents = FileUtils.fileRead( file );
+             }
+             catch ( IOException e )
+             {
+                 throw new RepositoryConversionException( "Unable to read source POM: " + e.getMessage(), e );
+             }
+ 
+-            if ( checksumsValid && contents.indexOf( "modelVersion" ) >= 0 )
++            if ( contents.indexOf( "modelVersion" ) >= 0 )
+             {
+                 // v4 POM
+                 try
+@@ -257,14 +129,6 @@ private void copyPom( Artifact artifact, ArtifactRepository targetRepository, Ar
+                     rewriter.rewrite( stringReader, fileWriter, false, artifact.getGroupId(), artifact.getArtifactId(),
+                                       artifact.getVersion(), artifact.getType() );
+ 
+-                    List warnings = rewriter.getWarnings();
+-
+-                    for ( Iterator i = warnings.iterator(); i.hasNext(); )
+-                    {
+-                        String message = (String) i.next();
+-                        reporter.addWarning( artifact, message );
+-                    }
+-
+                     IOUtil.close( fileWriter );
+                 }
+                 catch ( Exception e )
+@@ -280,52 +144,13 @@ private void copyPom( Artifact artifact, ArtifactRepository targetRepository, Ar
+         }
+     }
+ 
+-    private boolean testChecksums( Artifact artifact, File file, ArtifactReporter reporter )
+-        throws IOException, RepositoryConversionException
+-    {
+-        boolean result = true;
+-
+-        try
+-        {
+-            File md5 = new File( file.getParentFile(), file.getName() + ".md5" );
+-            if ( md5.exists() )
+-            {
+-                String checksum = FileUtils.fileRead( md5 );
+-                if ( !digester.verifyChecksum( file, checksum, Digester.MD5 ) )
+-                {
+-                    reporter.addFailure( artifact, i18n.getString( getClass().getName(), Locale.getDefault(),
+-                                                                   "failure.incorrect.md5" ) );
+-                    result = false;
+-                }
+-            }
+-
+-            File sha1 = new File( file.getParentFile(), file.getName() + ".sha1" );
+-            if ( sha1.exists() )
+-            {
+-                String checksum = FileUtils.fileRead( sha1 );
+-                if ( !digester.verifyChecksum( file, checksum, Digester.SHA1 ) )
+-                {
+-                    reporter.addFailure( artifact, i18n.getString( getClass().getName(), Locale.getDefault(),
+-                                                                   "failure.incorrect.sha1" ) );
+-                    result = false;
+-                }
+-            }
+-        }
+-        catch ( NoSuchAlgorithmException e )
+-        {
+-            throw new RepositoryConversionException( "Error copying artifact: " + e.getMessage(), e );
+-        }
+-        return result;
+-    }
+-
+-    private boolean copyArtifact( Artifact artifact, ArtifactRepository targetRepository, ArtifactReporter reporter )
++    private void copyArtifact( Artifact artifact, ArtifactRepository targetRepository )
+         throws RepositoryConversionException
+     {
+         File sourceFile = artifact.getFile();
+ 
+         File targetFile = new File( targetRepository.getBasedir(), targetRepository.pathOf( artifact ) );
+ 
+-        boolean result = true;
+         try
+         {
+             boolean matching = false;
+@@ -335,16 +160,9 @@ private boolean copyArtifact( Artifact artifact, ArtifactRepository targetReposi
+             }
+             if ( force || !matching )
+             {
+-                if ( testChecksums( artifact, sourceFile, reporter ) )
+-                {
+-                    if ( !dryrun )
+-                    {
+-                        FileUtils.copyFile( sourceFile, targetFile );
+-                    }
+-                }
+-                else
++                if ( !dryrun )
+                 {
+-                    result = false;
++                    FileUtils.copyFile( sourceFile, targetFile );
+                 }
+             }
+         }
+@@ -352,16 +170,15 @@ private boolean copyArtifact( Artifact artifact, ArtifactRepository targetReposi
+         {
+             throw new RepositoryConversionException( "Error copying artifact", e );
+         }
+-        return result;
+     }
+ 
+-    public void convert( List artifacts, ArtifactRepository targetRepository, ArtifactReporter reporter )
++    public void convert( List artifacts, ArtifactRepository targetRepository )
+         throws RepositoryConversionException
+     {
+         for ( Iterator i = artifacts.iterator(); i.hasNext(); )
+         {
+             Artifact artifact = (Artifact) i.next();
+-            convert( artifact, targetRepository, reporter );
++            convert( artifact, targetRepository );
+         }
+     }
+ }

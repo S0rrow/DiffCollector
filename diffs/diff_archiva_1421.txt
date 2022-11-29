@@ -1,0 +1,299 @@
+diff --git a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
+index cfa63a093..0233e3d71 100644
+--- a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
++++ b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
+@@ -19,16 +19,18 @@
+  * under the License.
+  */
+ 
++import org.apache.maven.archiva.configuration.ArchivaConfiguration;
++import org.apache.maven.archiva.configuration.Configuration;
++import org.apache.maven.archiva.configuration.ManagedRepositoryConfiguration;
++import org.apache.maven.archiva.model.ArchivaRepository;
+ import org.apache.maven.archiva.model.ArtifactReference;
+ import org.apache.maven.archiva.model.ProjectReference;
+ import org.apache.maven.archiva.model.VersionedReference;
+ import org.apache.maven.archiva.proxy.ProxyException;
+ import org.apache.maven.archiva.proxy.RepositoryProxyConnectors;
+-import org.apache.maven.archiva.repository.ManagedRepositoryContent;
+-import org.apache.maven.archiva.repository.RepositoryContentFactory;
+-import org.apache.maven.archiva.repository.RepositoryException;
+-import org.apache.maven.archiva.repository.RepositoryNotFoundException;
+-import org.apache.maven.archiva.repository.content.RepositoryRequest;
++import org.apache.maven.archiva.repository.ArchivaConfigurationAdaptor;
++import org.apache.maven.archiva.repository.layout.BidirectionalRepositoryLayout;
++import org.apache.maven.archiva.repository.layout.BidirectionalRepositoryLayoutFactory;
+ import org.apache.maven.archiva.repository.layout.LayoutException;
+ import org.apache.maven.archiva.repository.metadata.MetadataTools;
+ import org.apache.maven.archiva.repository.metadata.RepositoryMetadataException;
+@@ -36,21 +38,20 @@
+ import org.apache.maven.model.Model;
+ import org.apache.maven.model.Relocation;
+ import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
++import org.apache.maven.wagon.ResourceDoesNotExistException;
+ import org.codehaus.plexus.webdav.AbstractDavServerComponent;
+ import org.codehaus.plexus.webdav.DavServerComponent;
+ import org.codehaus.plexus.webdav.DavServerException;
+ import org.codehaus.plexus.webdav.servlet.DavServerRequest;
+ import org.codehaus.plexus.webdav.util.WebdavMethodUtil;
+ 
++import javax.servlet.ServletConfig;
++import javax.servlet.ServletException;
++import javax.servlet.http.HttpServletResponse;
+ import java.io.File;
+ import java.io.FileNotFoundException;
+ import java.io.FileReader;
+ import java.io.IOException;
+-import java.io.PrintWriter;
+-
+-import javax.servlet.ServletConfig;
+-import javax.servlet.ServletException;
+-import javax.servlet.http.HttpServletResponse;
+ 
+ /**
+  * ProxiedDavServer
+@@ -71,12 +72,7 @@
+     /**
+      * @plexus.requirement
+      */
+-    private RepositoryContentFactory repositoryFactory;
+-
+-    /**
+-     * @plexus.requirement
+-     */
+-    private RepositoryRequest repositoryRequest;
++    private ArchivaConfiguration archivaConfiguration;
+ 
+     /**
+      * @plexus.requirement role-hint="default"
+@@ -88,7 +84,16 @@
+      */
+     private MetadataTools metadataTools;
+ 
+-    private ManagedRepositoryContent managedRepository;
++    /**
++     * @plexus.requirement
++     */
++    private BidirectionalRepositoryLayoutFactory layoutFactory;
++
++    private BidirectionalRepositoryLayout layout;
++
++    private ManagedRepositoryConfiguration repositoryConfiguration;
++
++    private ArchivaRepository managedRepository;
+ 
+     public String getPrefix()
+     {
+@@ -115,32 +120,31 @@ public void init( ServletConfig servletConfig )
+     {
+         davServer.init( servletConfig );
+ 
++        Configuration config = archivaConfiguration.getConfiguration();
++
++        repositoryConfiguration = config.findManagedRepositoryById( getPrefix() );
++
++        managedRepository =
++            ArchivaConfigurationAdaptor.toArchivaRepository( repositoryConfiguration );
++
+         try
+         {
+-            managedRepository = repositoryFactory.getManagedRepositoryContent( getPrefix() );
+-        }
+-        catch ( RepositoryNotFoundException e )
+-        {
+-            throw new DavServerException( e.getMessage(), e );
++            layout = layoutFactory.getLayout( managedRepository.getLayoutType() );
+         }
+-        catch ( RepositoryException e )
++        catch ( LayoutException e )
+         {
+-            throw new DavServerException( e.getMessage(), e );
++            throw new DavServerException( "Unable to initialize dav server: " + e.getMessage(), e );
+         }
+     }
+ 
+     public void process( DavServerRequest request, HttpServletResponse response )
+         throws DavServerException, ServletException, IOException
+     {
+-        boolean isGet = WebdavMethodUtil.isReadMethod( request.getRequest().getMethod() );
+-        boolean isPut = WebdavMethodUtil.isWriteMethod( request.getRequest().getMethod() );
+-        
+-        if ( isGet )
++        if ( WebdavMethodUtil.isReadMethod( request.getRequest().getMethod() ) )
+         {
+             fetchContentFromProxies( request );
+         }
+-
+-        if ( isPut )
++        else
+         {
+             /* Create parent directories that don't exist when writing a file
+              * This actually makes this implementation not compliant to the
+@@ -149,7 +153,7 @@ public void process( DavServerRequest request, HttpServletResponse response )
+              * some versions of Maven's WebDAV don't
+              * correctly create the collections themselves.
+              */
+-
++            
+             File rootDirectory = getRootDirectory();
+             if ( rootDirectory != null )
+             {
+@@ -157,95 +161,22 @@ public void process( DavServerRequest request, HttpServletResponse response )
+             }
+         }
+ 
+-        if ( isGet )
+-        {
+-            if ( resourceExists( request ) )
+-            {
+-                // [MRM-503] - Metadata file need Pragma:no-cache response header.
+-                if ( request.getLogicalResource().endsWith( "/maven-metadata.xml" ) )
+-                {
+-                    response.addHeader( "Pragma", "no-cache" );
+-                    response.addHeader( "Cache-Control", "no-cache" );
+-                }
+-
+-                // TODO: [MRM-524] determine http caching options for other types of files (artifacts, sha1, md5, snapshots)
+-
+-                davServer.process( request, response );
+-            }
+-            else
+-            {
+-                respondResourceMissing( request, response );
+-            }
+-        }
+-
+-        if ( isPut )
++        // MRM-503 - Metadata file need Pragma:no-cache response header.
++        if ( request.getLogicalResource().endsWith( "/maven-metadata.xml" ) )
+         {
+-            davServer.process( request, response );
++            response.addHeader( "Pragma", "no-cache" );
++            response.addHeader( "Cache-Control", "no-cache" );
+         }
+-    }
+-
+-    private void respondResourceMissing( DavServerRequest request, HttpServletResponse response )
+-    {
+-        response.setStatus( HttpServletResponse.SC_NOT_FOUND );
+-
+-        try
+-        {
+-            StringBuffer missingUrl = new StringBuffer();
+-            missingUrl.append( request.getRequest().getScheme() ).append( "://" );
+-            missingUrl.append( request.getRequest().getServerName() ).append( ":" );
+-            missingUrl.append( request.getRequest().getServerPort() );
+-            missingUrl.append( request.getRequest().getServletPath() );
+-            // missingUrl.append( request.getRequest().getPathInfo() );
+-
+-            String message = "Error 404 Not Found";
+-
+-            PrintWriter out = new PrintWriter( response.getOutputStream() );
+-
+-            response.setContentType( "text/html; charset=\"UTF-8\"" );
+-
+-            out.println( "<html>" );
+-            out.println( "<head><title>" + message + "</title></head>" );
+-            out.println( "<body>" );
+-
+-            out.print( "<p><h1>" );
+-            out.print( message );
+-            out.println( "</h1></p>" );
+-
+-            out.print( "<p>The following resource does not exist: <a href=\"" );
+-            out.print( missingUrl.toString() );
+-            out.println( "\">" );
+-            out.print( missingUrl.toString() );
+-            out.println( "</a></p>" );
+-
+-            out.println( "</body></html>" );
+-
+-            out.flush();
+-        }
+-        catch ( IOException e )
+-        {
+-            e.printStackTrace();
+-        }
+-    }
+-
+-    private boolean resourceExists( DavServerRequest request )
+-    {
+-        String resource = request.getLogicalResource();
+-        File resourceFile = new File( managedRepository.getRepoRoot(), resource );
+-        return resourceFile.exists();
++        
++        // TODO: determine http caching options for other types of files (artifacts, sha1, md5, snapshots)
++        
++        davServer.process( request, response );
+     }
+ 
+     private void fetchContentFromProxies( DavServerRequest request )
+         throws ServletException
+     {
+         String resource = request.getLogicalResource();
+-        
+-        // Cleanup bad requests from maven 1.
+-        // Often seen is a double slash.
+-        // example: http://hostname:8080/archiva/repository/internal//pmd/jars/pmd-3.0.jar
+-        if ( resource.startsWith( "/" ) )
+-        {
+-            resource = resource.substring( 1 );
+-        }
+ 
+         if ( resource.endsWith( ".sha1" ) || resource.endsWith( ".md5" ) )
+         {
+@@ -299,19 +230,28 @@ private void fetchContentFromProxies( DavServerRequest request )
+         }
+ 
+         // Not any of the above? Then it's gotta be an artifact reference.
++        ArtifactReference artifact;
++        BidirectionalRepositoryLayout resourceLayout;
++
+         try
+         {
+-            // Get the artifact reference in a layout neutral way.
+-            ArtifactReference artifact = repositoryRequest.toArtifactReference( resource );
+-            
++            resourceLayout = layoutFactory.getLayoutForPath( resource );
++        }
++        catch ( LayoutException e )
++        {
++            /* invalid request - eat it */
++            return;
++        }
++
++        try
++        {
++            artifact = resourceLayout.toArtifactReference( resource );
+             if ( artifact != null )
+             {
+                 applyServerSideRelocation( artifact );
+ 
+                 connectors.fetchFromProxies( managedRepository, artifact );
+-                
+-                // Set the path to the resource using managed repository specific layout format.
+-                request.getRequest().setPathInfo( managedRepository.toPath( artifact ) );
++                request.getRequest().setPathInfo( layout.toPath( artifact ) );
+                 return;
+             }
+         }
+@@ -354,7 +294,7 @@ protected void applyServerSideRelocation( ArtifactReference artifact )
+         connectors.fetchFromProxies( managedRepository, pomReference );
+ 
+         // Open and read the POM from the managed repo
+-        File pom = managedRepository.toFile( pomReference );
++        File pom = new File( getRootDirectory(), layout.toPath( pomReference ) );
+         try
+         {
+             Model model = new MavenXpp3Reader().read( new FileReader( pom ) );
+@@ -390,8 +330,8 @@ protected void applyServerSideRelocation( ArtifactReference artifact )
+         }
+     }
+ 
+-    public ManagedRepositoryContent getRepository()
++    public ManagedRepositoryConfiguration getRepositoryConfiguration()
+     {
+-        return managedRepository;
++        return repositoryConfiguration;
+     }
+ }

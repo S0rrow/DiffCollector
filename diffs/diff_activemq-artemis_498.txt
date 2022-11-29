@@ -1,0 +1,90 @@
+diff --git a/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/JGroupsBroadcastEndpoint.java b/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/JGroupsBroadcastEndpoint.java
+index e4b1519d59..df66450058 100644
+--- a/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/JGroupsBroadcastEndpoint.java
++++ b/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/JGroupsBroadcastEndpoint.java
+@@ -110,16 +110,15 @@ public abstract class JGroupsBroadcastEndpoint implements BroadcastEndpoint {
+          channel.removeReceiver(receiver);
+          clientOpened = false;
+       }
+-      internalCloseChannel(channel);
++      internalCloseChannel();
+    }
+ 
+    /**
+     * Closes the channel used in this JGroups Broadcast.
+     * Can be overridden by implementations that use an externally managed channel.
+-    * @param channel
+     */
+-   protected synchronized void internalCloseChannel(JChannelWrapper channel) {
+-      channel.close(true);
++   protected synchronized void internalCloseChannel() {
++      channel.close();
+    }
+ 
+    /**
+@@ -160,32 +159,12 @@ public abstract class JGroupsBroadcastEndpoint implements BroadcastEndpoint {
+          this.refCount = 1;
+          this.channelName = channelName;
+          this.channel = channel;
+-
+-         //we always add this for the first ref count
+-         channel.setReceiver(new ReceiverAdapter() {
+-
+-            @Override
+-            public void receive(org.jgroups.Message msg) {
+-               synchronized (receivers) {
+-                  for (JGroupsReceiver r : receivers) {
+-                     r.receive(msg);
+-                  }
+-               }
+-            }
+-         });
+       }
+ 
+-      public synchronized void close(boolean closeWrappedChannel) {
++      public synchronized void close() {
+          refCount--;
+          if (refCount == 0) {
+-            if (closeWrappedChannel) {
+-               JChannelManager.closeChannel(this.channelName, channel);
+-            }
+-            else {
+-               JChannelManager.removeChannel(this.channelName);
+-            }
+-            //we always remove the receiver as its no longer needed
+-            channel.setReceiver(null);
++            JChannelManager.closeChannel(this.channelName, channel);
+          }
+       }
+ 
+@@ -198,6 +177,17 @@ public abstract class JGroupsBroadcastEndpoint implements BroadcastEndpoint {
+       public synchronized void connect() throws Exception {
+          if (channel.isConnected())
+             return;
++         channel.setReceiver(new ReceiverAdapter() {
++
++            @Override
++            public void receive(org.jgroups.Message msg) {
++               synchronized (receivers) {
++                  for (JGroupsReceiver r : receivers) {
++                     r.receive(msg);
++                  }
++               }
++            }
++         });
+          channel.connect(channelName);
+       }
+ 
+@@ -256,12 +246,5 @@ public abstract class JGroupsBroadcastEndpoint implements BroadcastEndpoint {
+             throw new IllegalStateException("Did not find channel " + channelName);
+          }
+       }
+-
+-      public static void removeChannel(String channelName) {
+-         JChannelWrapper wrapper = channels.remove(channelName);
+-         if (wrapper == null) {
+-            throw new IllegalStateException("Did not find channel " + channelName);
+-         }
+-      }
+    }
+ }

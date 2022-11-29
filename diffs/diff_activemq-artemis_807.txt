@@ -1,0 +1,190 @@
+diff --git a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQSession.java b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQSession.java
+index a107ba76a0..aae1a53131 100644
+--- a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQSession.java
++++ b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQSession.java
+@@ -16,17 +16,14 @@
+  */
+ package org.apache.activemq.artemis.core.protocol.openwire.amq;
+ 
+-import static org.apache.activemq.artemis.core.protocol.openwire.util.OpenWireUtil.OPENWIRE_WILDCARD;
+-
++import javax.jms.InvalidDestinationException;
++import javax.jms.ResourceAllocationException;
+ import java.io.IOException;
+ import java.util.List;
+ import java.util.concurrent.ScheduledExecutorService;
+ import java.util.concurrent.atomic.AtomicBoolean;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+-import javax.jms.InvalidDestinationException;
+-import javax.jms.ResourceAllocationException;
+-
+ import org.apache.activemq.advisory.AdvisorySupport;
+ import org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException;
+ import org.apache.activemq.artemis.api.core.RoutingType;
+@@ -34,6 +31,7 @@ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.io.IOCallback;
+ import org.apache.activemq.artemis.core.message.impl.CoreMessageObjectPools;
+ import org.apache.activemq.artemis.core.paging.PagingStore;
++import org.apache.activemq.artemis.core.postoffice.RoutingStatus;
+ import org.apache.activemq.artemis.core.protocol.openwire.OpenWireConnection;
+ import org.apache.activemq.artemis.core.protocol.openwire.OpenWireMessageConverter;
+ import org.apache.activemq.artemis.core.protocol.openwire.OpenWireProtocolManager;
+@@ -64,6 +62,8 @@ import org.apache.activemq.command.SessionInfo;
+ import org.apache.activemq.openwire.OpenWireFormat;
+ import org.jboss.logging.Logger;
+ 
++import static org.apache.activemq.artemis.core.protocol.openwire.util.OpenWireUtil.OPENWIRE_WILDCARD;
++
+ public class AMQSession implements SessionCallback {
+    private final Logger logger = Logger.getLogger(AMQSession.class);
+ 
+@@ -249,7 +249,7 @@ public class AMQSession implements SessionCallback {
+                         routingTypeToUse = as.getDefaultAddressRoutingType();
+                      }
+                   }
+-                  coreSession.createQueue(addressToUse, queueNameToUse, routingTypeToUse, null, isTemporary, true, true);
++                  server.createQueue(addressToUse, routingTypeToUse, queueNameToUse, null, true, isTemporary);
+                   connection.addKnownDestination(queueName);
+                } else {
+                   hasQueue = false;
+@@ -308,8 +308,7 @@ public class AMQSession implements SessionCallback {
+                           ServerConsumer consumer,
+                           int deliveryCount) {
+       AMQConsumer theConsumer = (AMQConsumer) consumer.getProtocolData();
+-      //clear up possible rolledback ids.
+-      theConsumer.removeRolledback(reference);
++      // TODO: use encoders and proper conversions here
+       return theConsumer.handleDeliver(reference, message.toCore(), deliveryCount);
+    }
+ 
+@@ -423,7 +422,10 @@ public class AMQSession implements SessionCallback {
+                throw new ResourceAllocationException("Queue is full " + address);
+             }
+ 
+-            getCoreSession().send(coreMsg, false, dest.isTemporary());
++            final RoutingStatus result = getCoreSession().send(coreMsg, false, dest.isTemporary());
++            if (result == RoutingStatus.NO_BINDINGS && dest.isQueue()) {
++               throw new InvalidDestinationException("Cannot publish to a non-existent Destination: " + dest);
++            }
+ 
+             if (count == null || count.decrementAndGet() == 0) {
+                if (sendProducerAck) {
+@@ -443,63 +445,68 @@ public class AMQSession implements SessionCallback {
+                                         final AtomicInteger count,
+                                         final org.apache.activemq.artemis.api.core.Message coreMsg,
+                                         final SimpleString address) throws ResourceAllocationException {
+-      if (!store.checkMemory(null)) {
+-         this.connection.getContext().setDontSendReponse(false);
+-         connection.enableTtl();
+-         throw new ResourceAllocationException("Queue is full " + address);
+-      }
++      if (!store.checkMemory(() -> {
++         Exception exceptionToSend = null;
+ 
+-      Exception exceptionToSend = null;
++         try {
++            RoutingStatus result = getCoreSession().send(coreMsg, false, dest.isTemporary());
+ 
+-      try {
+-         getCoreSession().send(coreMsg, false, dest.isTemporary());
+-      } catch (Exception e) {
+-         logger.warn(e.getMessage(), e);
+-         exceptionToSend = e;
+-      }
+-      connection.enableTtl();
+-      if (count == null || count.decrementAndGet() == 0) {
+-         if (exceptionToSend != null) {
+-            this.connection.getContext().setDontSendReponse(false);
+-            connection.sendException(exceptionToSend);
+-         } else {
+-            server.getStorageManager().afterCompleteOperations(new IOCallback() {
+-               @Override
+-               public void done() {
+-                  if (sendProducerAck) {
+-                     try {
+-                        ProducerAck ack = new ProducerAck(producerInfo.getProducerId(), messageSend.getSize());
+-                        connection.dispatchAsync(ack);
+-                     } catch (Exception e) {
++            if (result == RoutingStatus.NO_BINDINGS && dest.isQueue()) {
++               throw new InvalidDestinationException("Cannot publish to a non-existent Destination: " + dest);
++            }
++         } catch (Exception e) {
++
++            logger.warn(e.getMessage(), e);
++            exceptionToSend = e;
++         }
++         connection.enableTtl();
++         if (count == null || count.decrementAndGet() == 0) {
++            if (exceptionToSend != null) {
++               this.connection.getContext().setDontSendReponse(false);
++               connection.sendException(exceptionToSend);
++            } else {
++               server.getStorageManager().afterCompleteOperations(new IOCallback() {
++                  @Override
++                  public void done() {
++                     if (sendProducerAck) {
++                        try {
++                           ProducerAck ack = new ProducerAck(producerInfo.getProducerId(), messageSend.getSize());
++                           connection.dispatchAsync(ack);
++                        } catch (Exception e) {
++                           connection.getContext().setDontSendReponse(false);
++                           ActiveMQServerLogger.LOGGER.warn(e.getMessage(), e);
++                           connection.sendException(e);
++                        }
++                     } else {
+                         connection.getContext().setDontSendReponse(false);
+-                        ActiveMQServerLogger.LOGGER.warn(e.getMessage(), e);
+-                        connection.sendException(e);
+-                     }
+-                  } else {
+-                     connection.getContext().setDontSendReponse(false);
+-                     try {
+-                        Response response = new Response();
+-                        response.setCorrelationId(messageSend.getCommandId());
+-                        connection.dispatchAsync(response);
+-                     } catch (Exception e) {
+-                        ActiveMQServerLogger.LOGGER.warn(e.getMessage(), e);
+-                        connection.sendException(e);
++                        try {
++                           Response response = new Response();
++                           response.setCorrelationId(messageSend.getCommandId());
++                           connection.dispatchAsync(response);
++                        } catch (Exception e) {
++                           ActiveMQServerLogger.LOGGER.warn(e.getMessage(), e);
++                           connection.sendException(e);
++                        }
+                      }
+                   }
+-               }
+ 
+-               @Override
+-               public void onError(int errorCode, String errorMessage) {
+-                  try {
+-                     final IOException e = new IOException(errorMessage);
+-                     ActiveMQServerLogger.LOGGER.warn(errorMessage);
+-                     connection.serviceException(e);
+-                  } catch (Exception ex) {
+-                     ActiveMQServerLogger.LOGGER.debug(ex);
++                  @Override
++                  public void onError(int errorCode, String errorMessage) {
++                     try {
++                        final IOException e = new IOException(errorMessage);
++                        ActiveMQServerLogger.LOGGER.warn(errorMessage);
++                        connection.serviceException(e);
++                     } catch (Exception ex) {
++                        ActiveMQServerLogger.LOGGER.debug(ex);
++                     }
+                   }
+-               }
+-            });
++               });
++            }
+          }
++      })) {
++         this.connection.getContext().setDontSendReponse(false);
++         connection.enableTtl();
++         throw new ResourceAllocationException("Queue is full " + address);
+       }
+    }
+ 

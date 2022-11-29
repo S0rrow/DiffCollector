@@ -1,0 +1,542 @@
+diff --git a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
+index e2deb802be..789e527f12 100644
+--- a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
++++ b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
+@@ -17,43 +17,44 @@
+ package org.apache.activemq.artemis.core.protocol.openwire.amq;
+ 
+ import java.io.IOException;
+-import java.util.List;
++import java.util.Iterator;
++import java.util.Set;
+ import java.util.UUID;
++import java.util.concurrent.ConcurrentLinkedQueue;
+ import java.util.concurrent.CountDownLatch;
+ import java.util.concurrent.ScheduledExecutorService;
+ import java.util.concurrent.ScheduledFuture;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+-import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.client.impl.ClientConsumerImpl;
+-import org.apache.activemq.artemis.core.protocol.openwire.OpenWireMessageConverter;
+-import org.apache.activemq.artemis.core.protocol.openwire.util.OpenWireUtil;
+-import org.apache.activemq.artemis.core.server.MessageReference;
+-import org.apache.activemq.artemis.core.server.QueueQueryResult;
+-import org.apache.activemq.artemis.core.server.ServerConsumer;
+-import org.apache.activemq.artemis.core.server.ServerMessage;
+-import org.apache.activemq.artemis.core.server.SlowConsumerDetectionListener;
+-import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+-import org.apache.activemq.artemis.core.transaction.Transaction;
+-import org.apache.activemq.command.ConsumerControl;
+ import org.apache.activemq.command.ConsumerId;
+ import org.apache.activemq.command.ConsumerInfo;
+ import org.apache.activemq.command.MessageAck;
+ import org.apache.activemq.command.MessageDispatch;
+ import org.apache.activemq.command.MessageId;
+ import org.apache.activemq.command.MessagePull;
++import org.apache.activemq.command.TransactionId;
+ import org.apache.activemq.wireformat.WireFormat;
++import org.apache.activemq.artemis.api.core.SimpleString;
++import org.apache.activemq.artemis.core.protocol.openwire.OpenWireMessageConverter;
++import org.apache.activemq.artemis.core.protocol.openwire.OpenWireUtil;
++import org.apache.activemq.artemis.core.server.QueueQueryResult;
++import org.apache.activemq.artemis.core.server.ServerMessage;
++import org.apache.activemq.artemis.jms.client.ActiveMQDestination;
++
++public class AMQConsumer implements BrowserListener {
+ 
+-public class AMQConsumer {
+    private AMQSession session;
+-   private org.apache.activemq.command.ActiveMQDestination openwireDestination;
++   private org.apache.activemq.command.ActiveMQDestination actualDest;
+    private ConsumerInfo info;
+    private final ScheduledExecutorService scheduledPool;
+-   private ServerConsumer serverConsumer;
++   private long nativeId = -1;
++   private SimpleString subQueueName = null;
+ 
+-   private int prefetchSize;
+-   private AtomicInteger currentWindow;
++   private final int prefetchSize;
++   private AtomicInteger windowAvailable;
++   private final java.util.Queue<MessageInfo> deliveringRefs = new ConcurrentLinkedQueue<MessageInfo>();
+    private long messagePullSequence = 0;
+    private MessagePullHandler messagePullHandler;
+ 
+@@ -62,100 +63,87 @@ public class AMQConsumer {
+                       ConsumerInfo info,
+                       ScheduledExecutorService scheduledPool) {
+       this.session = amqSession;
+-      this.openwireDestination = d;
++      this.actualDest = d;
+       this.info = info;
+       this.scheduledPool = scheduledPool;
+       this.prefetchSize = info.getPrefetchSize();
+-      this.currentWindow = new AtomicInteger(prefetchSize);
++      this.windowAvailable = new AtomicInteger(prefetchSize);
+       if (prefetchSize == 0) {
+          messagePullHandler = new MessagePullHandler();
+       }
+    }
+ 
+-   public void init(SlowConsumerDetectionListener slowConsumerDetectionListener, long nativeId) throws Exception {
++   public void init() throws Exception {
++      AMQServerSession coreSession = session.getCoreSession();
+ 
+       SimpleString selector = info.getSelector() == null ? null : new SimpleString(info.getSelector());
+ 
+-      String physicalName = OpenWireUtil.convertWildcard(openwireDestination.getPhysicalName());
+-
+-      SimpleString address;
+-
+-      if (openwireDestination.isTopic()) {
+-         address = new SimpleString("jms.topic." + physicalName);
++      nativeId = session.getCoreServer().getStorageManager().generateID();
+ 
+-         SimpleString queueName = createTopicSubscription(info.isDurable(), info.getClientId(), physicalName, info.getSubscriptionName(), selector, address);
++      SimpleString address = new SimpleString(this.actualDest.getPhysicalName());
+ 
+-         serverConsumer = session.getCoreSession().createConsumer(nativeId, queueName, null, info.isBrowser(), false, -1);
+-         serverConsumer.setlowConsumerDetection(slowConsumerDetectionListener);
+-      }
+-      else {
+-         SimpleString queueName = OpenWireUtil.toCoreAddress(openwireDestination);
+-         session.getCoreServer().getJMSQueueCreator().create(queueName);
+-         serverConsumer = session.getCoreSession().createConsumer(nativeId, queueName, selector, info.isBrowser(), false, -1);
+-         serverConsumer.setlowConsumerDetection(slowConsumerDetectionListener);
+-         AddressSettings addrSettings = session.getCoreServer().getAddressSettingsRepository().getMatch(queueName.toString());
+-         if (addrSettings != null) {
+-            //see PolicyEntry
+-            if (info.getPrefetchSize() != 0 && addrSettings.getQueuePrefetch() == 0) {
+-               //sends back a ConsumerControl
+-               ConsumerControl cc = new ConsumerControl();
+-               cc.setConsumerId(info.getConsumerId());
+-               cc.setPrefetch(0);
+-               session.getConnection().dispatch(cc);
+-            }
++      if (this.actualDest.isTopic()) {
++         String physicalName = this.actualDest.getPhysicalName();
++         if (physicalName.contains(".>")) {
++            //wildcard
++            physicalName = OpenWireUtil.convertWildcard(physicalName);
+          }
+ 
+-      }
+-
+-      serverConsumer.setProtocolData(this);
+-   }
++         // on recreate we don't need to create queues
++         address = new SimpleString("jms.topic." + physicalName);
++         if (info.isDurable()) {
++            subQueueName = new SimpleString(ActiveMQDestination.createQueueNameForDurableSubscription(true, info.getClientId(), info.getSubscriptionName()));
++
++            QueueQueryResult result = coreSession.executeQueueQuery(subQueueName);
++            if (result.isExists()) {
++               // Already exists
++               if (result.getConsumerCount() > 0) {
++                  throw new IllegalStateException("Cannot create a subscriber on the durable subscription since it already has subscriber(s)");
++               }
+ 
+-   private SimpleString createTopicSubscription(boolean isDurable,
+-                                                String clientID,
+-                                                String physicalName,
+-                                                String subscriptionName,
+-                                                SimpleString selector,
+-                                                SimpleString address) throws Exception {
+-
+-      SimpleString queueName;
+-
+-      if (isDurable) {
+-         queueName = new SimpleString(org.apache.activemq.artemis.jms.client.ActiveMQDestination.createQueueNameForDurableSubscription(true, clientID, subscriptionName));
+-         QueueQueryResult result = session.getCoreSession().executeQueueQuery(queueName);
+-         if (result.isExists()) {
+-            // Already exists
+-            if (result.getConsumerCount() > 0) {
+-               throw new IllegalStateException("Cannot create a subscriber on the durable subscription since it already has subscriber(s)");
+-            }
++               SimpleString oldFilterString = result.getFilterString();
+ 
+-            SimpleString oldFilterString = result.getFilterString();
++               boolean selectorChanged = selector == null && oldFilterString != null || oldFilterString == null && selector != null || oldFilterString != null && selector != null && !oldFilterString.equals(selector);
+ 
+-            boolean selectorChanged = selector == null && oldFilterString != null || oldFilterString == null && selector != null || oldFilterString != null && selector != null && !oldFilterString.equals(selector);
++               SimpleString oldTopicName = result.getAddress();
+ 
+-            SimpleString oldTopicName = result.getAddress();
++               boolean topicChanged = !oldTopicName.equals(address);
+ 
+-            boolean topicChanged = !oldTopicName.equals(address);
++               if (selectorChanged || topicChanged) {
++                  // Delete the old durable sub
++                  coreSession.deleteQueue(subQueueName);
+ 
+-            if (selectorChanged || topicChanged) {
+-               // Delete the old durable sub
+-               session.getCoreSession().deleteQueue(queueName);
++                  // Create the new one
++                  coreSession.createQueue(address, subQueueName, selector, false, true);
++               }
+ 
+-               // Create the new one
+-               session.getCoreSession().createQueue(address, queueName, selector, false, true);
++            }
++            else {
++               coreSession.createQueue(address, subQueueName, selector, false, true);
+             }
+          }
+          else {
+-            session.getCoreSession().createQueue(address, queueName, selector, false, true);
++            subQueueName = new SimpleString(UUID.randomUUID().toString());
++
++            coreSession.createQueue(address, subQueueName, selector, true, false);
+          }
++
++         coreSession.createConsumer(nativeId, subQueueName, null, info.isBrowser(), false, -1);
+       }
+       else {
+-         queueName = new SimpleString(UUID.randomUUID().toString());
+-
+-         session.getCoreSession().createQueue(address, queueName, selector, true, false);
++         SimpleString queueName = new SimpleString("jms.queue." + this.actualDest.getPhysicalName());
++         coreSession.createConsumer(nativeId, queueName, selector, info.isBrowser(), false, -1);
++      }
+ 
++      if (info.isBrowser()) {
++         AMQServerConsumer coreConsumer = coreSession.getConsumer(nativeId);
++         coreConsumer.setBrowserListener(this);
+       }
+ 
+-      return queueName;
++   }
++
++   public long getNativeId() {
++      return this.nativeId;
+    }
+ 
+    public ConsumerId getId() {
+@@ -167,40 +155,33 @@ public class AMQConsumer {
+    }
+ 
+    public void acquireCredit(int n) throws Exception {
+-      if (messagePullHandler != null) {
+-         //don't acquire any credits when the pull handler controls it!!
+-         return;
++      boolean promptDelivery = windowAvailable.get() == 0;
++      if (windowAvailable.get() < prefetchSize) {
++         this.windowAvailable.addAndGet(n);
+       }
+-      int oldwindow = currentWindow.getAndAdd(n);
+-
+-      boolean promptDelivery = oldwindow < prefetchSize;
+-
+       if (promptDelivery) {
+-         serverConsumer.promptDelivery();
++         session.getCoreSession().promptDelivery(nativeId);
+       }
+-
+    }
+ 
+-   public int handleDeliver(MessageReference reference, ServerMessage message, int deliveryCount) {
++   public int handleDeliver(ServerMessage message, int deliveryCount) {
+       MessageDispatch dispatch;
+       try {
+          if (messagePullHandler != null && !messagePullHandler.checkForcedConsumer(message)) {
+             return 0;
+          }
+-
+-         dispatch = OpenWireMessageConverter.createMessageDispatch(reference, message, this);
++         //decrement deliveryCount as AMQ client tends to add 1.
++         dispatch = OpenWireMessageConverter.createMessageDispatch(message, deliveryCount - 1, this);
+          int size = dispatch.getMessage().getSize();
+-         reference.setProtocolData(dispatch.getMessage().getMessageId());
++         this.deliveringRefs.add(new MessageInfo(dispatch.getMessage().getMessageId(), message.getMessageID(), size));
+          session.deliverMessage(dispatch);
+-         currentWindow.decrementAndGet();
++         windowAvailable.decrementAndGet();
+          return size;
+       }
+       catch (IOException e) {
+-         e.printStackTrace();
+          return 0;
+       }
+       catch (Throwable t) {
+-         t.printStackTrace();
+          return 0;
+       }
+    }
+@@ -208,66 +189,112 @@ public class AMQConsumer {
+    public void handleDeliverNullDispatch() {
+       MessageDispatch md = new MessageDispatch();
+       md.setConsumerId(getId());
+-      md.setDestination(openwireDestination);
++      md.setDestination(actualDest);
+       session.deliverMessage(md);
++      windowAvailable.decrementAndGet();
+    }
+ 
+-   /** The acknowledgement in openwire is done based on intervals.
+-    *  We will iterate through the list of delivering messages at {@link ServerConsumer#getDeliveringReferencesBasedOnProtocol(boolean, Object, Object)}
+-    *  and add those to the Transaction.
+-    *  Notice that we will start a new transaction on the cases where there is no transaction. */
+    public void acknowledge(MessageAck ack) throws Exception {
+-
+       MessageId first = ack.getFirstMessageId();
+-      MessageId last = ack.getLastMessageId();
+-
+-      if (first == null) {
+-         first = last;
++      MessageId lastm = ack.getLastMessageId();
++      TransactionId tid = ack.getTransactionId();
++      boolean isLocalTx = (tid != null) && tid.isLocalTransaction();
++      boolean single = lastm.equals(first);
++
++      MessageInfo mi = null;
++      int n = 0;
++
++      if (ack.isIndividualAck()) {
++         Iterator<MessageInfo> iter = deliveringRefs.iterator();
++         while (iter.hasNext()) {
++            mi = iter.next();
++            if (mi.amqId.equals(lastm)) {
++               n++;
++               iter.remove();
++               session.getCoreSession().individualAcknowledge(nativeId, mi.nativeId);
++               session.getCoreSession().commit();
++               break;
++            }
++         }
+       }
+-
+-      boolean removeReferences = !serverConsumer.isBrowseOnly(); // if it's browse only, nothing to be acked, we just remove the lists
+-
+-      if (ack.isRedeliveredAck() || ack.isDeliveredAck() || ack.isExpiredAck()) {
+-         removeReferences = false;
++      else if (ack.isRedeliveredAck()) {
++         //client tells that this message is for redlivery.
++         //do nothing until poisoned.
++         n = 1;
+       }
+-
+-      List<MessageReference> ackList = serverConsumer.getDeliveringReferencesBasedOnProtocol(removeReferences, first, last);
+-
+-      acquireCredit(ack.getMessageCount());
+-
+-      if (removeReferences) {
+-
+-         Transaction originalTX = session.getCoreSession().getCurrentTransaction();
+-         Transaction transaction;
+-
+-         if (originalTX == null) {
+-            transaction = session.getCoreSession().newTransaction();
+-         }
+-         else {
+-            transaction = originalTX;
+-         }
+-
+-         if (ack.isIndividualAck() || ack.isStandardAck()) {
+-            for (MessageReference ref : ackList) {
+-               ref.acknowledge(transaction);
++      else if (ack.isPoisonAck()) {
++         //send to dlq
++         Iterator<MessageInfo> iter = deliveringRefs.iterator();
++         boolean firstFound = false;
++         while (iter.hasNext()) {
++            mi = iter.next();
++            if (mi.amqId.equals(first)) {
++               n++;
++               iter.remove();
++               session.getCoreSession().moveToDeadLetterAddress(nativeId, mi.nativeId, ack.getPoisonCause());
++               session.getCoreSession().commit();
++               if (single) {
++                  break;
++               }
++               firstFound = true;
++            }
++            else if (firstFound || first == null) {
++               n++;
++               iter.remove();
++               session.getCoreSession().moveToDeadLetterAddress(nativeId, mi.nativeId, ack.getPoisonCause());
++               session.getCoreSession().commit();
++               if (mi.amqId.equals(lastm)) {
++                  break;
++               }
+             }
+          }
+-         else if (ack.isPoisonAck()) {
+-            for (MessageReference ref : ackList) {
+-               Throwable poisonCause = ack.getPoisonCause();
+-               if (poisonCause != null) {
+-                  ref.getMessage().putStringProperty(OpenWireMessageConverter.AMQ_MSG_DLQ_DELIVERY_FAILURE_CAUSE_PROPERTY, poisonCause.toString());
++      }
++      else if (ack.isDeliveredAck() || ack.isExpiredAck()) {
++         //ToDo: implement with tests
++         n = 1;
++      }
++      else {
++         Iterator<MessageInfo> iter = deliveringRefs.iterator();
++         boolean firstFound = false;
++         while (iter.hasNext()) {
++            MessageInfo ami = iter.next();
++            if (ami.amqId.equals(first)) {
++               n++;
++               if (!isLocalTx) {
++                  iter.remove();
++               }
++               else {
++                  ami.setLocalAcked(true);
++               }
++               if (single) {
++                  mi = ami;
++                  break;
++               }
++               firstFound = true;
++            }
++            else if (firstFound || first == null) {
++               n++;
++               if (!isLocalTx) {
++                  iter.remove();
++               }
++               else {
++                  ami.setLocalAcked(true);
++               }
++               if (ami.amqId.equals(lastm)) {
++                  mi = ami;
++                  break;
+                }
+-               ref.getQueue().sendToDeadLetterAddress(transaction, ref);
+             }
+          }
+-
+-         if (originalTX == null) {
+-            transaction.commit(true);
++         if (mi != null && !isLocalTx) {
++            session.getCoreSession().acknowledge(nativeId, mi.nativeId);
+          }
+       }
++
++      acquireCredit(n);
+    }
+ 
++   @Override
+    public void browseFinished() {
+       MessageDispatch md = new MessageDispatch();
+       md.setConsumerId(info.getConsumerId());
+@@ -277,51 +304,72 @@ public class AMQConsumer {
+       session.deliverMessage(md);
+    }
+ 
+-   public ConsumerInfo getInfo() {
+-      return info;
++   public boolean handledTransactionalMsg() {
++      // TODO Auto-generated method stub
++      return false;
+    }
+ 
+-   public boolean hasCredits() {
+-      return currentWindow.get() > 0;
++   //this is called before session commit a local tx
++   public void finishTx() throws Exception {
++      MessageInfo lastMi = null;
++
++      MessageInfo mi = null;
++      Iterator<MessageInfo> iter = deliveringRefs.iterator();
++      while (iter.hasNext()) {
++         mi = iter.next();
++         if (mi.isLocalAcked()) {
++            iter.remove();
++            lastMi = mi;
++         }
++      }
++
++      if (lastMi != null) {
++         session.getCoreSession().acknowledge(nativeId, lastMi.nativeId);
++      }
+    }
+ 
+-   public void processMessagePull(MessagePull messagePull) throws Exception {
+-      currentWindow.incrementAndGet();
+-      if (messagePullHandler != null) {
+-         messagePullHandler.nextSequence(messagePullSequence++, messagePull.getTimeout());
++   public void rollbackTx(Set<Long> acked) throws Exception {
++      MessageInfo lastMi = null;
++
++      MessageInfo mi = null;
++      Iterator<MessageInfo> iter = deliveringRefs.iterator();
++      while (iter.hasNext()) {
++         mi = iter.next();
++         if (mi.isLocalAcked()) {
++            acked.add(mi.nativeId);
++            lastMi = mi;
++         }
++      }
++
++      if (lastMi != null) {
++         session.getCoreSession().acknowledge(nativeId, lastMi.nativeId);
+       }
+    }
+ 
+-   public void removeConsumer() throws Exception {
+-      serverConsumer.close(false);
++   public org.apache.activemq.command.ActiveMQDestination getDestination() {
++      return actualDest;
+    }
+ 
+-   public org.apache.activemq.command.ActiveMQDestination getOpenwireDestination() {
+-      return openwireDestination;
++   public ConsumerInfo getInfo() {
++      return info;
+    }
+ 
+-   public void setPrefetchSize(int prefetchSize) {
+-      this.prefetchSize = prefetchSize;
+-      this.currentWindow.set(prefetchSize);
+-      this.info.setPrefetchSize(prefetchSize);
+-      if (this.prefetchSize > 0) {
+-         serverConsumer.promptDelivery();
+-      }
++   public boolean hasCredits() {
++      return windowAvailable.get() > 0;
+    }
+ 
+-   public void updateDeliveryCountAfterCancel(MessageReference ref) {
+-      long seqId = ref.getMessage().getMessageID();
+-      long lastDelSeqId = info.getLastDeliveredSequenceId();
++   public void processMessagePull(MessagePull messagePull) throws Exception {
++      windowAvailable.incrementAndGet();
+ 
+-      // This is a specific rule of the protocol
+-      if (!(lastDelSeqId < 0 || seqId <= lastDelSeqId)) {
+-         ref.decrementDeliveryCount();
++      if (messagePullHandler != null) {
++         messagePullHandler.nextSequence(messagePullSequence++, messagePull.getTimeout());
+       }
+    }
+ 
+-   /**
+-    * The MessagePullHandler is used with slow consumer policies.
+-    * */
++   public void removeConsumer() throws Exception {
++      session.removeConsumer(nativeId);
++   }
++
+    private class MessagePullHandler {
+ 
+       private long next = -1;
+@@ -333,7 +381,7 @@ public class AMQConsumer {
+          this.next = next;
+          this.timeout = timeout;
+          latch = new CountDownLatch(1);
+-         serverConsumer.forceDelivery(messagePullSequence);
++         session.getCoreSession().forceConsumerDelivery(nativeId, messagePullSequence);
+          //if we are 0 timeout or less we need to wait to get either the forced message or a real message.
+          if (timeout <= 0) {
+             latch.await(10, TimeUnit.SECONDS);
+@@ -346,6 +394,7 @@ public class AMQConsumer {
+ 
+       public boolean checkForcedConsumer(ServerMessage message) {
+          if (message.containsProperty(ClientConsumerImpl.FORCED_DELIVERY_MESSAGE)) {
++            System.out.println("MessagePullHandler.checkForcedConsumer");
+             if (next >= 0) {
+                if (timeout <= 0) {
+                   latch.countDown();

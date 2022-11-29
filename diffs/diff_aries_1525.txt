@@ -1,0 +1,275 @@
+diff --git a/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java b/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java
+index 7e5c45cfa..ea9c63904 100644
+--- a/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java
++++ b/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java
+@@ -32,15 +32,11 @@ import org.apache.xbean.recipe.ObjectRecipe;
+ import org.apache.xbean.recipe.Recipe;
+ import org.apache.xbean.recipe.RecipeHelper;
+ import org.apache.xbean.recipe.ReferenceRecipe;
+-import org.apache.geronimo.blueprint.namespace.ComponentDefinitionRegistryImpl;
++import org.apache.geronimo.blueprint.Destroyable;
+ import org.apache.geronimo.blueprint.utils.ArgumentsMatch;
+ import org.apache.geronimo.blueprint.utils.ArgumentsMatcher;
+-import org.apache.geronimo.blueprint.utils.ReflectionUtils;
+ import org.osgi.service.blueprint.reflect.BeanArgument;
+-import org.osgi.service.blueprint.reflect.CollectionMetadata;
+-import org.osgi.service.blueprint.reflect.MapMetadata;
+ import org.osgi.service.blueprint.reflect.Metadata;
+-import org.osgi.service.blueprint.reflect.PropsMetadata;
+ import org.osgi.service.blueprint.reflect.ValueMetadata;
+ 
+ /**
+@@ -52,8 +48,8 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+ 
+     private final BlueprintContextImpl blueprintContext;
+     private boolean keepRecipe = false;
+-    private String initMethod;
+-    private String destroyMethod;
++    private Method initMethod;
++    private Method destroyMethod;
+     private List<String> explicitDependencies;
+     
+     private Object factory; // could be Recipe or actual object
+@@ -95,19 +91,19 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+         return keepRecipe;
+     }
+     
+-    public void setInitMethod(String initMethod) {
++    public void setInitMethod(Method initMethod) {
+         this.initMethod = initMethod;
+     }
+     
+-    public String getInitMethod() {
++    public Method getInitMethod() {
+         return initMethod;
+     }
+     
+-    public void setDestroyMethod(String destroyMethod) {
++    public void setDestroyMethod(Method destroyMethod) {
+         this.destroyMethod = destroyMethod;
+     }
+     
+-    public String getDestroyMethod() {
++    public Method getDestroyMethod() {
+         return destroyMethod;
+     }
+ 
+@@ -141,23 +137,15 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+         List<Object> args = new ArrayList<Object>();
+         for (int i = 0; beanArguments != null && i < beanArguments.size(); i++) {
+             BeanArgument argument = beanArguments.get(i);
+-            String valueType = argument.getValueType();
+-            if (valueType == null) {
+-                // check if valueType is set on the <value/> element
+-                valueType = getValueType(argument.getValue());
+-            }            
+-            Class type = loadClass(valueType);
++            Class type = loadClass(argument.getValueType());
+             Object obj = arguments.get(i);
+-            if (type != null) {
+-                obj = new TypedRecipe(blueprintContext.getConversionService(), type, obj);
+-            } else {
+-                if (obj == null) {
+-                    obj = new TypedRecipe();
+-                } else if (obj instanceof Recipe) {                
+-                    if (shouldPreinstantiate(argument.getValue())) {
+-                        obj = RecipeHelper.convert(Object.class, obj, refAllowed);
+-                    }
++            if (obj instanceof Recipe) {                
++                if (type != null || shouldPreinstantiate(argument.getValue())) {
++                    obj = RecipeHelper.convert(Object.class, obj, refAllowed);
++                    obj = convert(obj, type);
+                 }
++            } else {
++                obj = convert(obj, type);
+             }
+             args.add(obj);
+         }
+@@ -169,24 +157,10 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+         if (metadata instanceof ValueMetadata) {
+             ValueMetadata stringValue = (ValueMetadata) metadata;
+             return (stringValue.getTypeName() != null);
+-        } else if (metadata instanceof MapMetadata) {
+-            return false;
+-        } else if (metadata instanceof CollectionMetadata) {
+-            return false;
+-        } else if (metadata instanceof PropsMetadata) {
+-            return false;
+         }
+         return true;
+     }
+     
+-    private String getValueType(Metadata metadata) {
+-        if (metadata instanceof ValueMetadata) {
+-            ValueMetadata stringValue = (ValueMetadata) metadata;
+-            return stringValue.getTypeName();
+-        }
+-        return null;
+-    }
+-    
+     private Class loadClass(String typeName) throws ConstructionException {
+         if (typeName == null) {
+             return null;
+@@ -197,7 +171,18 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+             throw new ConstructionException("Unable to load type class " + typeName);
+         }
+     }
+-        
++    
++    private Object convert(Object source, Class type) throws ConstructionException {
++        if (type != null && blueprintContext != null) {
++            try {
++                source = blueprintContext.getConversionService().convert(source, type);
++            } catch (Exception e) {
++                throw new ConstructionException("Failed to convert", e);
++            }            
++        }
++        return source;
++    }
++    
+     private List<Object> getFinalArguments(ArgumentsMatch match, boolean refAllowed) throws ConstructionException {
+         List<Object> arguments = match.getArguments();
+         Class[] parameterTypes = match.getParameterTypes();
+@@ -239,8 +224,7 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+             try {
+                 instance = match.getMethod().invoke(factoryObj, args.toArray());
+             } catch (InvocationTargetException e) {
+-                Throwable root = e.getTargetException();
+-                throw new ConstructionException(root);
++                throw new ConstructionException(e);
+             } catch (Exception e) {
+                 throw new ConstructionException(e);
+             }
+@@ -254,8 +238,7 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+             try {
+                 instance = match.getMethod().invoke(null, args.toArray());
+             } catch (InvocationTargetException e) {
+-                Throwable root = e.getTargetException();
+-                throw new ConstructionException(root);
++                throw new ConstructionException(e);
+             } catch (Exception e) {
+                 throw new ConstructionException(e);
+             }
+@@ -268,8 +251,7 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+             try {
+                 instance = match.getConstructor().newInstance(args.toArray());
+             } catch (InvocationTargetException e) {
+-                Throwable root = e.getTargetException();
+-                throw new ConstructionException(root);
++                throw new ConstructionException(e);
+             } catch (Exception e) {
+                 throw new ConstructionException(e);
+             }
+@@ -277,53 +259,6 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+         
+         return instance;
+     }
+-        
+-    /**
+-     * Returns init method (if any). Throws exception if the init-method was set explicitly on the bean
+-     * and the method is not found on the instance.
+-     */
+-    protected Method getInitMethod(Object instance) throws ConstructionException {
+-        Method method = null;        
+-        if (initMethod == null) {
+-            ComponentDefinitionRegistryImpl registry = blueprintContext.getComponentDefinitionRegistry();
+-            method = ReflectionUtils.getLifecycleMethod(instance.getClass(), registry.getDefaultInitMethod());
+-        } else if (initMethod.length() > 0) {
+-            method = ReflectionUtils.getLifecycleMethod(instance.getClass(), initMethod);
+-            if (method == null) {
+-                throw new ConstructionException("Component '" + getName() + "' does not have init-method: " + initMethod);
+-            }
+-        }
+-        return method;
+-    }
+-
+-    /**
+-     * Returns destroy method (if any). Throws exception if the destroy-method was set explicitly on the bean
+-     * and the method is not found on the instance.
+-     */
+-    protected Method getDestroyMethod(Object instance) throws ConstructionException {
+-        Method method = null;        
+-        if (destroyMethod == null) {
+-            ComponentDefinitionRegistryImpl registry = blueprintContext.getComponentDefinitionRegistry();
+-            method = ReflectionUtils.getLifecycleMethod(instance.getClass(), registry.getDefaultDestroyMethod());
+-        } else if (destroyMethod.length() > 0) {
+-            method = ReflectionUtils.getLifecycleMethod(instance.getClass(), destroyMethod);
+-            if (method == null) {
+-                throw new ConstructionException("Component '" + getName() + "' does not have destroy-method: " + destroyMethod);
+-            }
+-        }
+-        return method;
+-    }
+-    
+-    @Override
+-    public boolean canCreate(Type type) {
+-        if (factoryMethod == null) {
+-            return super.canCreate(type);
+-        } else {
+-            // factory-method was specified, so we're not really sure what type of object we create
+-            // until we actually create it
+-            return true;
+-        }
+-    }
+     
+     @Override
+     public List<Recipe> getConstructorRecipes() {
+@@ -335,16 +270,13 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+         
+         final Object obj = getInstance(lazyRefAllowed);
+         
+-        // check for init lifecycle method (if any)
+-        Method initMethod = getInitMethod(obj);
+-        
+-        // check for destroy lifecycle method (if any)
+-        getDestroyMethod(obj);
+-        
+         // inject properties
+         setProperties(obj);
+         
+-        // call init method
++        if (getName() != null) {
++            ExecutionContext.getContext().addObject(getName(), obj);
++        }
++        
+         if (initMethod != null) {
+             try {
+                 initMethod.invoke(obj);
+@@ -355,22 +287,27 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+                 e.printStackTrace();
+             }
+         }
+-        
+-        if (getName() != null) {
+-            ExecutionContext.getContext().addObject(getName(), obj);
++        if (destroyMethod != null && blueprintContext != null) {
++            Destroyable d = new Destroyable() {
++                public void destroy() {
++                    destroyInstance(obj);
++                }
++            };
++            blueprintContext.addDestroyable(getName(), d);
+         }
+-        
+         return obj;
+     }
+     
+     public void destroyInstance(Object obj) {
+-        try {
+-            Method method = getDestroyMethod(obj);
+-            if (method != null) {
+-                method.invoke(obj);
++        if (!getType().equals(obj.getClass())) {
++            throw new RuntimeException("");
++        }
++        if (destroyMethod != null) {
++            try {
++                destroyMethod.invoke(obj);
++            } catch (Exception e) {
++                e.printStackTrace();
+             }
+-        } catch (Exception e) {
+-            e.printStackTrace();
+         }
+     }
+ }

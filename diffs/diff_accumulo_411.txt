@@ -1,0 +1,20 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/BadIteratorMincIT.java b/test/src/main/java/org/apache/accumulo/test/functional/BadIteratorMincIT.java
+index 64fc905f02..c730f9b06d 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/BadIteratorMincIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/BadIteratorMincIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ import static org.junit.Assert.assertEquals;
+ 
+@@ -37,6 +36,7 @@ import org.apache.hadoop.io.Text;
+ import org.junit.Test;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class BadIteratorMincIT extends AccumuloClusterHarness {
+ 

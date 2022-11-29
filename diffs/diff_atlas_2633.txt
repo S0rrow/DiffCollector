@@ -1,0 +1,122 @@
+diff --git a/webapp/src/main/java/org/apache/atlas/web/adapters/AtlasStructFormatConverter.java b/webapp/src/main/java/org/apache/atlas/web/adapters/AtlasStructFormatConverter.java
+index 4d2e12388..8a5c9be46 100644
+--- a/webapp/src/main/java/org/apache/atlas/web/adapters/AtlasStructFormatConverter.java
++++ b/webapp/src/main/java/org/apache/atlas/web/adapters/AtlasStructFormatConverter.java
+@@ -50,7 +50,7 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+     }
+ 
+     @Override
+-    public Object fromV1ToV2(Object v1Obj, AtlasType type, ConverterContext converterContext) throws AtlasBaseException {
++    public AtlasStruct fromV1ToV2(Object v1Obj, AtlasType type) throws AtlasBaseException {
+         AtlasStruct ret = null;
+ 
+         if (v1Obj != null) {
+@@ -61,7 +61,7 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+                 final Map v1Attribs = (Map) v1Map.get(ATTRIBUTES_PROPERTY_KEY);
+ 
+                 if (MapUtils.isNotEmpty(v1Attribs)) {
+-                    ret = new AtlasStruct(type.getTypeName(), fromV1ToV2(structType, v1Attribs, converterContext));
++                    ret = new AtlasStruct(type.getTypeName(), fromV1ToV2(structType, v1Attribs));
+                 } else {
+                     ret = new AtlasStruct(type.getTypeName());
+                 }
+@@ -75,7 +75,7 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+                     LOG.error("IStruct.getValuesMap() failed", excp);
+                 }
+ 
+-                ret = new AtlasStruct(type.getTypeName(), fromV1ToV2(structType, v1Attribs, converterContext));
++                ret = new AtlasStruct(type.getTypeName(), fromV1ToV2(structType, v1Attribs));
+             } else {
+                 throw new AtlasBaseException(AtlasErrorCode.UNEXPECTED_TYPE, "Map or IStruct", v1Obj.getClass().getCanonicalName());
+             }
+@@ -85,7 +85,7 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+     }
+ 
+     @Override
+-    public Object fromV2ToV1(Object v2Obj, AtlasType type, ConverterContext converterContext) throws AtlasBaseException {
++    public Object fromV2ToV1(Object v2Obj, AtlasType type) throws AtlasBaseException {
+         Struct ret = null;
+ 
+         if (v2Obj != null) {
+@@ -102,14 +102,14 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+                 }
+ 
+                 if (MapUtils.isNotEmpty(v2Attribs)) {
+-                    ret = new Struct(type.getTypeName(), fromV2ToV1(structType, v2Attribs, converterContext));
++                    ret = new Struct(type.getTypeName(), fromV2ToV1(structType, v2Attribs));
+                 } else {
+                     ret = new Struct(type.getTypeName());
+                 }
+             } else if (v2Obj instanceof AtlasStruct) {
+                 AtlasStruct struct = (AtlasStruct) v2Obj;
+ 
+-                ret = new Struct(type.getTypeName(), fromV2ToV1(structType, struct.getAttributes(), converterContext));
++                ret = new Struct(type.getTypeName(), fromV2ToV1(structType, struct.getAttributes()));
+             } else {
+                 throw new AtlasBaseException(AtlasErrorCode.UNEXPECTED_TYPE, "Map or AtlasStruct", v2Obj.getClass().getCanonicalName());
+             }
+@@ -118,7 +118,7 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+         return ret;
+     }
+ 
+-    protected Map<String, Object> fromV2ToV1(AtlasStructType structType, Map attributes, ConverterContext context) throws AtlasBaseException {
++    protected Map<String, Object> fromV2ToV1(AtlasStructType structType, Map attributes) throws AtlasBaseException {
+         Map<String, Object> ret = null;
+ 
+         if (MapUtils.isNotEmpty(attributes)) {
+@@ -132,17 +132,11 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+                     continue;
+                 }
+ 
++                AtlasFormatConverter attrConverter = converterRegistry.getConverter(attrType.getTypeCategory());
++
+                 Object v2Value = attributes.get(attr.getName());
+-                Object v1Value = null;
++                Object v1Value = attrConverter.fromV2ToV1(v2Value, attrType);
+ 
+-                AtlasFormatConverter attrConverter = null;
+-                if (attrType.getTypeCategory() == TypeCategory.ENTITY && !attr.isContainedAttribute()) {
+-                    attrConverter = new AtlasObjectIdConverter(converterRegistry, typeRegistry);
+-                    v1Value = attrConverter.fromV2ToV1(v2Value, attrType, context);
+-                } else {
+-                    attrConverter = converterRegistry.getConverter(attrType.getTypeCategory());
+-                    v1Value = attrConverter.fromV2ToV1(v2Value, attrType, context);
+-                }
+                 ret.put(attr.getName(), v1Value);
+             }
+         }
+@@ -150,7 +144,7 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+         return ret;
+     }
+ 
+-    protected Map<String, Object> fromV1ToV2(AtlasStructType structType, Map attributes, ConverterContext context) throws AtlasBaseException {
++    protected Map<String, Object> fromV1ToV2(AtlasStructType structType, Map attributes) throws AtlasBaseException {
+         Map<String, Object> ret = null;
+ 
+         if (MapUtils.isNotEmpty(attributes)) {
+@@ -158,23 +152,11 @@ public class AtlasStructFormatConverter extends AtlasAbstractFormatConverter {
+ 
+             for (AtlasStructType.AtlasAttribute attr : structType.getAllAttributes().values()) {
+                 AtlasType            attrType      = attr.getAttributeType();
+-
+-                if (attrType == null) {
+-                    LOG.warn("ignored attribute {}.{}: failed to find AtlasType", structType.getTypeName(), attr.getName());
+-                    continue;
+-                }
++                AtlasFormatConverter attrConverter = converterRegistry.getConverter(attrType.getTypeCategory());
+ 
+                 Object v1Value = attributes.get(attr.getName());
+-                Object v2Value = null;
++                Object v2Value = attrConverter.fromV1ToV2(v1Value, attrType);
+ 
+-                AtlasFormatConverter attrConverter = null;
+-                if (attrType.getTypeCategory() == TypeCategory.ENTITY && !attr.isContainedAttribute()) {
+-                    attrConverter = new AtlasObjectIdConverter(converterRegistry, typeRegistry);
+-                    v2Value = attrConverter.fromV1ToV2(v1Value, attrType, context);
+-                } else {
+-                    attrConverter = converterRegistry.getConverter(attrType.getTypeCategory());
+-                    v2Value = attrConverter.fromV1ToV2(v1Value, attrType, context);
+-                }
+                 ret.put(attr.getAttributeDef().getName(), v2Value);
+             }
+         }

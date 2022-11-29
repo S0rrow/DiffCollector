@@ -1,0 +1,105 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/AutoCreatedQueueManagerImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/AutoCreatedQueueManagerImpl.java
+index a211a9650b..d9f58b7337 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/AutoCreatedQueueManagerImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/AutoCreatedQueueManagerImpl.java
+@@ -1,4 +1,4 @@
+-/*
++/**
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements. See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.
+@@ -21,59 +21,69 @@ import org.apache.activemq.artemis.core.server.ActiveMQServer;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+ import org.apache.activemq.artemis.core.server.AutoCreatedQueueManager;
+ import org.apache.activemq.artemis.core.server.Queue;
+-import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+ import org.apache.activemq.artemis.utils.ReferenceCounterUtil;
+ 
+-public class AutoCreatedQueueManagerImpl implements AutoCreatedQueueManager {
+-
++public class AutoCreatedQueueManagerImpl implements AutoCreatedQueueManager
++{
+    private final SimpleString queueName;
+ 
+    private final ActiveMQServer server;
+ 
+-   private final Runnable runnable = new Runnable() {
+-      @Override
+-      public void run() {
+-         Queue queue = server.locateQueue(queueName);
+-         SimpleString address = queue.getAddress();
+-         AddressSettings settings = server.getAddressSettingsRepository().getMatch(address.toString());
+-         long consumerCount = queue.getConsumerCount();
+-         long messageCount = queue.getMessageCount();
++   private final Runnable runnable = new Runnable()
++   {
++      public void run()
++      {
++         try
++         {
++            Queue queue = server.locateQueue(queueName);
++            long consumerCount = queue.getConsumerCount();
++            long messageCount = queue.getMessageCount();
+ 
+-         // TODO make sure this is the right check
+-         if ((queue.isAutoCreated() || queue.isDeleteOnNoConsumers()) && queue.getMessageCount() == 0) {
+-            if (ActiveMQServerLogger.LOGGER.isDebugEnabled()) {
+-               ActiveMQServerLogger.LOGGER.debug("deleting auto-created queue \"" + queueName + ".\" consumerCount = " + consumerCount + "; messageCount = " + messageCount + "; getAutoDeleteJmsQueues = " + settings.getAutoDeleteJmsQueues());
+-            }
++            if (server.locateQueue(queueName).getMessageCount() == 0)
++            {
++               if (ActiveMQServerLogger.LOGGER.isDebugEnabled())
++               {
++                  ActiveMQServerLogger.LOGGER.debug("deleting auto-created queue \"" + queueName + "\" because consumerCount = " + consumerCount + " and messageCount = " + messageCount);
++               }
+ 
+-            // TODO handle this exception better
+-            try {
+-               server.destroyQueue(queueName, null, true, false);
+-            } catch (Exception e) {
+-               e.printStackTrace();
++               server.destroyQueue(queueName, null, false);
++            }
++            else if (ActiveMQServerLogger.LOGGER.isDebugEnabled())
++            {
++               ActiveMQServerLogger.LOGGER.debug("NOT deleting auto-created queue \"" + queueName + "\" because consumerCount = " + consumerCount + " and messageCount = " + messageCount);
+             }
+          }
++         catch (Exception e)
++         {
++            ActiveMQServerLogger.LOGGER.errorRemovingAutoCreatedQueue(e, queueName);
++         }
+       }
+    };
+ 
+    private final ReferenceCounterUtil referenceCounterUtil = new ReferenceCounterUtil(runnable);
+ 
+-   public AutoCreatedQueueManagerImpl(ActiveMQServer server, SimpleString queueName) {
++   public AutoCreatedQueueManagerImpl(ActiveMQServer server, SimpleString queueName)
++   {
+       this.server = server;
++
+       this.queueName = queueName;
+    }
+ 
+    @Override
+-   public int increment() {
++   public int increment()
++   {
+       return referenceCounterUtil.increment();
+    }
+ 
+    @Override
+-   public int decrement() {
++   public int decrement()
++   {
+       return referenceCounterUtil.decrement();
+    }
+ 
+    @Override
+-   public SimpleString getQueueName() {
++   public SimpleString getQueueName()
++   {
+       return queueName;
+    }
+ }

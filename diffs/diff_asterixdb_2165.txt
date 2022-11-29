@@ -1,0 +1,114 @@
+diff --git a/asterix-external-data/src/main/java/org/apache/asterix/external/input/record/reader/stream/AbstractStreamRecordReader.java b/asterix-external-data/src/main/java/org/apache/asterix/external/input/record/reader/stream/AbstractStreamRecordReader.java
+index 7d6c1f3cac..6225b82265 100644
+--- a/asterix-external-data/src/main/java/org/apache/asterix/external/input/record/reader/stream/AbstractStreamRecordReader.java
++++ b/asterix-external-data/src/main/java/org/apache/asterix/external/input/record/reader/stream/AbstractStreamRecordReader.java
+@@ -19,38 +19,27 @@
+ package org.apache.asterix.external.input.record.reader.stream;
+ 
+ import java.io.IOException;
+-import java.util.List;
++import java.util.Map;
+ 
+-import org.apache.asterix.external.api.AsterixInputStream;
++import org.apache.asterix.external.api.IDataFlowController;
+ import org.apache.asterix.external.api.IExternalIndexer;
+ import org.apache.asterix.external.api.IIndexingDatasource;
+ import org.apache.asterix.external.api.IRawRecord;
+ import org.apache.asterix.external.api.IRecordReader;
+ import org.apache.asterix.external.dataflow.AbstractFeedDataFlowController;
+-import org.apache.asterix.external.indexing.ExternalFile;
+ import org.apache.asterix.external.input.record.CharArrayRecord;
+-import org.apache.asterix.external.input.stream.AsterixInputStreamReader;
++import org.apache.asterix.external.input.stream.AInputStream;
++import org.apache.asterix.external.input.stream.AInputStreamReader;
+ import org.apache.asterix.external.util.ExternalDataConstants;
+-import org.apache.asterix.external.util.FeedLogManager;
+-import org.apache.hadoop.io.Writable;
+-import org.apache.hadoop.mapred.RecordReader;
+ 
+ public abstract class AbstractStreamRecordReader implements IRecordReader<char[]>, IIndexingDatasource {
+-    protected final AsterixInputStreamReader reader;
++    protected AInputStreamReader reader;
+     protected CharArrayRecord record;
+     protected char[] inputBuffer;
+     protected int bufferLength = 0;
+     protected int bufferPosn = 0;
+-    protected final IExternalIndexer indexer;
++    protected IExternalIndexer indexer;
+     protected boolean done = false;
+-    protected FeedLogManager feedLogManager;
+-
+-    public AbstractStreamRecordReader(AsterixInputStream inputStream, IExternalIndexer indexer) {
+-        this.reader = new AsterixInputStreamReader(inputStream);
+-        this.indexer = indexer;
+-        record = new CharArrayRecord();
+-        inputBuffer = new char[ExternalDataConstants.DEFAULT_BUFFER_SIZE];
+-    }
+ 
+     @Override
+     public IRawRecord<char[]> next() throws IOException {
+@@ -65,11 +54,26 @@ public abstract class AbstractStreamRecordReader implements IRecordReader<char[]
+         done = true;
+     }
+ 
++    public void setInputStream(AInputStream inputStream) throws IOException {
++        this.reader = new AInputStreamReader(inputStream);
++    }
++
++    @Override
++    public void configure(Map<String, String> configuration) throws Exception {
++        record = new CharArrayRecord();
++        inputBuffer = new char[ExternalDataConstants.DEFAULT_BUFFER_SIZE];
++    }
++
+     @Override
+     public IExternalIndexer getIndexer() {
+         return indexer;
+     }
+ 
++    @Override
++    public void setIndexer(IExternalIndexer indexer) {
++        this.indexer = indexer;
++    }
++
+     @Override
+     public boolean stop() {
+         try {
+@@ -82,35 +86,7 @@ public abstract class AbstractStreamRecordReader implements IRecordReader<char[]
+     }
+ 
+     @Override
+-    public void setController(AbstractFeedDataFlowController controller) {
+-        reader.setController(controller);
+-    }
+-
+-    @Override
+-    public void setFeedLogManager(FeedLogManager feedLogManager) {
+-        this.feedLogManager = feedLogManager;
+-        reader.setFeedLogManager(feedLogManager);
+-    }
+-
+-    @Override
+-    public boolean handleException(Throwable th) {
+-        return reader.handleException(th);
+-    }
+-
+-    //TODO: Fix the following method since they don't fit
+-    //Already the fix is in another local branch
+-    @Override
+-    public List<ExternalFile> getSnapshot() {
+-        return null;
+-    }
+-
+-    @Override
+-    public int getCurrentSplitIndex() {
+-        return -1;
+-    }
+-
+-    @Override
+-    public RecordReader<?, Writable> getReader() {
+-        return null;
++    public void setController(IDataFlowController controller) {
++        reader.setController((AbstractFeedDataFlowController) controller);
+     }
+ }

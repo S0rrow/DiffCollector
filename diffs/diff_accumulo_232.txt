@@ -1,0 +1,107 @@
+diff --git a/test/src/test/java/org/apache/accumulo/test/functional/ExamplesIT.java b/test/src/test/java/org/apache/accumulo/test/functional/ExamplesIT.java
+index f2f99b7570..047e69d3f6 100644
+--- a/test/src/test/java/org/apache/accumulo/test/functional/ExamplesIT.java
++++ b/test/src/test/java/org/apache/accumulo/test/functional/ExamplesIT.java
+@@ -31,7 +31,6 @@ import java.util.Map.Entry;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+ 
+-import org.apache.accumulo.cluster.standalone.StandaloneClusterControl;
+ import org.apache.accumulo.core.cli.BatchWriterOpts;
+ import org.apache.accumulo.core.client.BatchScanner;
+ import org.apache.accumulo.core.client.BatchWriter;
+@@ -87,7 +86,6 @@ import org.apache.hadoop.conf.Configuration;
+ import org.apache.hadoop.fs.FileSystem;
+ import org.apache.hadoop.fs.Path;
+ import org.apache.hadoop.io.Text;
+-import org.apache.hadoop.util.Tool;
+ import org.apache.log4j.Logger;
+ import org.junit.After;
+ import org.junit.Assert;
+@@ -168,9 +166,6 @@ public class ExamplesIT extends AccumuloClusterIT {
+       count++;
+     }
+     assertTrue(count > 0);
+-    pair = cluster.getClusterControl().execWithStdout(TracingExample.class,
+-        new String[] {"-i", instance, "-z", keepers, "-u", user, "-p", passwd, "-C", "-D", "-c"});
+-    Assert.assertEquals("Expected return code of zero. STDOUT=" + pair.getValue(), 0, pair.getKey().intValue());
+     assertTrue(pair.getValue().contains("myHost@myApp"));
+     if (ClusterType.MINI == getClusterType() && null != trace) {
+       trace.destroy();
+@@ -248,11 +243,8 @@ public class ExamplesIT extends AccumuloClusterIT {
+ 
+     c.tableOperations().attachIterator(table, is);
+     bw = c.createBatchWriter(table, bwc);
+-    // Write two mutations otherwise the NativeMap would dedupe them into a single update
+     Mutation m = new Mutation("foo");
+     m.put("a", "b", "1");
+-    bw.addMutation(m);
+-    m = new Mutation("foo");
+     m.put("a", "b", "3");
+     bw.addMutation(m);
+     bw.flush();
+@@ -337,7 +329,7 @@ public class ExamplesIT extends AccumuloClusterIT {
+     TestIngest.Opts opts = new TestIngest.Opts();
+     opts.rows = 1;
+     opts.cols = 1000;
+-    opts.setTableName(tableName);
++    opts.tableName = tableName;
+     try {
+       TestIngest.ingest(c, opts, bwOpts);
+     } catch (MutationsRejectedException ex) {
+@@ -348,11 +340,6 @@ public class ExamplesIT extends AccumuloClusterIT {
+   @Test
+   public void testBulkIngest() throws Exception {
+     String tableName = getUniqueNames(1)[0];
+-    FileSystem fs = getFileSystem();
+-    Path p = new Path(dir, "tmp");
+-    if (fs.exists(p)) {
+-      fs.delete(p, true);
+-    }
+     goodExec(GenerateTestData.class, "--start-row", "0", "--count", "10000", "--output", dir + "/tmp/input/data");
+     goodExec(SetupTable.class, "-i", instance, "-z", keepers, "-u", user, "-p", passwd, "--table", tableName);
+     goodExec(BulkIngestExample.class, "-i", instance, "-z", keepers, "-u", user, "-p", passwd, "--table", tableName, "--inputDir", dir + "/tmp/input",
+@@ -362,21 +349,12 @@ public class ExamplesIT extends AccumuloClusterIT {
+   @Test
+   public void testTeraSortAndRead() throws Exception {
+     String tableName = getUniqueNames(1)[0];
+-    goodExec(TeraSortIngest.class, "--count", (1000 * 1000) + "", "-nk", "10", "-xk", "10", "-nv", "10", "-xv", "10", "-t", tableName, "-i", instance,
+-        "-z",
++    goodExec(TeraSortIngest.class, "--count", (1000 * 1000) + "", "-nk", "10", "-xk", "10", "-nv", "10", "-xv", "10", "-t", tableName, "-i", instance, "-z",
+         keepers, "-u", user, "-p", passwd, "--splits", "4");
+-    Path output = new Path(dir, "tmp/nines");
+-    if (fs.exists(output)) {
+-      fs.delete(output, true);
+-    }
+-    goodExec(RegexExample.class, "-i", instance, "-z", keepers, "-u", user, "-p", passwd, "-t", tableName, "--rowRegex", ".*999.*", "--output",
+-        output.toString());
++    goodExec(RegexExample.class, "-i", instance, "-z", keepers, "-u", user, "-p", passwd, "-t", tableName, "--rowRegex", ".*999.*", "--output", dir
++        + "/tmp/nines");
+     goodExec(RowHash.class, "-i", instance, "-z", keepers, "-u", user, "-p", passwd, "-t", tableName, "--column", "c:");
+-    output = new Path(dir, "tmp/tableFile");
+-    if (fs.exists(output)) {
+-      fs.delete(output, true);
+-    }
+-    goodExec(TableToFile.class, "-i", instance, "-z", keepers, "-u", user, "-p", passwd, "-t", tableName, "--output", output.toString());
++    goodExec(TableToFile.class, "-i", instance, "-z", keepers, "-u", user, "-p", passwd, "-t", tableName, "--output", dir + "/tmp/tableFile");
+   }
+ 
+   @Test
+@@ -444,14 +422,9 @@ public class ExamplesIT extends AccumuloClusterIT {
+   }
+ 
+   private void goodExec(Class<?> theClass, String... args) throws InterruptedException, IOException {
+-    Entry<Integer,String> pair;
+-    if (Tool.class.isAssignableFrom(theClass) && ClusterType.STANDALONE == getClusterType()) {
+-      StandaloneClusterControl control = (StandaloneClusterControl) getClusterControl();
+-      pair = control.execMapreduceWithStdout(theClass, args);
+-    } else {
+-      // We're already slurping stdout into memory (not redirecting to file). Might as well add it to error message.
+-      pair = getClusterControl().execWithStdout(theClass, args);
+-    }
++    // We're already slurping stdout into memory (not redirecting to file). Might as well add it to error message.
++    Entry<Integer,String> pair = getClusterControl().execWithStdout(theClass, args);
+     Assert.assertEquals("stdout=" + pair.getValue(), 0, pair.getKey().intValue());
+   }
++
+ }

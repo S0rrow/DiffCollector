@@ -1,0 +1,55 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphRetriever.java b/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphRetriever.java
+index cae74d1fc..c727a4fd9 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphRetriever.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphRetriever.java
+@@ -65,7 +65,6 @@ import javax.inject.Inject;
+ import java.math.BigDecimal;
+ import java.math.BigInteger;
+ import java.util.ArrayList;
+-import java.util.Collection;
+ import java.util.Collections;
+ import java.util.Date;
+ import java.util.HashMap;
+@@ -1045,41 +1044,13 @@ public class EntityGraphRetriever {
+             entity.setRelationshipAttribute(attributeName, ret);
+ 
+             if (attributeEndDef.getIsLegacyAttribute() && !entity.hasAttribute(attributeName)) {
+-                entity.setAttribute(attributeName, toAtlasObjectId(ret));
++                entity.setAttribute(attributeName, ret);
+             }
+         }
+ 
+         return ret;
+     }
+ 
+-    private Object toAtlasObjectId(Object obj) {
+-        final Object ret;
+-
+-        if (obj instanceof AtlasObjectId) {
+-            ret = new AtlasObjectId((AtlasObjectId) obj);
+-        } else if (obj instanceof Collection) {
+-            List list = new ArrayList();
+-
+-            for (Object elem : (Collection) obj) {
+-                list.add(toAtlasObjectId(elem));
+-            }
+-
+-            ret = list;
+-        } else if (obj instanceof Map) {
+-            Map map = new HashMap();
+-
+-            for (Object key : ((Map) obj).keySet()) {
+-                map.put(key, toAtlasObjectId(((Map) obj).get(key)));
+-            }
+-
+-            ret = map;
+-        } else {
+-            ret = obj;
+-        }
+-
+-        return ret;
+-    }
+-
+     private AtlasObjectId mapRelatedVertexToObjectId(AtlasVertex entityVertex, AtlasAttribute attribute, AtlasEntityExtInfo entityExtInfo, boolean isMinExtInfo) throws AtlasBaseException {
+         AtlasEdge edge = graphHelper.getEdgeForLabel(entityVertex, attribute.getRelationshipEdgeLabel(), attribute.getRelationshipEdgeDirection());
+ 

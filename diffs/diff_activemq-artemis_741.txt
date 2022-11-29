@@ -1,0 +1,194 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/persistence/impl/journal/DescribeJournal.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/persistence/impl/journal/DescribeJournal.java
+index 6cd417bf6c..698978b79f 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/persistence/impl/journal/DescribeJournal.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/persistence/impl/journal/DescribeJournal.java
+@@ -16,29 +16,7 @@
+  */
+ package org.apache.activemq.artemis.core.persistence.impl.journal;
+ 
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ACKNOWLEDGE_CURSOR;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ACKNOWLEDGE_REF;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADDRESS_BINDING_RECORD;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADDRESS_SETTING_RECORD;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_LARGE_MESSAGE;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_LARGE_MESSAGE_PENDING;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_MESSAGE;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_MESSAGE_PROTOCOL;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_REF;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.DUPLICATE_ID;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.HEURISTIC_COMPLETION;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ID_COUNTER_RECORD;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COMPLETE;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COUNTER_INC;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COUNTER_VALUE;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_PENDING_COUNTER;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_TRANSACTION;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.QUEUE_BINDING_RECORD;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.QUEUE_STATUS_RECORD;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.SECURITY_RECORD;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.SET_SCHEDULED_DELIVERY_TIME;
+-import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.UPDATE_DELIVERY_COUNT;
+-
++import javax.transaction.xa.Xid;
+ import java.io.File;
+ import java.io.PrintStream;
+ import java.util.HashMap;
+@@ -46,8 +24,6 @@ import java.util.LinkedList;
+ import java.util.List;
+ import java.util.Map;
+ 
+-import javax.transaction.xa.Xid;
+-
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffers;
+ import org.apache.activemq.artemis.api.core.Message;
+@@ -55,7 +31,6 @@ import org.apache.activemq.artemis.core.config.impl.ConfigurationImpl;
+ import org.apache.activemq.artemis.core.io.SequentialFileFactory;
+ import org.apache.activemq.artemis.core.io.nio.NIOSequentialFileFactory;
+ import org.apache.activemq.artemis.core.journal.EncodingSupport;
+-import org.apache.activemq.artemis.core.journal.Journal;
+ import org.apache.activemq.artemis.core.journal.PreparedTransactionInfo;
+ import org.apache.activemq.artemis.core.journal.RecordInfo;
+ import org.apache.activemq.artemis.core.journal.TransactionFailureCallback;
+@@ -82,6 +57,29 @@ import org.apache.activemq.artemis.spi.core.protocol.MessagePersister;
+ import org.apache.activemq.artemis.utils.Base64;
+ import org.apache.activemq.artemis.utils.XidCodecSupport;
+ 
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ACKNOWLEDGE_CURSOR;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ACKNOWLEDGE_REF;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADDRESS_SETTING_RECORD;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_LARGE_MESSAGE;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_LARGE_MESSAGE_PENDING;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_MESSAGE;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_MESSAGE_PROTOCOL;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADD_REF;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.DUPLICATE_ID;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.HEURISTIC_COMPLETION;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ID_COUNTER_RECORD;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COMPLETE;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COUNTER_INC;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_COUNTER_VALUE;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_CURSOR_PENDING_COUNTER;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.PAGE_TRANSACTION;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.QUEUE_BINDING_RECORD;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.QUEUE_STATUS_RECORD;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.SECURITY_RECORD;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.SET_SCHEDULED_DELIVERY_TIME;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.UPDATE_DELIVERY_COUNT;
++import static org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds.ADDRESS_BINDING_RECORD;
++
+ 
+ /**
+  * Outputs a String description of the Journals contents.
+@@ -107,22 +105,15 @@ public final class DescribeJournal {
+    }
+ 
+    public static void describeBindingsJournal(final File bindingsDir) throws Exception {
+-      describeBindingsJournal(bindingsDir, System.out);
+-   }
+-
+-   public static void describeBindingsJournal(final File bindingsDir, PrintStream out) throws Exception {
+ 
+       SequentialFileFactory bindingsFF = new NIOSequentialFileFactory(bindingsDir, null, 1);
+ 
+       JournalImpl bindings = new JournalImpl(1024 * 1024, 2, 2, -1, 0, bindingsFF, "activemq-bindings", "bindings", 1);
+-      describeJournal(bindingsFF, bindings, bindingsDir, out);
++      describeJournal(bindingsFF, bindings, bindingsDir);
+    }
+ 
+    public static DescribeJournal describeMessagesJournal(final File messagesDir) throws Exception {
+-      return describeMessagesJournal(messagesDir, System.out);
+-   }
+ 
+-   public static DescribeJournal describeMessagesJournal(final File messagesDir, PrintStream out) throws Exception {
+       SequentialFileFactory messagesFF = new NIOSequentialFileFactory(messagesDir, null, 1);
+ 
+       // Will use only default values. The load function should adapt to anything different
+@@ -130,7 +121,7 @@ public final class DescribeJournal {
+ 
+       JournalImpl messagesJournal = new JournalImpl(defaultValues.getJournalFileSize(), defaultValues.getJournalMinFiles(), defaultValues.getJournalPoolFiles(), 0, 0, messagesFF, "activemq-data", "amq", 1);
+ 
+-      return describeJournal(messagesFF, messagesJournal, messagesDir, out);
++      return describeJournal(messagesFF, messagesJournal, messagesDir);
+    }
+ 
+    /**
+@@ -140,10 +131,11 @@ public final class DescribeJournal {
+     */
+    private static DescribeJournal describeJournal(SequentialFileFactory fileFactory,
+                                                   JournalImpl journal,
+-                                                  final File path,
+-                                                  PrintStream out) throws Exception {
++                                                  final File path) throws Exception {
+       List<JournalFile> files = journal.orderFiles();
+ 
++      final PrintStream out = System.out;
++
+       final Map<Long, PageSubscriptionCounterImpl> counters = new HashMap<>();
+ 
+       out.println("Journal path: " + path);
+@@ -218,9 +210,9 @@ public final class DescribeJournal {
+                      out.println("####### Counter replace wrongly on queue " + queueIDForCounter + " oldValue=" + subsCounter.getValue() + " newValue=" + encoding.getValue());
+                   }
+ 
+-                  subsCounter.loadValue(info.id, encoding.getValue(), encoding.getPersistentSize());
++                  subsCounter.loadValue(info.id, encoding.getValue());
+                   subsCounter.processReload();
+-                  out.print("#Counter queue " + queueIDForCounter + " value=" + subsCounter.getValue() + " persistentSize=" + subsCounter.getPersistentSize() + ", result=" + subsCounter.getValue());
++                  out.print("#Counter queue " + queueIDForCounter + " value=" + subsCounter.getValue() + ", result=" + subsCounter.getValue());
+                   if (subsCounter.getValue() < 0) {
+                      out.println(" #NegativeCounter!!!!");
+                   } else {
+@@ -233,9 +225,9 @@ public final class DescribeJournal {
+ 
+                   PageSubscriptionCounterImpl subsCounter = lookupCounter(counters, queueIDForCounter);
+ 
+-                  subsCounter.loadInc(info.id, encoding.getValue(), encoding.getPersistentSize());
++                  subsCounter.loadInc(info.id, encoding.getValue());
+                   subsCounter.processReload();
+-                  out.print("#Counter queue " + queueIDForCounter + " value=" + subsCounter.getValue() + " persistentSize=" + subsCounter.getPersistentSize() + " increased by " + encoding.getValue());
++                  out.print("#Counter queue " + queueIDForCounter + " value=" + subsCounter.getValue() + " increased by " + encoding.getValue());
+                   if (subsCounter.getValue() < 0) {
+                      out.println(" #NegativeCounter!!!!");
+                   } else {
+@@ -254,13 +246,6 @@ public final class DescribeJournal {
+          printCounters(out, counters);
+       }
+ 
+-      return printSurvivingRecords(journal, out);
+-   }
+-
+-   public static DescribeJournal printSurvivingRecords(Journal journal,
+-                                                       PrintStream out) throws Exception {
+-
+-      final Map<Long, PageSubscriptionCounterImpl> counters = new HashMap<>();
+       out.println("### Surviving Records Summary ###");
+ 
+       List<RecordInfo> records = new LinkedList<>();
+@@ -292,6 +277,8 @@ public final class DescribeJournal {
+          }
+       }, false);
+ 
++      counters.clear();
++
+       for (RecordInfo info : records) {
+          PageSubscriptionCounterImpl subsCounter = null;
+          long queueIDForCounter = 0;
+@@ -322,7 +309,7 @@ public final class DescribeJournal {
+ 
+             subsCounter = lookupCounter(counters, queueIDForCounter);
+ 
+-            subsCounter.loadValue(info.id, encoding.getValue(), encoding.getPersistentSize());
++            subsCounter.loadValue(info.id, encoding.getValue());
+             subsCounter.processReload();
+          } else if (info.getUserRecordType() == JournalRecordIds.PAGE_CURSOR_COUNTER_INC) {
+             PageCountRecordInc encoding = (PageCountRecordInc) o;
+@@ -330,7 +317,7 @@ public final class DescribeJournal {
+ 
+             subsCounter = lookupCounter(counters, queueIDForCounter);
+ 
+-            subsCounter.loadInc(info.id, encoding.getValue(), encoding.getPersistentSize());
++            subsCounter.loadInc(info.id, encoding.getValue());
+             subsCounter.processReload();
+          }
+ 

@@ -1,0 +1,147 @@
+diff --git a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
+index efa98e08c..9432c2939 100644
+--- a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
++++ b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
+@@ -23,7 +23,6 @@
+ import org.apache.maven.archiva.model.ArchivaArtifact;
+ import org.apache.maven.archiva.model.ArtifactReference;
+ import org.apache.maven.archiva.model.ProjectReference;
+-import org.apache.maven.archiva.model.VersionedReference;
+ import org.apache.maven.archiva.repository.content.ArtifactExtensionMapping;
+ import org.apache.maven.archiva.repository.content.LegacyArtifactExtensionMapping;
+ 
+@@ -60,10 +59,10 @@ public String getId()
+         return "legacy";
+     }
+ 
+-    public String toPath( ArchivaArtifact artifact )
++    public String toPath( ArchivaArtifact reference )
+     {
+-        return toPath( artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(), artifact
+-            .getClassifier(), artifact.getType() );
++        return toPath( reference.getGroupId(), reference.getArtifactId(), reference
++            .getVersion(), reference.getClassifier(), reference.getType() );
+     }
+ 
+     public String toPath( ProjectReference reference )
+@@ -72,15 +71,10 @@ public String toPath( ProjectReference reference )
+         return toPath( reference.getGroupId(), reference.getArtifactId(), null, null, "metadata-xml" );
+     }
+ 
+-    public String toPath( VersionedReference reference )
++    public String toPath( ArtifactReference artifact )
+     {
+-        return toPath( reference.getGroupId(), reference.getArtifactId(), reference.getVersion(), null, "metadata-xml" );
+-    }
+-
+-    public String toPath( ArtifactReference reference )
+-    {
+-        return toPath( reference.getGroupId(), reference.getArtifactId(), reference.getVersion(),
+-                       reference.getClassifier(), reference.getType() );
++        return toPath( artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(), artifact.getClassifier(),
++                       artifact.getType() );
+     }
+ 
+     private String toPath( String groupId, String artifactId, String version, String classifier, String type )
+@@ -125,22 +119,9 @@ private String getDirectory( String classifier, String type )
+         return type + "s";
+     }
+ 
+-    class PathReferences
+-    {
+-        public String groupId;
+-
+-        public String pathType;
+-
+-        public String type;
+-
+-        public FilenameParts fileParts;
+-    }
+-
+-    private PathReferences toPathReferences( String path, boolean parseFilename )
++    public ArchivaArtifact toArtifact( String path )
+         throws LayoutException
+     {
+-        PathReferences prefs = new PathReferences();
+-
+         String normalizedPath = StringUtils.replace( path, "\\", "/" );
+ 
+         String pathParts[] = StringUtils.split( normalizedPath, '/' );
+@@ -161,66 +142,33 @@ private PathReferences toPathReferences( String path, boolean parseFilename )
+         }
+ 
+         // The Group ID.
+-        prefs.groupId = pathParts[0];
++        String groupId = pathParts[0];
+ 
+         // The Expected Type.
+-        prefs.pathType = pathParts[1];
++        String expectedType = pathParts[1];
+ 
+-        if ( parseFilename )
+-        {
+-            // The Filename.
+-            String filename = pathParts[2];
++        // The Filename.
++        String filename = pathParts[2];
+ 
+-            prefs.fileParts = RepositoryLayoutUtils.splitFilename( filename, null );
++        FilenameParts fileParts = RepositoryLayoutUtils.splitFilename( filename, null );
+ 
+-            prefs.type = extensionMapper.getType( filename );
+-        }
++        String type = extensionMapper.getType( filename );
+ 
+-        return prefs;
+-    }
+-
+-    public ProjectReference toProjectReference( String path )
+-        throws LayoutException
+-    {
+-        throw new LayoutException( "Cannot parse legacy paths to a Project Reference." );
+-    }
+-
+-    public ArchivaArtifact toArtifact( String path )
+-        throws LayoutException
+-    {
+-        PathReferences pathrefs = toPathReferences( path, true );
+-
+-        ArchivaArtifact artifact = new ArchivaArtifact( pathrefs.groupId, pathrefs.fileParts.artifactId,
+-                                                        pathrefs.fileParts.version, pathrefs.fileParts.classifier,
+-                                                        pathrefs.type );
++        ArchivaArtifact artifact = new ArchivaArtifact( groupId, fileParts.artifactId, fileParts.version,
++                                                        fileParts.classifier, type );
+ 
+         // Sanity Checks.
+-        if ( StringUtils.isEmpty( pathrefs.fileParts.extension ) )
++        if ( StringUtils.isEmpty( fileParts.extension ) )
+         {
+             throw new LayoutException( "Invalid artifact, no extension." );
+         }
+ 
+-        if ( !pathrefs.pathType.equals( pathrefs.fileParts.extension + "s" ) )
++        if ( !expectedType.equals( fileParts.extension + "s" ) )
+         {
+-            throw new LayoutException( "Invalid artifact, mismatch on extension <" + pathrefs.fileParts.extension
+-                + "> and layout specified type<" + pathrefs.pathType + ">." );
++            throw new LayoutException( "Invalid artifact, extension and layout specified type mismatch." );
+         }
+ 
+         return artifact;
+     }
+ 
+-    public ArtifactReference toArtifactReference( String path )
+-        throws LayoutException
+-    {
+-        // TODO Auto-generated method stub
+-        return null;
+-    }
+-
+-    public VersionedReference toVersionedReference( String path )
+-        throws LayoutException
+-    {
+-        // TODO Auto-generated method stub
+-        return null;
+-    }
+-
+ }

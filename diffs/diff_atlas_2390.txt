@@ -1,0 +1,134 @@
+diff --git a/webapp/src/test/java/org/apache/atlas/web/resources/BaseResourceIT.java b/webapp/src/test/java/org/apache/atlas/web/resources/BaseResourceIT.java
+index aba191c48..9ceb905af 100755
+--- a/webapp/src/test/java/org/apache/atlas/web/resources/BaseResourceIT.java
++++ b/webapp/src/test/java/org/apache/atlas/web/resources/BaseResourceIT.java
+@@ -24,9 +24,8 @@ import com.sun.jersey.api.client.Client;
+ import com.sun.jersey.api.client.ClientResponse;
+ import com.sun.jersey.api.client.WebResource;
+ import com.sun.jersey.api.client.config.DefaultClientConfig;
+-import org.apache.atlas.*;
+-import org.apache.atlas.notification.NotificationConsumer;
+-import org.apache.atlas.notification.entity.EntityNotification;
++import org.apache.atlas.AtlasClient;
++import org.apache.atlas.ParamChecker;
+ import org.apache.atlas.typesystem.Referenceable;
+ import org.apache.atlas.typesystem.Struct;
+ import org.apache.atlas.typesystem.TypesDef;
+@@ -43,10 +42,9 @@ import org.apache.atlas.typesystem.types.IDataType;
+ import org.apache.atlas.typesystem.types.Multiplicity;
+ import org.apache.atlas.typesystem.types.StructTypeDefinition;
+ import org.apache.atlas.typesystem.types.TraitType;
++import org.apache.atlas.typesystem.types.TypeUtils;
+ import org.apache.atlas.typesystem.types.utils.TypesUtil;
+-import org.apache.atlas.utils.ParamChecker;
+ import org.apache.atlas.web.util.Servlets;
+-import org.apache.commons.configuration.Configuration;
+ import org.apache.commons.lang.RandomStringUtils;
+ import org.codehaus.jettison.json.JSONArray;
+ import org.codehaus.jettison.json.JSONObject;
+@@ -66,19 +64,16 @@ import java.util.List;
+  */
+ public abstract class BaseResourceIT {
+ 
+-    public static final String ATLAS_REST_ADDRESS = "atlas.rest.address";
+     protected WebResource service;
+     protected AtlasClient serviceClient;
++    public static String baseUrl = "http://localhost:21000/";
+     public static final Logger LOG = LoggerFactory.getLogger(BaseResourceIT.class);
+-    protected static final int MAX_WAIT_TIME = 1000;
+ 
+     @BeforeClass
+     public void setUp() throws Exception {
+ 
+         DefaultClientConfig config = new DefaultClientConfig();
+         Client client = Client.create(config);
+-        Configuration configuration = ApplicationProperties.get();
+-        String baseUrl = configuration.getString(ATLAS_REST_ADDRESS, "http://localhost:21000/");
+         client.resource(UriBuilder.fromUri(baseUrl).build());
+ 
+         service = client.resource(UriBuilder.fromUri(baseUrl).build());
+@@ -87,11 +82,7 @@ public abstract class BaseResourceIT {
+ 
+     protected void createType(TypesDef typesDef) throws Exception {
+         HierarchicalTypeDefinition<ClassType> sampleType = typesDef.classTypesAsJavaList().get(0);
+-        try {
+-            serviceClient.getType(sampleType.typeName);
+-            LOG.info("Types already exist. Skipping type creation");
+-        } catch(AtlasServiceException ase) {
+-            //Expected if type doesnt exist
++        if (serviceClient.getType(sampleType.typeName) == null) {
+             String typesAsJSON = TypesSerialization.toJson(typesDef);
+             createType(typesAsJSON);
+         }
+@@ -122,10 +113,7 @@ public abstract class BaseResourceIT {
+         System.out.println("created instance for type " + typeName + ", guid: " + guids);
+ 
+         // return the reference to created instance with guid
+-        if (guids.length() > 0) {
+-            return new Id(guids.getString(guids.length() - 1), 0, referenceable.getTypeName());
+-        }
+-        return null;
++        return new Id(guids.getString(0), 0, referenceable.getTypeName());
+     }
+ 
+     protected static final String DATABASE_TYPE = "hive_db";
+@@ -198,7 +186,7 @@ public abstract class BaseResourceIT {
+ 
+         HierarchicalTypeDefinition<TraitType> etlTraitDef = TypesUtil.createTraitTypeDef("ETL", null);
+ 
+-        TypesDef typesDef = TypesUtil.getTypesDef(ImmutableList.of(enumTypeDefinition),
++        TypesDef typesDef = TypeUtils.getTypesDef(ImmutableList.of(enumTypeDefinition),
+                 ImmutableList.of(structTypeDefinition),
+                 ImmutableList.of(classificationTrait, piiTrait, phiTrait, pciTrait, soxTrait, secTrait, financeTrait,
+                         dimTraitDef, factTraitDef, metricTraitDef, etlTraitDef),
+@@ -291,50 +279,4 @@ public abstract class BaseResourceIT {
+             throw new Exception("Waiting timed out after " + timeout + " msec");
+         }
+     }
+-
+-    // ----- inner class : EntityNotificationConsumer --------------------------
+-
+-    protected static class EntityNotificationConsumer implements Runnable {
+-        private final NotificationConsumer<EntityNotification> consumerIterator;
+-        private EntityNotification entityNotification = null;
+-        private boolean run;
+-
+-        public EntityNotificationConsumer(NotificationConsumer<EntityNotification> consumerIterator) {
+-            this.consumerIterator = consumerIterator;
+-        }
+-
+-        @Override
+-        public void run() {
+-            while (run && consumerIterator.hasNext()) {
+-                entityNotification = consumerIterator.next();
+-            }
+-        }
+-
+-        public void reset() {
+-            entityNotification = null;
+-        }
+-
+-        public void start() {
+-            Thread thread = new Thread(this);
+-            run = true;
+-            thread.start();
+-        }
+-
+-        public void stop() {
+-            run = false;
+-        }
+-
+-        public EntityNotification getLastEntityNotification() {
+-            return entityNotification;
+-        }
+-    }
+-
+-    protected void waitForNotification(final EntityNotificationConsumer notificationConsumer, int maxWait) throws Exception {
+-        waitFor(maxWait, new Predicate() {
+-            @Override
+-            public boolean evaluate() throws Exception {
+-                return notificationConsumer.getLastEntityNotification() != null;
+-            }
+-        });
+-    }
+ }

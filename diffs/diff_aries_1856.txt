@@ -1,0 +1,126 @@
+diff --git a/subsystem/subsystem-core/src/main/java/org/apache/aries/subsystem/core/internal/SubsystemResource.java b/subsystem/subsystem-core/src/main/java/org/apache/aries/subsystem/core/internal/SubsystemResource.java
+index c3daf0ffb..8a67ed772 100644
+--- a/subsystem/subsystem-core/src/main/java/org/apache/aries/subsystem/core/internal/SubsystemResource.java
++++ b/subsystem/subsystem-core/src/main/java/org/apache/aries/subsystem/core/internal/SubsystemResource.java
+@@ -40,7 +40,7 @@ public class SubsystemResource implements Resource {
+ 	private final Collection<Resource> sharedContent = new HashSet<Resource>();
+ 	private final Collection<Resource> sharedDependencies = new HashSet<Resource>();
+ 	
+-	public SubsystemResource(String location, InputStream content, AriesSubsystem parent) throws URISyntaxException, IOException, ResolutionException {
++	public SubsystemResource(String location, InputStream content, AriesSubsystem parent) throws UnsupportedOperationException, URISyntaxException, IOException, ResolutionException {
+ 		this(new RawSubsystemResource(location, content), parent);
+ 	}
+ 	
+@@ -48,8 +48,6 @@ public class SubsystemResource implements Resource {
+ 		this.parent = parent;
+ 		this.resource = resource;
+ 		preferredProviderRepository = new PreferredProviderRepository(this);
+-		computeContentResources();
+-		computeDependencies();
+ 		deploymentManifest = computeDeploymentManifest();
+ 	}
+ 
+@@ -165,10 +163,15 @@ public class SubsystemResource implements Resource {
+ 				to.add(c);
+ 	}
+ 	
+-	private void computeContentResources() {
++	private DeploymentManifest computeExistingDeploymentManifest() throws IOException {
++		return resource.getDeploymentManifest();
++	}
++	
++	private DeployedContentHeader computeDeployedContentHeader() {
++		Collection<Resource> resources = new HashSet<Resource>();
+ 		SubsystemContentHeader contentHeader = resource.getSubsystemManifest().getSubsystemContentHeader();
+ 		if (contentHeader == null)
+-			return;
++			return null;
+ 		for (SubsystemContentHeader.Content content : contentHeader.getContents()) {
+ 			OsgiIdentityRequirement requirement = new OsgiIdentityRequirement(
+ 					content.getName(), content.getVersionRange(),
+@@ -179,28 +182,10 @@ public class SubsystemResource implements Resource {
+ 					throw new SubsystemException("Resource does not exist: "+ requirement);
+ 				continue;
+ 			}
++			resources.add(resource);
+ 			addContentResource(resource);
+ 		}
+-	}
+-	
+-	private void computeDependencies() {
+-		SubsystemContentHeader contentHeader = resource.getSubsystemManifest().getSubsystemContentHeader();
+-		try {
+-			Map<Resource, List<Wire>> resolution = Activator.getInstance().getResolver().resolve(createResolveContext());
+-			for (Resource resource : resolution.keySet())
+-				if (!contentHeader.contains(resource))
+-					addDependency(resource);
+-		}
+-		catch (ResolutionException e) {
+-			throw new SubsystemException(e);
+-		}
+-	}
+-	
+-	private DeployedContentHeader computeDeployedContentHeader() {
+-		Collection<Resource> content = getContentResources();
+-		if (content.isEmpty())
+-			return null;
+-		return DeployedContentHeader.newInstance(content);
++		return DeployedContentHeader.newInstance(resources);
+ 	}
+ 	
+ 	private DeploymentManifest computeDeploymentManifest() throws IOException {
+@@ -213,15 +198,26 @@ public class SubsystemResource implements Resource {
+ 		return result;
+ 	}
+ 	
+-	private DeploymentManifest computeExistingDeploymentManifest() throws IOException {
+-		return resource.getDeploymentManifest();
+-	}
+-	
+ 	private ProvisionResourceHeader computeProvisionResourceHeader() {
+-		Collection<Resource> dependencies = getDepedencies();
+-		if (dependencies.isEmpty())
++		SubsystemContentHeader contentHeader = resource.getSubsystemManifest().getSubsystemContentHeader();
++		// TODO This does not validate that all content bundles were found.
++		Map<Resource, List<Wire>> resolution;
++		try {
++			resolution = Activator.getInstance().getResolver().resolve(createResolveContext());
++		}
++		catch (ResolutionException e) {
++			throw new SubsystemException(e);
++		}
++		Collection<Resource> provisionResource = new HashSet<Resource>();
++		for (Resource resource : resolution.keySet()) {
++			if (!contentHeader.contains(resource)) {
++				provisionResource.add(resource);
++				addDependency(resource);
++			}
++		}
++		if (provisionResource.isEmpty())
+ 			return null;
+-		return ProvisionResourceHeader.newInstance(dependencies);
++		return ProvisionResourceHeader.newInstance(provisionResource);
+ 	}
+ 	
+ 	private ResolveContext createResolveContext() {
+@@ -304,20 +300,6 @@ public class SubsystemResource implements Resource {
+ 		return subsystem;
+ 	}
+ 	
+-	private Collection<Resource> getContentResources() {
+-		Collection<Resource> result = new ArrayList<Resource>(installableContent.size() + sharedContent.size());
+-		result.addAll(installableContent);
+-		result.addAll(sharedContent);
+-		return result;
+-	}
+-	
+-	private Collection<Resource> getDepedencies() {
+-		Collection<Resource> result = new ArrayList<Resource>(installableDependencies.size() + sharedDependencies.size());
+-		result.addAll(installableDependencies);
+-		result.addAll(sharedDependencies);
+-		return result;
+-	}
+-	
+ 	private boolean isAcceptDependencies(AriesSubsystem subsystem) {
+ 		return subsystem.getArchive().getSubsystemManifest().getSubsystemTypeHeader().getProvisionPolicyDirective().isAcceptDependencies();
+ 	}

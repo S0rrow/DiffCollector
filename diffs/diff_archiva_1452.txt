@@ -1,0 +1,834 @@
+diff --git a/archiva-modules/archiva-web/archiva-webdav/src/main/java/org/apache/maven/archiva/webdav/ArchivaDavResourceFactory.java b/archiva-modules/archiva-web/archiva-webdav/src/main/java/org/apache/maven/archiva/webdav/ArchivaDavResourceFactory.java
+index ff34eee1c..f5016f187 100644
+--- a/archiva-modules/archiva-web/archiva-webdav/src/main/java/org/apache/maven/archiva/webdav/ArchivaDavResourceFactory.java
++++ b/archiva-modules/archiva-web/archiva-webdav/src/main/java/org/apache/maven/archiva/webdav/ArchivaDavResourceFactory.java
+@@ -19,83 +19,50 @@
+  * under the License.
+  */
+ 
+-import java.io.File;
+-import java.io.FileNotFoundException;
+-import java.io.FileReader;
+-import java.io.IOException;
+-import java.util.ArrayList;
+-import java.util.HashMap;
+-import java.util.List;
+-import java.util.Map;
+-
+-import javax.servlet.http.HttpServletResponse;
+-
+-import org.apache.commons.lang.StringUtils;
+-import org.apache.jackrabbit.webdav.DavException;
+-import org.apache.jackrabbit.webdav.DavResource;
+-import org.apache.jackrabbit.webdav.DavResourceFactory;
+-import org.apache.jackrabbit.webdav.DavResourceLocator;
+-import org.apache.jackrabbit.webdav.DavServletRequest;
+-import org.apache.jackrabbit.webdav.DavServletResponse;
+-import org.apache.jackrabbit.webdav.DavSession;
+-import org.apache.jackrabbit.webdav.lock.LockManager;
+-import org.apache.jackrabbit.webdav.lock.SimpleLockManager;
+-import org.apache.maven.archiva.common.utils.PathUtil;
+-import org.apache.maven.archiva.configuration.ArchivaConfiguration;
+-import org.apache.maven.archiva.configuration.RepositoryGroupConfiguration;
+-import org.apache.maven.archiva.model.ArtifactReference;
+-import org.apache.maven.archiva.model.ProjectReference;
+-import org.apache.maven.archiva.model.VersionedReference;
+-import org.apache.maven.archiva.policies.ProxyDownloadException;
+-import org.apache.maven.archiva.proxy.RepositoryProxyConnectors;
++import com.opensymphony.xwork.ActionContext;
++import org.apache.jackrabbit.webdav.*;
+ import org.apache.maven.archiva.repository.ManagedRepositoryContent;
+-import org.apache.maven.archiva.repository.RepositoryContentFactory;
+-import org.apache.maven.archiva.repository.RepositoryException;
+ import org.apache.maven.archiva.repository.RepositoryNotFoundException;
+-import org.apache.maven.archiva.repository.audit.AuditEvent;
++import org.apache.maven.archiva.repository.RepositoryException;
++import org.apache.maven.archiva.repository.RepositoryContentFactory;
++import org.apache.maven.archiva.repository.layout.LayoutException;
++import org.apache.maven.archiva.repository.content.RepositoryRequest;
+ import org.apache.maven.archiva.repository.audit.AuditListener;
+ import org.apache.maven.archiva.repository.audit.Auditable;
+-import org.apache.maven.archiva.repository.content.RepositoryRequest;
+-import org.apache.maven.archiva.repository.layout.LayoutException;
++import org.apache.maven.archiva.repository.audit.AuditEvent;
+ import org.apache.maven.archiva.repository.metadata.MetadataTools;
+ import org.apache.maven.archiva.repository.metadata.RepositoryMetadataException;
+-import org.apache.maven.archiva.repository.scanner.RepositoryContentConsumers;
+-import org.apache.maven.archiva.security.ArchivaXworkUser;
+-import org.apache.maven.archiva.security.ServletAuthenticator;
++import org.apache.maven.archiva.webdav.util.WebdavMethodUtil;
+ import org.apache.maven.archiva.webdav.util.MimeTypes;
+ import org.apache.maven.archiva.webdav.util.RepositoryPathUtil;
+-import org.apache.maven.archiva.webdav.util.WebdavMethodUtil;
++import org.apache.maven.archiva.proxy.RepositoryProxyConnectors;
++import org.apache.maven.archiva.common.utils.PathUtil;
++import org.apache.maven.archiva.model.ArtifactReference;
++import org.apache.maven.archiva.model.ProjectReference;
++import org.apache.maven.archiva.model.VersionedReference;
++import org.apache.maven.archiva.policies.ProxyDownloadException;
++import org.apache.maven.archiva.security.ArchivaXworkUser;
+ import org.apache.maven.model.DistributionManagement;
+ import org.apache.maven.model.Model;
+ import org.apache.maven.model.Relocation;
+ import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
+-import org.codehaus.plexus.redback.authentication.AuthenticationException;
+-import org.codehaus.plexus.redback.authentication.AuthenticationResult;
+-import org.codehaus.plexus.redback.authorization.AuthorizationException;
+-import org.codehaus.plexus.redback.authorization.UnauthorizedException;
+-import org.codehaus.plexus.redback.policy.AccountLockedException;
+-import org.codehaus.plexus.redback.policy.MustChangePasswordException;
+-import org.codehaus.plexus.redback.system.SecuritySession;
+-import org.codehaus.plexus.redback.system.SecuritySystemConstants;
+-import org.codehaus.plexus.redback.xwork.filter.authentication.HttpAuthenticator;
+ import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import com.opensymphony.xwork.ActionContext;
++import javax.servlet.http.HttpServletResponse;
++import javax.servlet.ServletException;
++import java.util.ArrayList;
++import java.util.List;
++import java.io.*;
+ 
+ /**
+  * @author <a href="mailto:james@atlassian.com">James William Dumay</a>
+  * @plexus.component role="org.apache.maven.archiva.webdav.ArchivaDavResourceFactory"
+  */
+-public class ArchivaDavResourceFactory
+-    implements DavResourceFactory, Auditable
++public class ArchivaDavResourceFactory implements DavResourceFactory, Auditable
+ {
+-    private static final String PROXIED_SUFFIX = " (proxied)";
+-
+-    private static final String HTTP_PUT_METHOD = "PUT";
+-    
+-    private Logger log = LoggerFactory.getLogger( ArchivaDavResourceFactory.class );
++    private Logger log = LoggerFactory.getLogger(ArchivaDavResourceFactory.class);
+ 
+     /**
+      * @plexus.requirement role="org.apache.maven.archiva.repository.audit.AuditListener"
+@@ -127,250 +94,118 @@
+      */
+     private MimeTypes mimeTypes;
+ 
+-    /**
+-     * @plexus.requirement
+-     */
+-    private ArchivaConfiguration archivaConfiguration;
+-    
+-    /**
+-     * @plexus.requirement
+-     */
+-    private ServletAuthenticator servletAuth;
+-
+-    /**
+-     * @plexus.requirement role-hint="basic"
+-     */
+-    private HttpAuthenticator httpAuth;
+-    
+-    
+-    /**
+-     * Lock Manager - use simple implementation from JackRabbit
+-     */
+-    private final LockManager lockManager = new SimpleLockManager();
+-
+-    /** @plexus.requirement */
+-    private RepositoryContentConsumers consumers;
+-    
+-    public DavResource createResource( final DavResourceLocator locator, final DavServletRequest request,
+-                                       final DavServletResponse response )
+-        throws DavException
+-    {   
+-        checkLocatorIsInstanceOfRepositoryLocator( locator );
+-        ArchivaDavResourceLocator archivaLocator = (ArchivaDavResourceLocator) locator;
+-        
+-        RepositoryGroupConfiguration repoGroupConfig =
+-            archivaConfiguration.getConfiguration().getRepositoryGroupsAsMap().get( archivaLocator.getRepositoryId() );
+-        List<String> repositories = new ArrayList<String>();
+-
+-        boolean isGet = WebdavMethodUtil.isReadMethod( request.getMethod() );
+-        boolean isPut = WebdavMethodUtil.isWriteMethod( request.getMethod() );
+-                
+-        if ( repoGroupConfig != null )
+-        {   
+-            if( WebdavMethodUtil.isWriteMethod( request.getMethod() ) )
+-            {
+-                throw new DavException( HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+-                                        "Write method not allowed for repository groups." );
+-            }
+-            repositories.addAll( repoGroupConfig.getRepositories() );
+-            
+-            // handle browse requests for virtual repos
+-            if ( RepositoryPathUtil.getLogicalResource( locator.getResourcePath() ).endsWith( "/" ) )                
+-            {                    
+-                return getResource( request, repositories, archivaLocator );                
+-            }            
+-        }
+-        else
+-        {
+-            repositories.add( archivaLocator.getRepositoryId() );
+-        }
+-       
+-        //MRM-419 - Windows Webdav support. Should not 404 if there is no content.
+-        if (StringUtils.isEmpty(archivaLocator.getRepositoryId()))
+-        {
+-            throw new DavException(HttpServletResponse.SC_NO_CONTENT);
+-        }
++    public DavResource createResource(final DavResourceLocator locator, final DavServletRequest request, final DavServletResponse response) throws DavException
++    {
++        final ManagedRepositoryContent managedRepository = getManagedRepository(locator.getWorkspaceName());
++        final LogicalResource logicalResource = new LogicalResource(RepositoryPathUtil.getLogicalResource(locator.getResourcePath()));
+ 
+         DavResource resource = null;
+-        DavException e = null;
+ 
+-        for ( String repositoryId : repositories )
++        if (managedRepository != null)
+         {
+-            ManagedRepositoryContent managedRepository = null;
++            final boolean isGet = WebdavMethodUtil.isReadMethod( request.getMethod() );
++            final boolean isPut = WebdavMethodUtil.isWriteMethod( request.getMethod() );
+ 
+-            try
+-            {
+-                managedRepository = getManagedRepository( repositoryId );
+-            }
+-            catch ( DavException de )
++            if (isGet)
+             {
+-                throw new DavException( HttpServletResponse.SC_NOT_FOUND, "Invalid managed repository <" +
+-                    repositoryId + ">" );
++                resource = doGet(managedRepository, request, locator, logicalResource);
+             }
+ 
+-            if ( !locator.getResourcePath().startsWith( ArchivaDavResource.HIDDEN_PATH_PREFIX ) )
++            if (isPut)
+             {
+-                if ( managedRepository != null )
+-                {
+-                    try
+-                    {
+-                        if( isAuthorized( request, repositoryId ) )
+-                        {                        
+-                            LogicalResource logicalResource =
+-                                new LogicalResource( RepositoryPathUtil.getLogicalResource( locator.getResourcePath() ) );
+-                                                
+-                            if ( isGet )
+-                            {
+-                                resource = doGet( managedRepository, request, archivaLocator, logicalResource );
+-                            }
+-        
+-                            if ( isPut )
+-                            {
+-                                resource = doPut( managedRepository, request, archivaLocator, logicalResource );
+-                            }
+-                        }
+-                    }
+-                    catch ( DavException de )
+-                    {   
+-                        e = de;
+-                        continue;
+-                    }
+-                                        
+-                    if( resource == null )
+-                    {
+-                        e = new DavException( HttpServletResponse.SC_NOT_FOUND, "Resource does not exist" );
+-                    }
+-                    else
+-                    {
+-                        setHeaders( locator, response );
+-
+-                        // compatibility with MRM-440 to ensure browsing the repository works ok
+-                        if ( resource.isCollection() && !request.getRequestURI().endsWith("/" ) )
+-                        {
+-                            throw new BrowserRedirectException( resource.getHref() );
+-                        }
+-                        resource.addLockManager(lockManager);
+-                        return resource;
+-                    }
+-                }
+-                else
+-                {
+-                    e = new DavException( HttpServletResponse.SC_NOT_FOUND, "Repository does not exist" );
+-                }
++                resource = doPut(managedRepository, request, locator, logicalResource);
+             }
+         }
++        else
++        {
++            throw new DavException(HttpServletResponse.SC_NOT_FOUND, "Repository does not exist");
++        }
+ 
+-        throw e;
+-    }
+-    
+-    public DavResource createResource( final DavResourceLocator locator, final DavSession davSession )
+-        throws DavException
+-    {        
+-        checkLocatorIsInstanceOfRepositoryLocator( locator );
+-        ArchivaDavResourceLocator archivaLocator = (ArchivaDavResourceLocator) locator;
+-
+-        DavResource resource = null;
+-        if ( !locator.getResourcePath().startsWith( ArchivaDavResource.HIDDEN_PATH_PREFIX ) )
++        if (resource != null)
+         {
+-            ManagedRepositoryContent managedRepository = getManagedRepository( archivaLocator.getRepositoryId() );
+-            String logicalResource = RepositoryPathUtil.getLogicalResource( locator.getResourcePath() );
+-            File resourceFile = new File( managedRepository.getRepoRoot(), logicalResource );
+-            resource =
+-                new ArchivaDavResource( resourceFile.getAbsolutePath(), logicalResource,
+-                                        managedRepository.getRepository(), davSession, archivaLocator, this, mimeTypes,
+-                                        auditListeners, consumers );
++            setHeaders(locator, response);
++            return resource;
+         }
+-        resource.addLockManager(lockManager);
+-        return resource;
++
++        throw new DavException(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Could not get resource for method " + request.getMethod());
+     }
+ 
+-    private DavResource doGet( ManagedRepositoryContent managedRepository, DavServletRequest request,
+-                               ArchivaDavResourceLocator locator, LogicalResource logicalResource )
+-        throws DavException
++    public DavResource createResource(final DavResourceLocator locator, final DavSession davSession) throws DavException
+     {
+-        File resourceFile = new File( managedRepository.getRepoRoot(), logicalResource.getPath() );
+-        ArchivaDavResource resource =
+-            new ArchivaDavResource( resourceFile.getAbsolutePath(), logicalResource.getPath(),
+-                                    managedRepository.getRepository(), request.getRemoteAddr(),
+-                                    request.getDavSession(), locator, this, mimeTypes, auditListeners, consumers );
++        final ManagedRepositoryContent managedRepository = getManagedRepository(locator.getWorkspaceName());
++        final String logicalResource = RepositoryPathUtil.getLogicalResource(locator.getResourcePath());
++        final File resourceFile = new File ( managedRepository.getRepoRoot(), logicalResource);
++        
++        return new ArchivaDavResource(resourceFile.getAbsolutePath(), logicalResource, mimeTypes, locator, this, null);
++    }
++
++    private DavResource doGet(ManagedRepositoryContent managedRepository, DavServletRequest request, DavResourceLocator locator, LogicalResource logicalResource) throws DavException
++    {
++        File resourceFile = new File ( managedRepository.getRepoRoot(), logicalResource.getPath());
++        ArchivaDavResource resource = new ArchivaDavResource(resourceFile.getAbsolutePath(), logicalResource.getPath(), mimeTypes, locator, this, null);
+ 
+         if ( !resource.isCollection() )
+         {
+-            boolean previouslyExisted = resourceFile.exists();
+-
+             // At this point the incoming request can either be in default or
+             // legacy layout format.
+-            boolean fromProxy = fetchContentFromProxies( managedRepository, request, logicalResource );
+-
+             try
+             {
++                boolean fromProxy = fetchContentFromProxies(managedRepository, request, logicalResource );
++
+                 // Perform an adjustment of the resource to the managed
+                 // repository expected path.
+-                String localResourcePath =
+-                    repositoryRequest.toNativePath( logicalResource.getPath(), managedRepository );
++                String localResourcePath = repositoryRequest.toNativePath( logicalResource.getPath(), managedRepository );
+                 resourceFile = new File( managedRepository.getRepoRoot(), localResourcePath );
+-            }
+-            catch ( LayoutException e )
+-            {
+-                if ( previouslyExisted )
++
++                boolean previouslyExisted = resourceFile.exists();
++
++                // Attempt to fetch the resource from any defined proxy.
++                if ( fromProxy )
+                 {
+-                    return resource;
++                    processAuditEvents(request, locator.getWorkspaceName(), logicalResource.getPath(), previouslyExisted, resourceFile, " (proxied)");
+                 }
+-                throw new DavException( HttpServletResponse.SC_NOT_FOUND, e );
+-            }
++                resource = new ArchivaDavResource(resourceFile.getAbsolutePath(), logicalResource.getPath(), mimeTypes, locator, this, null);
+ 
+-            // Attempt to fetch the resource from any defined proxy.
+-            if ( fromProxy )
+-            {
+-                String repositoryId = locator.getRepositoryId();
+-                String event = ( previouslyExisted ? AuditEvent.MODIFY_FILE : AuditEvent.CREATE_FILE ) + PROXIED_SUFFIX;
+-                triggerAuditEvent( request.getRemoteAddr(), repositoryId, logicalResource.getPath(), event );
+-            }
+-
+-            if ( !resourceFile.exists() )
+-            {
+-                resource = null;
+             }
+-            else
++            catch ( LayoutException e )
+             {
+-                resource =
+-                    new ArchivaDavResource( resourceFile.getAbsolutePath(), logicalResource.getPath(),
+-                                            managedRepository.getRepository(), request.getRemoteAddr(),
+-                                            request.getDavSession(), locator, this, mimeTypes, auditListeners,
+-                                            consumers );
++                throw new DavException(HttpServletResponse.SC_NOT_FOUND, e);
+             }
+         }
+         return resource;
+     }
+ 
+-    private DavResource doPut( ManagedRepositoryContent managedRepository, DavServletRequest request,
+-                               ArchivaDavResourceLocator locator, LogicalResource logicalResource )
+-        throws DavException
++    private DavResource doPut(ManagedRepositoryContent managedRepository, DavServletRequest request, DavResourceLocator locator, LogicalResource logicalResource) throws DavException
+     {
+         /*
+-         * Create parent directories that don't exist when writing a file This actually makes this implementation not
+-         * compliant to the WebDAV RFC - but we have enough knowledge about how the collection is being used to do this
+-         * reasonably and some versions of Maven's WebDAV don't correctly create the collections themselves.
++         * Create parent directories that don't exist when writing a file
++         * This actually makes this implementation not compliant to the
++         * WebDAV RFC - but we have enough knowledge about how the
++         * collection is being used to do this reasonably and some versions
++         * of Maven's WebDAV don't correctly create the collections
++         * themselves.
+          */
+ 
+-        File rootDirectory = new File( managedRepository.getRepoRoot() );
++        File rootDirectory = new File(managedRepository.getRepoRoot());
+         File destDir = new File( rootDirectory, logicalResource.getPath() ).getParentFile();
+-        if ( request.getMethod().equals(HTTP_PUT_METHOD) && !destDir.exists() )
++        if ( !destDir.exists() )
+         {
+             destDir.mkdirs();
+-            String relPath = PathUtil.getRelative( rootDirectory.getAbsolutePath(), destDir );
+-            triggerAuditEvent( request.getRemoteAddr(), logicalResource.getPath(), relPath, AuditEvent.CREATE_DIR );
++            String relPath =
++                PathUtil.getRelative( rootDirectory.getAbsolutePath(), destDir );
++            triggerAuditEvent(request, logicalResource.getPath(), relPath, AuditEvent.CREATE_DIR );
+         }
+ 
+         File resourceFile = new File( managedRepository.getRepoRoot(), logicalResource.getPath() );
+ 
+-        return new ArchivaDavResource( resourceFile.getAbsolutePath(), logicalResource.getPath(),
+-                                       managedRepository.getRepository(), request.getRemoteAddr(),
+-                                       request.getDavSession(), locator, this, mimeTypes, auditListeners, consumers );
++        boolean previouslyExisted = resourceFile.exists();
++
++        processAuditEvents(request, locator.getWorkspaceName(), logicalResource.getPath(), previouslyExisted, resourceFile, null );
++
++        return new ArchivaDavResource(resourceFile.getAbsolutePath(), logicalResource.getPath(), mimeTypes, locator, this, null);
+     }
+ 
+-    private boolean fetchContentFromProxies( ManagedRepositoryContent managedRepository, DavServletRequest request,
+-                                             LogicalResource resource )
++    private boolean fetchContentFromProxies( ManagedRepositoryContent managedRepository, DavServletRequest request, LogicalResource resource )
+         throws DavException
+     {
+         if ( repositoryRequest.isSupportFile( resource.getPath() ) )
+@@ -384,7 +219,7 @@ private boolean fetchContentFromProxies( ManagedRepositoryContent managedReposit
+         // Is it a Metadata resource?
+         if ( repositoryRequest.isDefault( resource.getPath() ) && repositoryRequest.isMetadata( resource.getPath() ) )
+         {
+-            return fetchMetadataFromProxies( managedRepository, request, resource );
++            return fetchMetadataFromProxies(managedRepository, request, resource );
+         }
+ 
+         // Not any of the above? Then it's gotta be an artifact reference.
+@@ -395,7 +230,7 @@ private boolean fetchContentFromProxies( ManagedRepositoryContent managedReposit
+ 
+             if ( artifact != null )
+             {
+-                applyServerSideRelocation( managedRepository, artifact );
++                applyServerSideRelocation(managedRepository, artifact );
+ 
+                 File proxiedFile = connectors.fetchFromProxies( managedRepository, artifact );
+ 
+@@ -410,14 +245,13 @@ private boolean fetchContentFromProxies( ManagedRepositoryContent managedReposit
+         }
+         catch ( ProxyDownloadException e )
+         {
+-            log.error( e.getMessage(), e );
+-            throw new DavException( HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Unable to fetch artifact resource." );
++            log.error(e.getMessage(), e);
++            throw new DavException(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Unable to fetch artifact resource.");
+         }
+         return false;
+     }
+ 
+-    private boolean fetchMetadataFromProxies( ManagedRepositoryContent managedRepository, DavServletRequest request,
+-                                              LogicalResource resource )
++    private boolean fetchMetadataFromProxies(ManagedRepositoryContent managedRepository, DavServletRequest request, LogicalResource resource )
+         throws DavException
+     {
+         ProjectReference project;
+@@ -435,7 +269,7 @@ private boolean fetchMetadataFromProxies( ManagedRepositoryContent managedReposi
+         }
+         catch ( RepositoryMetadataException e )
+         {
+-            /* eat it */
++            log.error(e.getMessage(), e);
+         }
+ 
+         try
+@@ -449,19 +283,21 @@ private boolean fetchMetadataFromProxies( ManagedRepositoryContent managedReposi
+         }
+         catch ( RepositoryMetadataException e )
+         {
+-            /* eat it */
++            log.error(e.getMessage(), e);
+         }
+ 
+         return false;
+     }
+ 
+     /**
+-     * A relocation capable client will request the POM prior to the artifact, and will then read meta-data and do
+-     * client side relocation. A simplier client (like maven 1) will only request the artifact and not use the
++     * A relocation capable client will request the POM prior to the artifact,
++     * and will then read meta-data and do client side relocation. A simplier
++     * client (like maven 1) will only request the artifact and not use the
+      * metadatas.
+      * <p>
+-     * For such clients, archiva does server-side relocation by reading itself the &lt;relocation&gt; element in
+-     * metadatas and serving the expected artifact.
++     * For such clients, archiva does server-side relocation by reading itself
++     * the &lt;relocation&gt; element in metadatas and serving the expected
++     * artifact.
+      */
+     protected void applyServerSideRelocation( ManagedRepositoryContent managedRepository, ArtifactReference artifact )
+         throws ProxyDownloadException
+@@ -528,11 +364,51 @@ protected void applyServerSideRelocation( ManagedRepositoryContent managedReposi
+         }
+     }
+ 
+-    // TODO: remove?
+-    private void triggerAuditEvent( String remoteIP, String repositoryId, String resource, String action )
++    private void processAuditEvents( DavServletRequest request, String repositoryId, String resource,
++                                     boolean previouslyExisted, File resourceFile, String suffix )
+     {
+-        String activePrincipal = ArchivaXworkUser.getActivePrincipal( ActionContext.getContext().getSession() );
+-        AuditEvent event = new AuditEvent( repositoryId, activePrincipal, resource, action );
++        if ( suffix == null )
++        {
++            suffix = "";
++        }
++
++        // Process Create Audit Events.
++        if ( !previouslyExisted && resourceFile.exists() )
++        {
++            if ( resourceFile.isFile() )
++            {
++                triggerAuditEvent( request, repositoryId, resource, AuditEvent.CREATE_FILE + suffix );
++            }
++            else if ( resourceFile.isDirectory() )
++            {
++                triggerAuditEvent( request, repositoryId, resource, AuditEvent.CREATE_DIR + suffix );
++            }
++        }
++        // Process Remove Audit Events.
++        else if ( previouslyExisted && !resourceFile.exists() )
++        {
++            if ( resourceFile.isFile() )
++            {
++                triggerAuditEvent( request, repositoryId, resource, AuditEvent.REMOVE_FILE + suffix );
++            }
++            else if ( resourceFile.isDirectory() )
++            {
++                triggerAuditEvent( request, repositoryId, resource, AuditEvent.REMOVE_DIR + suffix );
++            }
++        }
++        // Process modify events.
++        else
++        {
++            if ( resourceFile.isFile() )
++            {
++                triggerAuditEvent( request, repositoryId, resource, AuditEvent.MODIFY_FILE + suffix );
++            }
++        }
++    }
++
++    private void triggerAuditEvent( String user, String remoteIP, String repositoryId, String resource, String action )
++    {
++        AuditEvent event = new AuditEvent( repositoryId, user, resource, action );
+         event.setRemoteIP( remoteIP );
+ 
+         for ( AuditListener listener : auditListeners )
+@@ -541,6 +417,16 @@ private void triggerAuditEvent( String remoteIP, String repositoryId, String res
+         }
+     }
+ 
++    private void triggerAuditEvent( DavServletRequest request, String repositoryId, String resource, String action )
++    {
++        triggerAuditEvent( ArchivaXworkUser.getActivePrincipal( ActionContext.getContext().getSession() ), getRemoteIP( request ), repositoryId, resource, action );
++    }
++
++    private String getRemoteIP( DavServletRequest request )
++    {
++        return request.getRemoteAddr();
++    }
++
+     public void addAuditListener( AuditListener listener )
+     {
+         this.auditListeners.add( listener );
+@@ -556,7 +442,7 @@ public void removeAuditListener( AuditListener listener )
+         this.auditListeners.remove( listener );
+     }
+ 
+-    private void setHeaders( DavResourceLocator locator, DavServletResponse response )
++    private void setHeaders(DavResourceLocator locator, DavServletResponse response)
+     {
+         // [MRM-503] - Metadata file need Pragma:no-cache response
+         // header.
+@@ -569,42 +455,31 @@ private void setHeaders( DavResourceLocator locator, DavServletResponse response
+         // TODO: [MRM-524] determine http caching options for other types of files (artifacts, sha1, md5, snapshots)
+     }
+ 
+-    private ManagedRepositoryContent getManagedRepository( String respositoryId )
+-        throws DavException
++    private ManagedRepositoryContent getManagedRepository(String respositoryId) throws DavException
+     {
+-        if ( respositoryId != null )
++        if (respositoryId != null)
+         {
+             try
+             {
+-                return repositoryFactory.getManagedRepositoryContent( respositoryId );
++                return repositoryFactory.getManagedRepositoryContent(respositoryId);
+             }
+-            catch ( RepositoryNotFoundException e )
++            catch (RepositoryNotFoundException e)
+             {
+-                throw new DavException( HttpServletResponse.SC_NOT_FOUND, e );
++                throw new DavException(HttpServletResponse.SC_NOT_FOUND, e);
+             }
+-            catch ( RepositoryException e )
++            catch (RepositoryException e)
+             {
+-                throw new DavException( HttpServletResponse.SC_NOT_FOUND, e );
++                throw new DavException(HttpServletResponse.SC_NOT_FOUND, e);
+             }
+         }
+         return null;
+     }
+ 
+-    private void checkLocatorIsInstanceOfRepositoryLocator( DavResourceLocator locator )
+-        throws DavException
+-    {
+-        if ( !( locator instanceof RepositoryLocator ) )
+-        {
+-            throw new DavException( HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+-                                    "Locator does not implement RepositoryLocator" );
+-        }
+-    }
+-
+     class LogicalResource
+     {
+         private String path;
+ 
+-        public LogicalResource( String path )
++        public LogicalResource(String path)
+         {
+             this.path = path;
+         }
+@@ -614,204 +489,9 @@ public String getPath()
+             return path;
+         }
+ 
+-        public void setPath( String path )
++        public void setPath(String path)
+         {
+             this.path = path;
+         }
+     }
+-    
+-    protected boolean isAuthorized( DavServletRequest request, String repositoryId )
+-        throws DavException
+-    {
+-        try
+-        {
+-            AuthenticationResult result = httpAuth.getAuthenticationResult( request, null );            
+-            SecuritySession securitySession = httpAuth.getSecuritySession();
+-                       
+-            return servletAuth.isAuthenticated( request, result ) &&
+-                servletAuth.isAuthorized( request, securitySession, repositoryId,
+-                                          WebdavMethodUtil.isWriteMethod( request.getMethod() ) );
+-        }
+-        catch ( AuthenticationException e )
+-        {            
+-            throw new UnauthorizedDavException( repositoryId, "You are not authenticated" );
+-        }
+-        catch ( MustChangePasswordException e )
+-        {         
+-            throw new UnauthorizedDavException( repositoryId, "You must change your password." );
+-        }
+-        catch ( AccountLockedException e )
+-        {            
+-            throw new UnauthorizedDavException( repositoryId, "User account is locked." );
+-        }
+-        catch ( AuthorizationException e )
+-        {         
+-            throw new DavException( HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+-                                    "Fatal Authorization Subsystem Error." );
+-        }
+-        catch ( UnauthorizedException e )
+-        {         
+-            throw new UnauthorizedDavException( repositoryId, e.getMessage() );
+-        }
+-    }
+-    
+-    private DavResource getResource( DavServletRequest request, List<String> repositories, ArchivaDavResourceLocator locator )
+-        throws DavException
+-    {
+-        List<File> mergedRepositoryContents = new ArrayList<File>();        
+-        LogicalResource logicalResource =
+-            new LogicalResource( RepositoryPathUtil.getLogicalResource( locator.getResourcePath() ) );
+-        
+-        // flow: 
+-        // if the current user logged in has permission to any of the repositories, allow user to
+-        // browse the repo group but displaying only the repositories which the user has permission to access.
+-        // otherwise, prompt for authentication.
+-        
+-        // put the current session in the session map which will be passed to ArchivaXworkUser
+-        Map<String, Object> sessionMap = new HashMap<String, Object>();
+-        if( request.getSession().getAttribute( SecuritySystemConstants.SECURITY_SESSION_KEY ) != null )
+-        {
+-            sessionMap.put( SecuritySystemConstants.SECURITY_SESSION_KEY, 
+-                            request.getSession().getAttribute( SecuritySystemConstants.SECURITY_SESSION_KEY ) );
+-        }
+-        
+-        String activePrincipal = ArchivaXworkUser.getActivePrincipal( sessionMap );        
+-        boolean allow = isAllowedToContinue( request, repositories, activePrincipal );
+-              
+-        if( allow )
+-        {            
+-            for( String repository : repositories )
+-            {    
+-                // for prompted authentication
+-                if( httpAuth.getSecuritySession() != null )
+-                {
+-                    try
+-                    {   
+-                        if( isAuthorized( request, repository ) )                        
+-                        {
+-                            getResource( locator, mergedRepositoryContents, logicalResource, repository );
+-                        }
+-                    }                    
+-                    catch ( DavException e )
+-                    {                        
+-                        continue;
+-                    }
+-                }
+-                else
+-                {
+-                    // for the current user logged in 
+-                    try
+-                    {
+-                        if( servletAuth.isAuthorizedToAccessVirtualRepository( activePrincipal, repository ) )
+-                        {
+-                            getResource( locator, mergedRepositoryContents, logicalResource, repository );
+-                        }
+-                    }
+-                    catch ( UnauthorizedException e )                    
+-                    {                        
+-                        continue;
+-                    }
+-                }                
+-            }
+-        }
+-        else
+-        {
+-            throw new UnauthorizedDavException( locator.getRepositoryId(), "User not authorized." );
+-        }
+-        
+-        ArchivaVirtualDavResource resource =
+-            new ArchivaVirtualDavResource( mergedRepositoryContents, logicalResource.getPath(), mimeTypes, locator, this );
+-       
+-        // compatibility with MRM-440 to ensure browsing the repository group works ok
+-        if ( resource.isCollection() && !request.getRequestURI().endsWith("/" ) )
+-        {
+-            throw new BrowserRedirectException( resource.getHref() );
+-        }
+-        
+-        return resource;
+-    }
+-
+-    private void getResource( ArchivaDavResourceLocator locator, List<File> mergedRepositoryContents,
+-                              LogicalResource logicalResource, String repository )
+-        throws DavException
+-    {
+-        ManagedRepositoryContent managedRepository = null;
+-
+-        try
+-        {
+-            managedRepository = getManagedRepository( repository );
+-        }
+-        catch ( DavException de )
+-        {
+-            throw new DavException( HttpServletResponse.SC_NOT_FOUND, "Invalid managed repository <" +
+-                repository + ">" );
+-        }                            
+-        
+-        if ( !locator.getResourcePath().startsWith( ArchivaVirtualDavResource.HIDDEN_PATH_PREFIX ) )
+-        {
+-            if( managedRepository != null )
+-            {   
+-                File resourceFile = new File( managedRepository.getRepoRoot(), logicalResource.getPath() );
+-                if( resourceFile.exists() )
+-                {                    
+-                    mergedRepositoryContents.add( resourceFile );
+-                }                    
+-            }
+-        }
+-    }
+-    
+-    /**
+-     * Check if the current user is authorized to access any of the repos
+-     *  
+-     * @param request
+-     * @param repositories
+-     * @param activePrincipal
+-     * @return
+-     */
+-    private boolean isAllowedToContinue( DavServletRequest request, List<String> repositories, String activePrincipal )    
+-    {
+-        boolean allow = false;
+-        
+-              
+-        // if securitySession != null, it means that the user was prompted for authentication
+-        if( httpAuth.getSecuritySession() != null )
+-        {
+-            for( String repository : repositories )
+-            {
+-                try
+-                {
+-                    if( isAuthorized( request, repository ) )
+-                    {
+-                        allow = true;
+-                        break;
+-                    }
+-                }
+-                catch( DavException e )
+-                {                    
+-                    continue;
+-                }
+-            }  
+-        }
+-        else
+-        {   
+-            for( String repository : repositories )
+-            {
+-                try
+-                {
+-                    if( servletAuth.isAuthorizedToAccessVirtualRepository( activePrincipal, repository ) )
+-                    {
+-                        allow = true;
+-                        break;
+-                    }
+-                }
+-                catch ( UnauthorizedException e )
+-                {                    
+-                    continue;
+-                }
+-            }  
+-        }
+-        
+-        return allow;
+-    }
+-        
+ }

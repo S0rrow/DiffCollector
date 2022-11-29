@@ -1,0 +1,87 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ScanIdIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ScanIdIT.java
+index 46bf3fc482..78309393e3 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ScanIdIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ScanIdIT.java
+@@ -16,8 +16,7 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-import static java.nio.charset.StandardCharsets.UTF_8;
++import static com.google.common.base.Charsets.UTF_8;
+ import static org.junit.Assert.assertNotNull;
+ import static org.junit.Assert.assertTrue;
+ import static org.junit.Assert.fail;
+@@ -60,21 +59,20 @@ import org.junit.Test;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ /**
+  * ACCUMULO-2641 Integration test. ACCUMULO-2641 Adds scan id to thrift protocol so that {@code org.apache.accumulo.core.client.admin.ActiveScan.getScanid()}
+  * returns a unique scan id.
+- *
+  * <p>
++ * <p/>
+  * The test uses the Minicluster and the {@code org.apache.accumulo.test.functional.SlowIterator} to create multiple scan sessions. The test exercises multiple
+  * tablet servers with splits and multiple ranges to force the scans to occur across multiple tablet servers for completeness.
+- *
+- * <p>
++ * <p/>
+  * This patch modified thrift, the TraceRepoDeserializationTest test seems to fail unless the following be added:
+- *
+- * <p>
++ * <p/>
+  * private static final long serialVersionUID = -4659975753252858243l;
+- *
+- * <p>
++ * <p/>
+  * back into org.apache.accumulo.trace.thrift.TInfo until that test signature is regenerated.
+  */
+ public class ScanIdIT extends AccumuloClusterHarness {
+@@ -91,7 +89,7 @@ public class ScanIdIT extends AccumuloClusterHarness {
+ 
+   private static final AtomicBoolean testInProgress = new AtomicBoolean(true);
+ 
+-  private static final Map<Integer,Value> resultsByWorker = new ConcurrentHashMap<>();
++  private static final Map<Integer,Value> resultsByWorker = new ConcurrentHashMap<Integer,Value>();
+ 
+   @Override
+   protected int defaultTimeoutSeconds() {
+@@ -145,7 +143,7 @@ public class ScanIdIT extends AccumuloClusterHarness {
+     }
+ 
+     // all scanner have reported at least 1 result, so check for unique scan ids.
+-    Set<Long> scanIds = new HashSet<>();
++    Set<Long> scanIds = new HashSet<Long>();
+ 
+     List<String> tservers = conn.instanceOperations().getTabletServers();
+ 
+@@ -184,7 +182,7 @@ public class ScanIdIT extends AccumuloClusterHarness {
+ 
+   /**
+    * Runs scanner in separate thread to allow multiple scanners to execute in parallel.
+-   * <p>
++   * <p/>
+    * The thread run method is terminated when the testInProgress flag is set to false.
+    */
+   private static class ScannerThread implements Runnable {
+@@ -313,7 +311,7 @@ public class ScanIdIT extends AccumuloClusterHarness {
+    */
+   private SortedSet<Text> createSplits() {
+ 
+-    SortedSet<Text> splits = new TreeSet<>();
++    SortedSet<Text> splits = new TreeSet<Text>();
+ 
+     for (int split = 0; split < 10; split++) {
+       splits.add(new Text(Integer.toString(split)));
+@@ -324,7 +322,7 @@ public class ScanIdIT extends AccumuloClusterHarness {
+ 
+   /**
+    * Generate some sample data using random row id to distribute across splits.
+-   * <p>
++   * <p/>
+    * The primary goal is to determine that each scanner is assigned a unique scan id. This test does check that the count value for fam1 increases if a scanner
+    * reads multiple value, but this is secondary consideration for this test, that is included for completeness.
+    *

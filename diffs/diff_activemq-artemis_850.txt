@@ -1,0 +1,88 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/QueueControlImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/QueueControlImpl.java
+index 4f189216d8..6270fe518a 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/QueueControlImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/QueueControlImpl.java
+@@ -249,17 +249,6 @@ public class QueueControlImpl extends AbstractControl implements QueueControl {
+       }
+    }
+ 
+-   @Override
+-   public float getProducedRate() {
+-      if (AuditLogger.isEnabled()) {
+-         AuditLogger.getProducedRate(queue);
+-      }
+-      checkStarted();
+-
+-      // This is an attribute, no need to blockOnIO
+-      return queue.getRate();
+-   }
+-
+    @Override
+    public long getPersistentSize() {
+       if (AuditLogger.isEnabled()) {
+@@ -411,21 +400,6 @@ public class QueueControlImpl extends AbstractControl implements QueueControl {
+       }
+    }
+ 
+-   @Override
+-   public long getAcknowledgeAttempts() {
+-      if (AuditLogger.isEnabled()) {
+-         AuditLogger.getMessagesAcknowledged(queue);
+-      }
+-      checkStarted();
+-
+-      clearIO();
+-      try {
+-         return queue.getAcknowledgeAttempts();
+-      } finally {
+-         blockOnIO();
+-      }
+-   }
+-
+    @Override
+    public long getMessagesExpired() {
+       if (AuditLogger.isEnabled()) {
+@@ -853,7 +827,7 @@ public class QueueControlImpl extends AbstractControl implements QueueControl {
+          AuditLogger.countMessages(queue, filterStr);
+       }
+ 
+-      Long value = internalCountMessages(filterStr, null).get(null);
++      Long value = intenalCountMessages(filterStr, null).get(null);
+       return value == null ? 0 : value;
+    }
+ 
+@@ -863,10 +837,10 @@ public class QueueControlImpl extends AbstractControl implements QueueControl {
+          AuditLogger.countMessages(queue, filterStr, groupByProperty);
+       }
+ 
+-      return JsonUtil.toJsonObject(internalCountMessages(filterStr, groupByProperty)).toString();
++      return JsonUtil.toJsonObject(intenalCountMessages(filterStr, groupByProperty)).toString();
+    }
+ 
+-   private Map<String, Long> internalCountMessages(final String filterStr, final String groupByPropertyStr) throws Exception {
++   private Map<String, Long> intenalCountMessages(final String filterStr, final String groupByPropertyStr) throws Exception {
+       checkStarted();
+ 
+       clearIO();
+@@ -901,7 +875,7 @@ public class QueueControlImpl extends AbstractControl implements QueueControl {
+          AuditLogger.countDeliveringMessages(queue, filterStr);
+       }
+ 
+-      Long value = internalCountDeliveryMessages(filterStr, null).get(null);
++      Long value = intenalCountDeliveryMessages(filterStr, null).get(null);
+       return value == null ? 0 : value;
+    }
+ 
+@@ -911,10 +885,10 @@ public class QueueControlImpl extends AbstractControl implements QueueControl {
+          AuditLogger.countDeliveringMessages(queue, filterStr, groupByProperty);
+       }
+ 
+-      return JsonUtil.toJsonObject(internalCountDeliveryMessages(filterStr, groupByProperty)).toString();
++      return JsonUtil.toJsonObject(intenalCountDeliveryMessages(filterStr, groupByProperty)).toString();
+    }
+ 
+-   private Map<String, Long> internalCountDeliveryMessages(final String filterStr, final String groupByPropertyStr) throws Exception {
++   private Map<String, Long> intenalCountDeliveryMessages(final String filterStr, final String groupByPropertyStr) throws Exception {
+       checkStarted();
+ 
+       clearIO();

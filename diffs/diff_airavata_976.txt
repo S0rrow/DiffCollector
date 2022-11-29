@@ -1,0 +1,103 @@
+diff --git a/modules/gfac-core/src/main/java/org/apache/airavata/gfac/utils/OutputUtils.java b/modules/gfac-core/src/main/java/org/apache/airavata/gfac/utils/OutputUtils.java
+index 489594745..b3c97d3f6 100644
+--- a/modules/gfac-core/src/main/java/org/apache/airavata/gfac/utils/OutputUtils.java
++++ b/modules/gfac-core/src/main/java/org/apache/airavata/gfac/utils/OutputUtils.java
+@@ -20,55 +20,56 @@
+ */
+ package org.apache.airavata.gfac.utils;
+ 
+-import java.util.HashMap;
+-import java.util.Map;
+-import java.util.Set;
+-import java.util.regex.Matcher;
+-import java.util.regex.Pattern;
+-
+ import org.apache.airavata.commons.gfac.type.ActualParameter;
+ import org.apache.airavata.commons.gfac.type.MappingFactory;
++import org.apache.airavata.gfac.context.JobExecutionContext;
++import org.apache.airavata.gfac.context.MessageContext;
++import org.apache.airavata.schemas.gfac.OutputParameterType;
+ import org.apache.airavata.schemas.gfac.StdErrParameterType;
+ import org.apache.airavata.schemas.gfac.StdOutParameterType;
+-import org.apache.airavata.schemas.gfac.URIParameterType;
++
++import java.util.HashMap;
++import java.util.Iterator;
++import java.util.Map;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
+ 
+ public class OutputUtils {
+-    private static String regexPattern = "\\s*=\\s*([^\\[\\s'\"][^\\s]*|\"[^\"]*\"|'[^']*'|\\[[^\\[]*\\])";
++    private OutputUtils() {
++    }
+ 
+-    public static Map<String, ActualParameter> fillOutputFromStdout(Map<String, Object> output, String stdout, String stderr) throws Exception {
++    public static Map<String, ActualParameter> fillOutputFromStdout(JobExecutionContext context, String stdout, String stderr) throws Exception {
+ 
+         Map<String, ActualParameter> result = new HashMap<String, ActualParameter>();
+-        Set<String> keys = output.keySet();
+-        for (String paramName : keys) {
+-        	ActualParameter actual = (ActualParameter) output.get(paramName);
++        OutputParameterType[] outputParametersArray = context.getApplicationContext().
++                getServiceDescription().getType().getOutputParametersArray();
++        MessageContext outMessageContext = context.getOutMessageContext();
++        for (OutputParameterType outparamType : outputParametersArray) {
++            String parameterName = outparamType.getParameterName();
++            ActualParameter actual = (ActualParameter)outMessageContext.getParameter(outparamType.getParameterName());
+             // if parameter value is not already set, we let it go
+-            
+             if (actual == null) {
+                 continue;
+             }
+             if ("StdOut".equals(actual.getType().getType().toString())) {
+                 ((StdOutParameterType) actual.getType()).setValue(stdout);
+-                result.put(paramName, actual);
++                result.put(parameterName, actual);
+             } else if ("StdErr".equals(actual.getType().getType().toString())) {
+                 ((StdErrParameterType) actual.getType()).setValue(stderr);
+-                result.put(paramName, actual);
++                result.put(parameterName, actual);
+             } else {
+-            	if ("URI".equals(actual.getType().getType().toString()) &&  !((URIParameterType) actual.getType()).getValue().isEmpty()){
+-            		continue;
+-            	}
+-                String parseStdout = parseStdout(stdout, paramName);
++                String parseStdout = parseStdout(stdout, parameterName);
+                 if (parseStdout != null) {
+                     MappingFactory.fromString(actual, parseStdout);
+-                    result.put(paramName, actual);
++                    result.put(parameterName, actual);
+                 }
+             }
+         }
+-
+         return result;
+     }
+ 
+     private static String parseStdout(String stdout, String outParam) throws Exception {
+-        String regex = Pattern.quote(outParam) + regexPattern;
++        String regex = Pattern.quote(outParam) + "\\s*=\\s*([^\\[\\s'\"][^\\s]*|\"[^\"]*\"|'[^']*'|\\[[^\\[]*\\])";
+         String match = null;
+         Pattern pattern = Pattern.compile(regex);
+         Matcher matcher = pattern.matcher(stdout);
+@@ -82,19 +83,4 @@ public class OutputUtils {
+             throw new Exception("Data for the output parameter '" + outParam + "' was not found");
+         }
+     }
+-
+-    public static String[] parseStdoutArray(String stdout, String outParam) throws Exception {
+-        String regex = Pattern.quote(outParam) + regexPattern;
+-        StringBuffer match = new StringBuffer();
+-        Pattern pattern = Pattern.compile(regex);
+-        Matcher matcher = pattern.matcher(stdout);
+-        while (matcher.find()) {
+-            match.append(matcher.group(1) + ",");
+-        }
+-        if (match != null) {
+-            return match.toString().split(",");
+-        } else {
+-            throw new Exception("Data for the output parameter '" + outParam + "' was not found");
+-        }
+-    }
+ }

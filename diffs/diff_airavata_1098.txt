@@ -1,0 +1,101 @@
+diff --git a/airavata-services/profile-service/profile-service-server/src/main/java/org/apache/airavata/service/profile/handlers/UserProfileServiceHandler.java b/airavata-services/profile-service/profile-service-server/src/main/java/org/apache/airavata/service/profile/handlers/UserProfileServiceHandler.java
+index 5d7a860ee..1d479820a 100644
+--- a/airavata-services/profile-service/profile-service-server/src/main/java/org/apache/airavata/service/profile/handlers/UserProfileServiceHandler.java
++++ b/airavata-services/profile-service/profile-service-server/src/main/java/org/apache/airavata/service/profile/handlers/UserProfileServiceHandler.java
+@@ -49,9 +49,8 @@ public class UserProfileServiceHandler implements UserProfileService.Iface {
+ 
+     public String addUserProfile(UserProfile userProfile) throws UserProfileServiceException {
+         try{
+-            userProfile = userProfileRepository.create(userProfile);
++            userProfileRepository.create(userProfile);
+             if (null != userProfile) {
+-                logger.info("Added UserProfile with userId: " + userProfile.getUserId());
+                 // replicate userProfile at end-places
+                 ProfileServiceUtils.getDbEventPublisher().publish(
+                         ProfileServiceUtils.getDBEventMessageContext(EntityType.USER_PROFILE, CrudType.CREATE, userProfile),
+@@ -59,9 +58,8 @@ public class UserProfileServiceHandler implements UserProfileService.Iface {
+                 );
+                 // return userId
+                 return userProfile.getUserId();
+-            } else {
+-                throw new Exception("User creation failed. Please try again.");
+             }
++            return null;
+         } catch (Exception e) {
+             logger.error("Error while creating user profile", e);
+             UserProfileServiceException exception = new UserProfileServiceException();
+@@ -72,15 +70,8 @@ public class UserProfileServiceHandler implements UserProfileService.Iface {
+ 
+     public boolean updateUserProfile(UserProfile userProfile) throws UserProfileServiceException, TException {
+         try {
+-            if(userProfileRepository.update(userProfile) != null) {
+-                logger.info("Updated UserProfile with userId: " + userProfile.getUserId());
+-                // replicate userProfile at end-places
+-                ProfileServiceUtils.getDbEventPublisher().publish(
+-                        ProfileServiceUtils.getDBEventMessageContext(EntityType.USER_PROFILE, CrudType.UPDATE, userProfile),
+-                        DBEventManagerConstants.getRoutingKey(DBEventService.DB_EVENT.toString())
+-                );
++            if(userProfileRepository.update(userProfile) != null)
+                 return true;
+-            }
+             return false;
+         } catch (Exception e) {
+             logger.error("Error while Updating user profile", e);
+@@ -95,8 +86,7 @@ public class UserProfileServiceHandler implements UserProfileService.Iface {
+             UserProfile userProfile = userProfileRepository.getUserProfileByIdAndGateWay(userId, gatewayId);
+             if(userProfile != null)
+                 return userProfile;
+-            else
+-                throw new Exception("User with userId: " + userId + ", in Gateway: " + gatewayId + ", does not exist.");
++            return null;
+         } catch (Exception e) {
+             logger.error("Error retrieving user profile by ID", e);
+             UserProfileServiceException exception = new UserProfileServiceException();
+@@ -105,23 +95,11 @@ public class UserProfileServiceHandler implements UserProfileService.Iface {
+         }
+     }
+ 
+-    public boolean deleteUserProfile(String userId, String gatewayId) throws UserProfileServiceException {
++    // FIXME: shouldn't deleteUserProfile require the gatewayId as well?
++    public boolean deleteUserProfile(String userId) throws UserProfileServiceException {
+         try{
+-            // find user-profile
+-            UserProfile userProfile = userProfileRepository.getUserProfileByIdAndGateWay(userId, gatewayId);
+-
+-            // delete user
+-            boolean deleteSuccess = userProfileRepository.delete(userId);
+-            logger.info("Delete UserProfile with userId: " + userId + ", " + (deleteSuccess? "Success!" : "Failed!"));
+-
+-            if (deleteSuccess) {
+-                // delete userProfile at end-places
+-                ProfileServiceUtils.getDbEventPublisher().publish(
+-                        ProfileServiceUtils.getDBEventMessageContext(EntityType.USER_PROFILE, CrudType.DELETE, userProfile),
+-                        DBEventManagerConstants.getRoutingKey(DBEventService.DB_EVENT.toString())
+-                );
+-            }
+-            return deleteSuccess;
++            boolean deleteResult = userProfileRepository.delete(userId);
++            return deleteResult;
+         } catch (Exception e) {
+             logger.error("Error while deleting user profile", e);
+             UserProfileServiceException exception = new UserProfileServiceException();
+@@ -135,8 +113,7 @@ public class UserProfileServiceHandler implements UserProfileService.Iface {
+             List<UserProfile> usersInGateway = userProfileRepository.getAllUserProfilesInGateway(gatewayId, offset, limit);
+             if(usersInGateway != null)
+                 return usersInGateway;
+-            else
+-                throw new Exception("There are no users for the requested gatewayId: " + gatewayId);
++            return null;
+         } catch (Exception e) {
+             logger.error("Error while retrieving user profile List", e);
+             UserProfileServiceException exception = new UserProfileServiceException();
+@@ -151,8 +128,7 @@ public class UserProfileServiceHandler implements UserProfileService.Iface {
+             UserProfile userProfile = userProfileRepository.getUserProfileByNameAndGateWay(userName, gatewayId);
+             if(userProfile != null)
+                 return userProfile;
+-            else
+-                throw new Exception("User with userName: " + userName + ", in Gateway: " + gatewayId + ", does not exist.");
++            return null;
+         } catch (Exception e) {
+             logger.error("Error while retrieving user profile", e);
+             UserProfileServiceException exception = new UserProfileServiceException();

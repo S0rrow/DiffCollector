@@ -1,0 +1,275 @@
+diff --git a/addons/sqoop-bridge/src/main/java/org/apache/atlas/sqoop/hook/SqoopHook.java b/addons/sqoop-bridge/src/main/java/org/apache/atlas/sqoop/hook/SqoopHook.java
+index 50e20fa00..af68fcc3e 100644
+--- a/addons/sqoop-bridge/src/main/java/org/apache/atlas/sqoop/hook/SqoopHook.java
++++ b/addons/sqoop-bridge/src/main/java/org/apache/atlas/sqoop/hook/SqoopHook.java
+@@ -19,24 +19,31 @@
+ package org.apache.atlas.sqoop.hook;
+ 
+ 
++import com.google.inject.Guice;
++import com.google.inject.Inject;
++import com.google.inject.Injector;
++import com.sun.jersey.api.client.ClientResponse;
+ import org.apache.atlas.ApplicationProperties;
+ import org.apache.atlas.AtlasClient;
+-import org.apache.atlas.AtlasConstants;
++import org.apache.atlas.AtlasServiceException;
+ import org.apache.atlas.hive.bridge.HiveMetaStoreBridge;
++import org.apache.atlas.hive.model.HiveDataModelGenerator;
+ import org.apache.atlas.hive.model.HiveDataTypes;
+-import org.apache.atlas.hook.AtlasHook;
+-import org.apache.atlas.hook.AtlasHookException;
++import org.apache.atlas.notification.NotificationInterface;
++import org.apache.atlas.notification.NotificationModule;
+ import org.apache.atlas.notification.hook.HookNotification;
++import org.apache.atlas.sqoop.model.SqoopDataModelGenerator;
+ import org.apache.atlas.sqoop.model.SqoopDataTypes;
+ import org.apache.atlas.typesystem.Referenceable;
+ import org.apache.commons.configuration.Configuration;
+ import org.apache.commons.lang3.StringUtils;
++import org.apache.hadoop.hive.conf.HiveConf;
++import org.apache.hadoop.security.UserGroupInformation;
+ import org.apache.sqoop.SqoopJobDataPublisher;
+ import org.apache.sqoop.util.ImportException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import java.util.Arrays;
+ import java.util.Date;
+ import java.util.HashMap;
+ import java.util.Map;
+@@ -48,48 +55,62 @@ import java.util.Properties;
+ public class SqoopHook extends SqoopJobDataPublisher {
+ 
+     private static final Logger LOG = LoggerFactory.getLogger(SqoopHook.class);
++    private static final String DEFAULT_DGI_URL = "http://localhost:21000/";
+     public static final String CONF_PREFIX = "atlas.hook.sqoop.";
+     public static final String HOOK_NUM_RETRIES = CONF_PREFIX + "numRetries";
+ 
+     public static final String ATLAS_CLUSTER_NAME = "atlas.cluster.name";
+     public static final String DEFAULT_CLUSTER_NAME = "primary";
++    public static final String ATLAS_REST_ADDRESS = "atlas.rest.address";
+ 
+-    public static final String USER = "userName";
+-    public static final String DB_STORE_TYPE = "dbStoreType";
+-    public static final String DB_STORE_USAGE = "storeUse";
+-    public static final String SOURCE = "source";
+-    public static final String DESCRIPTION = "description";
+-    public static final String STORE_URI = "storeUri";
+-    public static final String OPERATION = "operation";
+-    public static final String START_TIME = "startTime";
+-    public static final String END_TIME = "endTime";
+-    public static final String CMD_LINE_OPTS = "commandlineOpts";
+-    // multiple inputs and outputs for process
+-    public static final String INPUTS = "inputs";
+-    public static final String OUTPUTS = "outputs";
++    @Inject
++    private static NotificationInterface notifInterface;
+ 
+     static {
+         org.apache.hadoop.conf.Configuration.addDefaultResource("sqoop-site.xml");
+     }
+ 
+-    public Referenceable createHiveDatabaseInstance(String clusterName, String dbName) {
++    private synchronized void registerDataModels(AtlasClient client, Configuration atlasConf) throws Exception {
++        // Make sure hive model exists
++        HiveMetaStoreBridge hiveMetaStoreBridge = new HiveMetaStoreBridge(new HiveConf(), atlasConf,
++                UserGroupInformation.getCurrentUser().getShortUserName(), UserGroupInformation.getCurrentUser());
++        hiveMetaStoreBridge.registerHiveDataModel();
++        SqoopDataModelGenerator dataModelGenerator = new SqoopDataModelGenerator();
++
++        //Register sqoop data model if its not already registered
++        try {
++            client.getType(SqoopDataTypes.SQOOP_PROCESS.getName());
++            LOG.info("Sqoop data model is already registered!");
++        } catch(AtlasServiceException ase) {
++            if (ase.getStatus() == ClientResponse.Status.NOT_FOUND) {
++                //Expected in case types do not exist
++                LOG.info("Registering Sqoop data model");
++                client.createType(dataModelGenerator.getModelAsJson());
++            } else {
++                throw ase;
++            }
++        }
++    }
++
++    public Referenceable createHiveDatabaseInstance(String clusterName, String dbName)
++            throws Exception {
+         Referenceable dbRef = new Referenceable(HiveDataTypes.HIVE_DB.getName());
+-        dbRef.set(AtlasConstants.CLUSTER_NAME_ATTRIBUTE, clusterName);
+-        dbRef.set(AtlasClient.NAME, dbName);
++        dbRef.set(HiveDataModelGenerator.CLUSTER_NAME, clusterName);
++        dbRef.set(HiveDataModelGenerator.NAME, dbName);
+         dbRef.set(AtlasClient.REFERENCEABLE_ATTRIBUTE_NAME,
+                 HiveMetaStoreBridge.getDBQualifiedName(clusterName, dbName));
+         return dbRef;
+     }
+ 
+     public Referenceable createHiveTableInstance(String clusterName, Referenceable dbRef,
+-                                                 String tableName, String dbName) {
+-            Referenceable tableRef = new Referenceable(HiveDataTypes.HIVE_TABLE.getName());
+-            tableRef.set(AtlasClient.REFERENCEABLE_ATTRIBUTE_NAME,
+-                    HiveMetaStoreBridge.getTableQualifiedName(clusterName, dbName, tableName));
+-            tableRef.set(AtlasClient.NAME, tableName.toLowerCase());
+-            tableRef.set(HiveMetaStoreBridge.DB, dbRef);
+-            return tableRef;
+-        }
++                                             String tableName, String dbName) throws Exception {
++        Referenceable tableRef = new Referenceable(HiveDataTypes.HIVE_TABLE.getName());
++        tableRef.set(HiveDataModelGenerator.NAME,
++                HiveMetaStoreBridge.getTableQualifiedName(clusterName, dbName, tableName));
++        tableRef.set(HiveDataModelGenerator.TABLE_NAME, tableName.toLowerCase());
++        tableRef.set(HiveDataModelGenerator.DB, dbRef);
++        return tableRef;
++    }
+ 
+     private Referenceable createDBStoreInstance(SqoopJobDataPublisher.Data data)
+             throws ImportException {
+@@ -104,56 +125,47 @@ public class SqoopHook extends SqoopJobDataPublisher {
+         String usage = table != null ? "TABLE" : "QUERY";
+         String source = table != null ? table : query;
+         String name = getSqoopDBStoreName(data);
+-        storeRef.set(AtlasClient.NAME, name);
+-        storeRef.set(AtlasClient.REFERENCEABLE_ATTRIBUTE_NAME, name);
+-        storeRef.set(SqoopHook.DB_STORE_TYPE, data.getStoreType());
+-        storeRef.set(SqoopHook.DB_STORE_USAGE, usage);
+-        storeRef.set(SqoopHook.STORE_URI, data.getUrl());
+-        storeRef.set(SqoopHook.SOURCE, source);
+-        storeRef.set(SqoopHook.DESCRIPTION, "");
+-        storeRef.set(AtlasClient.OWNER, data.getUser());
++        storeRef.set(SqoopDataModelGenerator.NAME, name);
++        storeRef.set(SqoopDataModelGenerator.DB_STORE_TYPE, data.getStoreType());
++        storeRef.set(SqoopDataModelGenerator.DB_STORE_USAGE, usage);
++        storeRef.set(SqoopDataModelGenerator.STORE_URI, data.getUrl());
++        storeRef.set(SqoopDataModelGenerator.SOURCE, source);
++        storeRef.set(SqoopDataModelGenerator.DESCRIPTION, "");
++        storeRef.set(SqoopDataModelGenerator.OWNER, data.getUser());
+         return storeRef;
+     }
+ 
+     private Referenceable createSqoopProcessInstance(Referenceable dbStoreRef, Referenceable hiveTableRef,
+                                                      SqoopJobDataPublisher.Data data, String clusterName) {
+         Referenceable procRef = new Referenceable(SqoopDataTypes.SQOOP_PROCESS.getName());
+-        final String sqoopProcessName = getSqoopProcessName(data, clusterName);
+-        procRef.set(AtlasClient.NAME, sqoopProcessName);
+-        procRef.set(AtlasClient.REFERENCEABLE_ATTRIBUTE_NAME, sqoopProcessName);
+-        procRef.set(SqoopHook.OPERATION, data.getOperation());
+-        if (isImportOperation(data)) {
+-            procRef.set(SqoopHook.INPUTS, dbStoreRef);
+-            procRef.set(SqoopHook.OUTPUTS, hiveTableRef);
+-        } else {
+-            procRef.set(SqoopHook.INPUTS, hiveTableRef);
+-            procRef.set(SqoopHook.OUTPUTS, dbStoreRef);
+-        }
+-        procRef.set(SqoopHook.USER, data.getUser());
+-        procRef.set(SqoopHook.START_TIME, new Date(data.getStartTime()));
+-        procRef.set(SqoopHook.END_TIME, new Date(data.getEndTime()));
++        procRef.set(SqoopDataModelGenerator.NAME, getSqoopProcessName(data, clusterName));
++        procRef.set(SqoopDataModelGenerator.OPERATION, data.getOperation());
++        procRef.set(SqoopDataModelGenerator.INPUTS, dbStoreRef);
++        procRef.set(SqoopDataModelGenerator.OUTPUTS, hiveTableRef);
++        procRef.set(SqoopDataModelGenerator.USER, data.getUser());
++        procRef.set(SqoopDataModelGenerator.START_TIME, new Date(data.getStartTime()));
++        procRef.set(SqoopDataModelGenerator.END_TIME, new Date(data.getEndTime()));
+ 
+         Map<String, String> sqoopOptionsMap = new HashMap<>();
+         Properties options = data.getOptions();
+         for (Object k : options.keySet()) {
+             sqoopOptionsMap.put((String)k, (String) options.get(k));
+         }
+-        procRef.set(SqoopHook.CMD_LINE_OPTS, sqoopOptionsMap);
++        procRef.set(SqoopDataModelGenerator.CMD_LINE_OPTS, sqoopOptionsMap);
+ 
+         return procRef;
+     }
+ 
+     static String getSqoopProcessName(Data data, String clusterName) {
+-        StringBuilder name = new StringBuilder(String.format("sqoop %s --connect %s", data.getOperation(),
+-                data.getUrl()));
++        StringBuilder name = new StringBuilder(String.format("sqoop import --connect %s", data.getUrl()));
+         if (StringUtils.isNotEmpty(data.getStoreTable())) {
+             name.append(" --table ").append(data.getStoreTable());
+         }
+         if (StringUtils.isNotEmpty(data.getStoreQuery())) {
+             name.append(" --query ").append(data.getStoreQuery());
+         }
+-        name.append(String.format(" --hive-%s --hive-database %s --hive-table %s --hive-cluster %s",
+-                data.getOperation(), data.getHiveDB().toLowerCase(), data.getHiveTable().toLowerCase(), clusterName));
++        name.append(String.format(" --hive-import --hive-database %s --hive-table %s --hive-cluster %s",
++                data.getHiveDB().toLowerCase(), data.getHiveTable().toLowerCase(), clusterName));
+         return name.toString();
+     }
+ 
+@@ -168,29 +180,51 @@ public class SqoopHook extends SqoopJobDataPublisher {
+         return name.toString();
+     }
+ 
+-    static boolean isImportOperation(SqoopJobDataPublisher.Data data) {
+-        return data.getOperation().toLowerCase().equals("import");
++    @Override
++    public void publish(SqoopJobDataPublisher.Data data) throws Exception {
++        Injector injector = Guice.createInjector(new NotificationModule());
++        notifInterface = injector.getInstance(NotificationInterface.class);
++
++        Configuration atlasProperties = ApplicationProperties.get();
++        AtlasClient atlasClient = new AtlasClient(atlasProperties.getString(ATLAS_REST_ADDRESS, DEFAULT_DGI_URL),
++                UserGroupInformation.getCurrentUser(), UserGroupInformation.getCurrentUser().getShortUserName());
++        org.apache.hadoop.conf.Configuration sqoopConf = new org.apache.hadoop.conf.Configuration();
++        String clusterName = sqoopConf.get(ATLAS_CLUSTER_NAME, DEFAULT_CLUSTER_NAME);
++        registerDataModels(atlasClient, atlasProperties);
++
++        Referenceable dbStoreRef = createDBStoreInstance(data);
++        Referenceable dbRef = createHiveDatabaseInstance(clusterName, data.getHiveDB());
++        Referenceable hiveTableRef = createHiveTableInstance(clusterName, dbRef,
++                data.getHiveTable(), data.getHiveDB());
++        Referenceable procRef = createSqoopProcessInstance(dbStoreRef, hiveTableRef, data, clusterName);
++
++        notifyEntity(atlasProperties, dbStoreRef, dbRef, hiveTableRef, procRef);
+     }
+ 
+-    @Override
+-    public void publish(SqoopJobDataPublisher.Data data) throws AtlasHookException {
+-        try {
+-            Configuration atlasProperties = ApplicationProperties.get();
+-            String clusterName = atlasProperties.getString(ATLAS_CLUSTER_NAME, DEFAULT_CLUSTER_NAME);
+-
+-            Referenceable dbStoreRef = createDBStoreInstance(data);
+-            Referenceable dbRef = createHiveDatabaseInstance(clusterName, data.getHiveDB());
+-            Referenceable hiveTableRef = createHiveTableInstance(clusterName, dbRef,
+-                    data.getHiveTable(), data.getHiveDB());
+-            Referenceable procRef = createSqoopProcessInstance(dbStoreRef, hiveTableRef, data, clusterName);
+-
+-            int maxRetries = atlasProperties.getInt(HOOK_NUM_RETRIES, 3);
+-            HookNotification.HookNotificationMessage message =
+-                    new HookNotification.EntityCreateRequest(AtlasHook.getUser(), dbStoreRef, dbRef, hiveTableRef, procRef);
+-            AtlasHook.notifyEntities(Arrays.asList(message), maxRetries);
+-        }
+-        catch(Exception e) {
+-            throw new AtlasHookException("SqoopHook.publish() failed.", e);
++    /**
++     * Notify atlas of the entity through message. The entity can be a complex entity with reference to other entities.
++     * De-duping of entities is done on server side depending on the unique attribute on the
++     * @param entities - Entity references to publish.
++     */
++    private void notifyEntity(Configuration atlasProperties, Referenceable... entities) {
++        int maxRetries = atlasProperties.getInt(HOOK_NUM_RETRIES, 3);
++
++        int numRetries = 0;
++        while (true) {
++            try {
++                notifInterface.send(NotificationInterface.NotificationType.HOOK,
++                        new HookNotification.EntityCreateRequest(entities));
++                return;
++            } catch(Exception e) {
++                numRetries++;
++                if(numRetries < maxRetries) {
++                    LOG.debug("Failed to notify atlas for entity {}. Retrying", entities, e);
++                } else {
++                    LOG.error("Failed to notify atlas for entity {} after {} retries. Quitting", entities,
++                            maxRetries, e);
++                    break;
++                }
++            }
+         }
+     }
+ }

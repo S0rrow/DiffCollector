@@ -1,0 +1,114 @@
+diff --git a/src/main/java/org/apache/geronimo/blueprint/di/AbstractRecipe.java b/src/main/java/org/apache/geronimo/blueprint/di/AbstractRecipe.java
+index b06c6c5b4..fb43ff600 100644
+--- a/src/main/java/org/apache/geronimo/blueprint/di/AbstractRecipe.java
++++ b/src/main/java/org/apache/geronimo/blueprint/di/AbstractRecipe.java
+@@ -19,18 +19,18 @@ package org.apache.geronimo.blueprint.di;
+ 
+ import java.lang.reflect.Type;
+ import java.util.ArrayList;
+-import java.util.Collections;
+ import java.util.List;
++import java.util.Map;
++import java.util.HashMap;
+ 
+-import org.apache.geronimo.blueprint.container.GenericType;
+-import org.osgi.service.blueprint.container.ReifiedType;
+ import org.osgi.service.blueprint.container.ComponentDefinitionException;
++import static org.apache.geronimo.blueprint.utils.TypeUtils.toClass;
++import org.apache.geronimo.blueprint.utils.TypeUtils;
+ 
+ public abstract class AbstractRecipe implements Recipe {
+ 
+     protected final String name;
+     protected boolean prototype = true;
+-    private boolean creating = false;
+ 
+     protected AbstractRecipe(String name) {
+         if (name == null) throw new NullPointerException("name is null");
+@@ -54,11 +54,6 @@ public abstract class AbstractRecipe implements Recipe {
+         ExecutionContext context = ExecutionContext.Holder.getContext();
+ 
+         synchronized (context.getInstanceLock()) {
+-            if (creating && context.isCreateReentered()) {
+-                ArrayList<Recipe> circularity = new ArrayList<Recipe>();
+-                circularity.add(this);
+-                throw new CircularDependencyException("Dynamic cycle detected in recipe", circularity);
+-            }
+             // if this recipe has already been executed in this container, return the currently registered value
+             Object obj = context.getPartialObject(name);
+             if (obj != null) {
+@@ -66,18 +61,12 @@ public abstract class AbstractRecipe implements Recipe {
+             }
+ 
+             // execute the recipe
+-            creating = true;
+             context.push(this);
+             try {
+                 obj = internalCreate();
+-                if (prototype) {
+-                    context.removePartialObject(name);
+-                } else {
+-                    context.addFullObject(name, obj);
+-                }
++                addObject(obj, false);
+                 return obj;
+             } finally {
+-                creating = false;
+                 Recipe popped = context.pop();
+                 if (popped != this) {
+                     //noinspection ThrowFromFinallyBlock
+@@ -90,33 +79,31 @@ public abstract class AbstractRecipe implements Recipe {
+ 
+     protected abstract Object internalCreate() throws ComponentDefinitionException;
+ 
+-    protected void addPartialObject(Object obj) {
+-        ExecutionContext.Holder.getContext().addPartialObject(name, obj);
++    protected void addObject(Object obj, boolean partial) {
++        if (prototype) {
++            return;
++        }
++        ExecutionContext.Holder.getContext().addObject(name, obj, partial);
+     }
+     
+-    protected Object convert(Object obj, ReifiedType type) throws Exception {
+-        return ExecutionContext.Holder.getContext().convert(obj, type);
+-    }
+-
+     protected Object convert(Object obj, Type type) throws Exception {
+-        return ExecutionContext.Holder.getContext().convert(obj, new GenericType(type));
++        return ExecutionContext.Holder.getContext().convert(obj, type);
+     }
+ 
+     protected Class loadClass(String className) {
+-        ReifiedType t = loadType(className, null);
+-        return t != null ? t.getRawClass() : null;
++        return toClass(loadType(className, null));
+     }
+ 
+-    protected ReifiedType loadType(String typeName) {
++    protected Type loadType(String typeName) {
+         return loadType(typeName, null);
+     }
+ 
+-    protected ReifiedType loadType(String typeName, ClassLoader fromClassLoader) {
++    protected Type loadType(String typeName, ClassLoader fromClassLoader) {
+         if (typeName == null) {
+             return null;
+         }
+         try {
+-            return GenericType.parse(typeName, fromClassLoader != null ? fromClassLoader : ExecutionContext.Holder.getContext());
++            return TypeUtils.parseJavaType(typeName, fromClassLoader != null ? fromClassLoader : ExecutionContext.Holder.getContext());
+         } catch (ClassNotFoundException e) {
+             throw new ComponentDefinitionException("Unable to load class " + typeName + " from recipe " + this, e);
+         }
+@@ -125,10 +112,6 @@ public abstract class AbstractRecipe implements Recipe {
+     public void destroy(Object instance) {
+     }
+ 
+-    public List<Recipe> getConstructorDependencies() {
+-        return Collections.emptyList();
+-    }
+-    
+     public String toString() {
+         return getClass().getSimpleName() + "[" +
+                 "name='" + name + '\'' +

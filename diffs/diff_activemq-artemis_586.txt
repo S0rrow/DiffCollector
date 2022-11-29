@@ -1,0 +1,257 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java
+index 680af8a4dc..8acdc118f5 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java
+@@ -23,7 +23,6 @@ import java.io.IOException;
+ import java.io.PrintWriter;
+ import java.io.StringWriter;
+ import java.lang.management.ManagementFactory;
+-import java.net.URL;
+ import java.security.AccessController;
+ import java.security.PrivilegedAction;
+ import java.util.ArrayList;
+@@ -56,7 +55,6 @@ import org.apache.activemq.artemis.core.config.CoreQueueConfiguration;
+ import org.apache.activemq.artemis.core.config.DivertConfiguration;
+ import org.apache.activemq.artemis.core.config.StoreConfiguration;
+ import org.apache.activemq.artemis.core.config.impl.ConfigurationImpl;
+-import org.apache.activemq.artemis.core.deployers.impl.FileConfigurationParser;
+ import org.apache.activemq.artemis.core.filter.Filter;
+ import org.apache.activemq.artemis.core.filter.impl.FilterImpl;
+ import org.apache.activemq.artemis.core.io.IOCriticalErrorListener;
+@@ -123,17 +121,12 @@ import org.apache.activemq.artemis.core.server.cluster.BackupManager;
+ import org.apache.activemq.artemis.core.server.cluster.ClusterManager;
+ import org.apache.activemq.artemis.core.server.cluster.Transformer;
+ import org.apache.activemq.artemis.core.server.cluster.ha.HAPolicy;
+-import org.apache.activemq.artemis.core.server.files.FileMoveManager;
+-import org.apache.activemq.artemis.core.server.files.FileStoreMonitor;
+ import org.apache.activemq.artemis.core.server.group.GroupingHandler;
+ import org.apache.activemq.artemis.core.server.group.impl.GroupingHandlerConfiguration;
+ import org.apache.activemq.artemis.core.server.group.impl.LocalGroupingHandler;
+ import org.apache.activemq.artemis.core.server.group.impl.RemoteGroupingHandler;
+ import org.apache.activemq.artemis.core.server.management.ManagementService;
+ import org.apache.activemq.artemis.core.server.management.impl.ManagementServiceImpl;
+-import org.apache.activemq.artemis.core.server.reload.ReloadCallback;
+-import org.apache.activemq.artemis.core.server.reload.ReloadManager;
+-import org.apache.activemq.artemis.core.server.reload.ReloadManagerImpl;
+ import org.apache.activemq.artemis.core.settings.HierarchicalRepository;
+ import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+ import org.apache.activemq.artemis.core.settings.impl.HierarchicalObjectRepository;
+@@ -249,10 +242,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+    private MemoryManager memoryManager;
+ 
+-   private ReloadManager reloadManager;
+-
+-   private FileStoreMonitor fileStoreMonitor;
+-
+    /**
+     * This will be set by the JMS Queue Manager.
+     */
+@@ -307,8 +296,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+    private ServiceRegistry serviceRegistry;
+ 
+    private Date startDate;
+-
+-   private final List<ActiveMQComponent> externalComponents = new ArrayList<>();
+    // Constructors
+    // ---------------------------------------------------------------------------------
+ 
+@@ -385,11 +372,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       this.serviceRegistry = serviceRegistry == null ? new ServiceRegistryImpl() : serviceRegistry;
+    }
+ 
+-   @Override
+-   public ReloadManager getReloadManager() {
+-      return reloadManager;
+-   }
+-
+    // life-cycle methods
+    // ----------------------------------------------------------------
+ 
+@@ -562,11 +544,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       this.mbeanServer = mbeanServer;
+    }
+ 
+-   @Override
+-   public void addExternalComponent(ActiveMQComponent externalComponent) {
+-      externalComponents.add(externalComponent);
+-   }
+-
+    public ExecutorService getThreadPool() {
+       return threadPool;
+    }
+@@ -760,11 +737,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+          }
+          state = SERVER_STATE.STOPPING;
+ 
+-         if (fileStoreMonitor != null) {
+-            fileStoreMonitor.stop();
+-            fileStoreMonitor = null;
+-         }
+-
+          activation.sendLiveIsStopping();
+ 
+          stopComponent(connectorsService);
+@@ -953,15 +925,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+       scaledDownNodeIDs.clear();
+ 
+-      for (ActiveMQComponent externalComponent : externalComponents) {
+-         try {
+-            externalComponent.stop();
+-         }
+-         catch (Exception e) {
+-            ActiveMQServerLogger.LOGGER.errorStoppingComponent(e, externalComponent.getClass().getName());
+-         }
+-      }
+-
+       if (identity != null) {
+          ActiveMQServerLogger.LOGGER.serverStopped("identity=" + identity + ",version=" + getVersion().getFullVersion(), tempNodeID, getUptime());
+       }
+@@ -1198,20 +1161,19 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+                                       final String defaultAddress,
+                                       final SessionCallback callback,
+                                       final boolean autoCreateQueues) throws Exception {
+-      String validatedUser = "";
+ 
+       if (securityStore != null) {
+          X509Certificate[] certificates = null;
+          if (connection.getTransportConnection() instanceof NettyConnection) {
+             certificates = CertificateUtil.getCertsFromChannel(((NettyConnection) connection.getTransportConnection()).getChannel());
+          }
+-         validatedUser = securityStore.authenticate(username, password, certificates);
++         securityStore.authenticate(username, password, certificates);
+       }
+ 
+-      checkSessionLimit(validatedUser);
++      checkSessionLimit(username);
+ 
+       final OperationContext context = storageManager.newContext(getExecutorFactory().getExecutor());
+-      final ServerSessionImpl session = internalCreateSession(name, username, password, validatedUser, minLargeMessageSize, connection, autoCommitSends, autoCommitAcks, preAcknowledge, xa, defaultAddress, callback, context, autoCreateQueues);
++      final ServerSessionImpl session = internalCreateSession(name, username, password, minLargeMessageSize, connection, autoCommitSends, autoCommitAcks, preAcknowledge, xa, defaultAddress, callback, context, autoCreateQueues);
+ 
+       sessions.put(name, session);
+ 
+@@ -1252,7 +1214,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+             return;
+          }
+          else if (limits.getMaxQueues() == 0 || getQueueCountForUser(username) >= limits.getMaxQueues()) {
+-            throw ActiveMQMessageBundle.BUNDLE.queueLimitReached(username, limits.getMaxQueues());
++            throw ActiveMQMessageBundle.BUNDLE.queueLimitReached(username, limits.getMaxConnections());
+          }
+       }
+    }
+@@ -1275,7 +1237,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+    protected ServerSessionImpl internalCreateSession(String name,
+                                                      String username,
+                                                      String password,
+-                                                     String validatedUser,
+                                                      int minLargeMessageSize,
+                                                      RemotingConnection connection,
+                                                      boolean autoCommitSends,
+@@ -1286,10 +1247,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+                                                      SessionCallback callback,
+                                                      OperationContext context,
+                                                      boolean autoCreateJMSQueues) throws Exception {
+-      return new ServerSessionImpl(name, username, password, validatedUser, minLargeMessageSize, autoCommitSends, autoCommitAcks, preAcknowledge, configuration.isPersistDeliveryCountBeforeDelivery(),
+-                                   xa, connection, storageManager, postOffice, resourceManager, securityStore, managementService, this, configuration.getManagementAddress(),
+-                                   defaultAddress == null ? null : new SimpleString(defaultAddress), callback, context, autoCreateJMSQueues ? jmsQueueCreator : null,
+-                                   pagingManager);
++      return new ServerSessionImpl(name, username, password, minLargeMessageSize, autoCommitSends, autoCommitAcks, preAcknowledge, configuration.isPersistDeliveryCountBeforeDelivery(), xa, connection, storageManager, postOffice, resourceManager, securityStore, managementService, this, configuration.getManagementAddress(), defaultAddress == null ? null : new SimpleString(defaultAddress), callback, context, autoCreateJMSQueues ? jmsQueueCreator : null);
+    }
+ 
+    @Override
+@@ -1783,7 +1741,8 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+    }
+ 
+    protected PagingManager createPagingManager() {
+-      return new PagingManagerImpl(getPagingStoreFactory(), addressSettingsRepository, configuration.getGlobalMaxSize());
++
++      return new PagingManagerImpl(getPagingStoreFactory(), addressSettingsRepository);
+    }
+ 
+    protected PagingStoreFactoryNIO getPagingStoreFactory() {
+@@ -1974,13 +1933,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+       deployGroupingHandlerConfiguration(configuration.getGroupingHandlerConfiguration());
+ 
+-      this.reloadManager = new ReloadManagerImpl(getScheduledPool(), configuration.getConfigurationFileRefreshPeriod());
+-
+-      if (configuration.getConfigurationUrl() != null && getScheduledPool() != null) {
+-         reloadManager.addCallback(configuration.getConfigurationUrl(), new ConfigurationFileReloader());
+-      }
+-
+-
+       return true;
+    }
+ 
+@@ -2053,25 +2005,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+          // We can only do this after everything is started otherwise we may get nasty races with expired messages
+          postOffice.startExpiryScanner();
+       }
+-
+-      try {
+-         injectMonitor(new FileStoreMonitor(getScheduledPool(), configuration.getDiskScanPeriod(), TimeUnit.MILLISECONDS, configuration.getMaxDiskUsage() / 100f));
+-      }
+-      catch (Exception e) {
+-         logger.warn(e.getMessage(), e);
+-      }
+-   }
+-
+-   /** This method exists for a possibility of test cases replacing the FileStoreMonitor for an extension that would for instance pretend a disk full on certain tests. */
+-   public void injectMonitor(FileStoreMonitor storeMonitor) throws Exception {
+-      this.fileStoreMonitor = storeMonitor;
+-      pagingManager.injectMonitor(storeMonitor);
+-      storageManager.injectMonitor(storeMonitor);
+-      fileStoreMonitor.start();
+-   }
+-
+-   public FileStoreMonitor getMonitor() {
+-      return fileStoreMonitor;
+    }
+ 
+    public void completeActivation() throws Exception {
+@@ -2105,9 +2038,8 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+          addressCount++;
+       }
+ 
+-
+       long maxMemory = Runtime.getRuntime().maxMemory();
+-      if (totalMaxSizeBytes >= maxMemory && configuration.getGlobalMaxSize() < 0) {
++      if (totalMaxSizeBytes >= maxMemory) {
+          ActiveMQServerLogger.LOGGER.potentialOOME(addressCount, totalMaxSizeBytes, maxMemory);
+       }
+    }
+@@ -2182,7 +2114,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       List<PersistedRoles> roles = storageManager.recoverPersistedRoles();
+ 
+       for (PersistedRoles roleItem : roles) {
+-         Set<Role> setRoles = SecurityFormatter.createSecurity(roleItem.getSendRoles(), roleItem.getConsumeRoles(), roleItem.getCreateDurableQueueRoles(), roleItem.getDeleteDurableQueueRoles(), roleItem.getCreateNonDurableQueueRoles(), roleItem.getDeleteNonDurableQueueRoles(), roleItem.getManageRoles(), roleItem.getBrowseRoles());
++         Set<Role> setRoles = SecurityFormatter.createSecurity(roleItem.getSendRoles(), roleItem.getConsumeRoles(), roleItem.getCreateDurableQueueRoles(), roleItem.getDeleteDurableQueueRoles(), roleItem.getCreateNonDurableQueueRoles(), roleItem.getDeleteNonDurableQueueRoles(), roleItem.getManageRoles());
+ 
+          securityRepository.addMatch(roleItem.getAddressMatch().toString(), setRoles);
+       }
+@@ -2405,7 +2337,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+          this.runnable = runnable;
+       }
+ 
+-      @Override
+       public void run() {
+          lockActivation();
+          try {
+@@ -2417,15 +2348,4 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       }
+ 
+    }
+-
+-   private final class ConfigurationFileReloader implements ReloadCallback {
+-      @Override
+-      public void reload(URL uri) throws Exception {
+-         Configuration config = new FileConfigurationParser().parseMainConfig(uri.openStream());
+-         ActiveMQServerLogger.LOGGER.reloadingConfiguration("security");
+-         securityRepository.swap(config.getSecurityRoles().entrySet());
+-         ActiveMQServerLogger.LOGGER.reloadingConfiguration("address settings");
+-         addressSettingsRepository.swap(config.getAddressesSettings().entrySet());
+-      }
+-   }
+ }

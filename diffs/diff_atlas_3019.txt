@@ -1,0 +1,19 @@
+diff --git a/graphdb/api/src/main/java/org/apache/atlas/repository/graphdb/AtlasGraph.java b/graphdb/api/src/main/java/org/apache/atlas/repository/graphdb/AtlasGraph.java
+index 607baf664..f252dc3e9 100644
+--- a/graphdb/api/src/main/java/org/apache/atlas/repository/graphdb/AtlasGraph.java
++++ b/graphdb/api/src/main/java/org/apache/atlas/repository/graphdb/AtlasGraph.java
+@@ -28,7 +28,6 @@ import javax.script.ScriptException;
+ 
+ import org.apache.atlas.exception.AtlasBaseException;
+ import org.apache.atlas.groovy.GroovyExpression;
+-import org.apache.atlas.model.impexp.MigrationStatus;
+ import org.apache.atlas.type.AtlasType;
+ 
+ /**
+@@ -321,6 +320,4 @@ public interface AtlasGraph<V, E> {
+     boolean isMultiProperty(String name);
+ 
+     void loadLegacyGraphSON(Map<String, String> relationshipCache, InputStream fs) throws AtlasBaseException;
+-
+-    MigrationStatus getMigrationStatus();
+ }

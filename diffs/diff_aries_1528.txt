@@ -1,0 +1,115 @@
+diff --git a/blueprint-core/src/main/java/org/apache/geronimo/blueprint/container/AbstractServiceReferenceRecipe.java b/blueprint-core/src/main/java/org/apache/geronimo/blueprint/container/AbstractServiceReferenceRecipe.java
+index 3bde23760..22fe4c5f2 100644
+--- a/blueprint-core/src/main/java/org/apache/geronimo/blueprint/container/AbstractServiceReferenceRecipe.java
++++ b/blueprint-core/src/main/java/org/apache/geronimo/blueprint/container/AbstractServiceReferenceRecipe.java
+@@ -31,9 +31,11 @@ import java.util.Set;
+ import net.sf.cglib.proxy.Dispatcher;
+ import net.sf.cglib.proxy.Enhancer;
+ import org.apache.geronimo.blueprint.BlueprintConstants;
+-import org.apache.geronimo.blueprint.BlueprintEventSender;
++import org.apache.geronimo.blueprint.BlueprintContextEventSender;
+ import org.apache.geronimo.blueprint.ExtendedBlueprintContainer;
++import org.apache.geronimo.blueprint.container.SatisfiableRecipe;
+ import org.apache.geronimo.blueprint.di.AbstractRecipe;
++import org.apache.geronimo.blueprint.di.ConstructionException;
+ import org.apache.geronimo.blueprint.di.Recipe;
+ import org.apache.geronimo.blueprint.utils.BundleDelegatingClassLoader;
+ import org.apache.geronimo.blueprint.utils.ReflectionUtils;
+@@ -41,7 +43,6 @@ import org.osgi.framework.Constants;
+ import org.osgi.framework.ServiceEvent;
+ import org.osgi.framework.ServiceListener;
+ import org.osgi.framework.ServiceReference;
+-import org.osgi.service.blueprint.container.ComponentDefinitionException;
+ import org.osgi.service.blueprint.reflect.ReferenceMetadata;
+ import org.osgi.service.blueprint.reflect.ServiceReferenceMetadata;
+ import org.slf4j.Logger;
+@@ -56,7 +57,7 @@ import org.slf4j.LoggerFactory;
+ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe implements ServiceListener, SatisfiableRecipe {
+ 
+     protected final ExtendedBlueprintContainer blueprintContainer;
+-    protected final BlueprintEventSender sender;
++    protected final BlueprintContextEventSender sender;
+     protected final ServiceReferenceMetadata metadata;
+     protected final Recipe listenersRecipe;
+     protected List<Listener> listeners;
+@@ -66,7 +67,7 @@ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe impl
+     protected boolean optional;
+ 
+     protected AbstractServiceReferenceRecipe(ExtendedBlueprintContainer blueprintContainer,
+-                                             BlueprintEventSender sender,
++                                             BlueprintContextEventSender sender,
+                                              ServiceReferenceMetadata metadata,
+                                              Recipe listenersRecipe) {
+         this.blueprintContainer = blueprintContainer;
+@@ -114,7 +115,7 @@ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe impl
+         return recipes;
+     }
+ 
+-    public String getOsgiFilter() {
++    protected String getOsgiFilter() {
+         if (filter == null) {
+             List<String> members = new ArrayList<String>();
+             // Handle filter
+@@ -151,18 +152,14 @@ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe impl
+         return filter;
+     }
+ 
+-    protected void createListeners() {
+-        try {
+-            if (listenersRecipe != null) {
+-                listeners = (List<Listener>) listenersRecipe.create();
+-                for (Listener listener : listeners) {
+-                    listener.init(getAllClasses(metadata.getInterfaceNames()));
+-                }
+-            } else {
+-                listeners = Collections.emptyList();
++    protected void createListeners() throws ClassNotFoundException {
++        if (listenersRecipe != null) {
++            listeners = (List<Listener>) listenersRecipe.create();
++            for (Listener listener : listeners) {
++                listener.init(getAllClasses(metadata.getInterfaceNames()));
+             }
+-        } catch (ClassNotFoundException e) {
+-            throw new ComponentDefinitionException(e);
++        } else {
++            listeners = Collections.emptyList();
+         }
+     }
+ 
+@@ -211,7 +208,7 @@ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe impl
+                         continue;
+                     }
+                 }
+-                throw new ComponentDefinitionException("Classes " + root.getClass().getName() + " and " + clazz.getName() + " are not in the same hierarchy");
++                throw new ConstructionException("Classes " + root.getClass().getName() + " and " + clazz.getName() + " are not in the same hierarchy");
+             }
+         }
+         return root;
+@@ -220,9 +217,6 @@ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe impl
+     protected Object createProxy(Dispatcher dispatcher, Iterable<String> interfaces) throws Exception {
+         // TODO: we only use cglib for this small piece of code, we might want to use asm directly to
+         //       lower the number of dependencies / reduce size of jars
+-        //       or have an optional import an asm / cglib and use JDK proxies if not present
+-        //       also, check what the spec will say about that (optional imports could be fine if
+-        //       the spec does not mandate support for classes proxying
+         Enhancer e = new Enhancer();
+         e.setClassLoader(proxyClassLoader);
+         e.setSuperclass(getTargetClass(interfaces));
+@@ -298,7 +292,7 @@ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe impl
+                     bindMethodsTwoArgs.addAll(ReflectionUtils.findCompatibleMethods(listenerClass, bindName, new Class[] { clazz, Map.class }));
+                 }
+                 if (bindMethodsOneArg.size() + bindMethodsTwoArgs.size() == 0) {
+-                    throw new ComponentDefinitionException("No matching methods found for listener bind method: " + bindName);
++                    throw new ConstructionException("No matching methods found for listener bind method: " + bindName);
+                 }
+             }
+             String unbindName = metadata.getUnbindMethodName();
+@@ -308,7 +302,7 @@ public abstract class AbstractServiceReferenceRecipe extends AbstractRecipe impl
+                     unbindMethodsTwoArgs.addAll(ReflectionUtils.findCompatibleMethods(listenerClass, unbindName, new Class[] { clazz, Map.class }));
+                 }
+                 if (unbindMethodsOneArg.size() + unbindMethodsTwoArgs.size() == 0) {
+-                    throw new ComponentDefinitionException("No matching methods found for listener bind method: " + bindName);
++                    throw new ConstructionException("No matching methods found for listener bind method: " + bindName);
+                 }
+             }
+         }

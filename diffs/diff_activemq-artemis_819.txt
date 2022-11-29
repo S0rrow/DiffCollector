@@ -1,0 +1,181 @@
+diff --git a/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java b/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java
+index 01fee3fce0..9345973676 100644
+--- a/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java
++++ b/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java
+@@ -26,8 +26,9 @@ import java.util.Set;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+ import java.util.concurrent.ScheduledExecutorService;
+-import java.util.concurrent.ScheduledThreadPoolExecutor;
+ 
++import io.airlift.airline.Command;
++import io.airlift.airline.Option;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffers;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+@@ -61,9 +62,6 @@ import org.apache.activemq.artemis.utils.ActiveMQThreadFactory;
+ import org.apache.activemq.artemis.utils.ExecutorFactory;
+ import org.apache.activemq.artemis.utils.actors.ArtemisExecutor;
+ 
+-import io.airlift.airline.Command;
+-import io.airlift.airline.Option;
+-
+ @Command(name = "print", description = "Print data records information (WARNING: don't use while a production server is running)")
+ public class PrintData extends DBOption {
+ 
+@@ -131,7 +129,7 @@ public class PrintData extends DBOption {
+ 
+       if (serverLockFile.isFile()) {
+          try {
+-            FileLockNodeManager fileLock = new FileLockNodeManager(messagesDirectory, false, new ScheduledThreadPoolExecutor(1));
++            FileLockNodeManager fileLock = new FileLockNodeManager(messagesDirectory, false);
+             fileLock.start();
+             printBanner(out, "Server's ID=" + fileLock.getNodeId().toString());
+             fileLock.stop();
+@@ -177,17 +175,16 @@ public class PrintData extends DBOption {
+    }
+ 
+    private static void printPages(File pageDirectory, DescribeJournal describeJournal, PrintStream out, boolean safe) {
+-      ActiveMQThreadFactory daemonFactory = new ActiveMQThreadFactory("cli", true, PrintData.class.getClassLoader());
+-      final ScheduledExecutorService scheduled = Executors.newScheduledThreadPool(1, daemonFactory);
+-      final ExecutorService executor = Executors.newFixedThreadPool(10, daemonFactory);
+-      ExecutorFactory execfactory = new ExecutorFactory() {
+-         @Override
+-         public ArtemisExecutor getExecutor() {
+-            return ArtemisExecutor.delegate(executor);
+-         }
+-      };
+       try {
+ 
++         ScheduledExecutorService scheduled = Executors.newScheduledThreadPool(1, ActiveMQThreadFactory.defaultThreadFactory());
++         final ExecutorService executor = Executors.newFixedThreadPool(10, ActiveMQThreadFactory.defaultThreadFactory());
++         ExecutorFactory execfactory = new ExecutorFactory() {
++            @Override
++            public ArtemisExecutor getExecutor() {
++               return ArtemisExecutor.delegate(executor);
++            }
++         };
+          final StorageManager sm = new NullStorageManager();
+          PagingStoreFactory pageStoreFactory = new PagingStoreFactoryNIO(sm, pageDirectory, 1000L, scheduled, execfactory, false, null);
+          HierarchicalRepository<AddressSettings> addressSettingsRepository = new HierarchicalObjectRepository<>();
+@@ -197,9 +194,6 @@ public class PrintData extends DBOption {
+          printPages(describeJournal, sm, manager, out, safe);
+       } catch (Exception e) {
+          e.printStackTrace();
+-      } finally {
+-         executor.shutdownNow();
+-         scheduled.shutdownNow();
+       }
+    }
+ 
+@@ -222,63 +216,63 @@ public class PrintData extends DBOption {
+ 
+          if (pgStore != null) {
+             folder = pgStore.getFolder();
+-            out.println("####################################################################################################");
+-            out.println("Exploring store " + store + " folder = " + folder);
+-            int pgid = (int) pgStore.getFirstPage();
+-            for (int pg = 0; pg < pgStore.getNumberOfPages(); pg++) {
+-               out.println("*******   Page " + pgid);
+-               Page page = pgStore.createPage(pgid);
+-               page.open();
+-               List<PagedMessage> msgs = page.read(sm);
+-               page.close(false, false);
+-
+-               int msgID = 0;
+-
+-               for (PagedMessage msg : msgs) {
+-                  msg.initMessage(sm);
+-                  if (safe) {
+-                     try {
+-                        out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ", msg=" + msg.getMessage().getClass().getSimpleName() + "(safe data, size=" + msg.getMessage().getPersistentSize() + ")");
+-                     } catch (Exception e) {
+-                        out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ", msg=" + msg.getMessage().getClass().getSimpleName() + "(safe data)");
+-                     }
+-                  } else {
+-                     out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ",userMessageID=" + (msg.getMessage().getUserID() != null ? msg.getMessage().getUserID() : "") + ", msg=" + msg.getMessage());
++         }
++         out.println("####################################################################################################");
++         out.println("Exploring store " + store + " folder = " + folder);
++         int pgid = (int) pgStore.getFirstPage();
++         for (int pg = 0; pg < pgStore.getNumberOfPages(); pg++) {
++            out.println("*******   Page " + pgid);
++            Page page = pgStore.createPage(pgid);
++            page.open();
++            List<PagedMessage> msgs = page.read(sm);
++            page.close();
++
++            int msgID = 0;
++
++            for (PagedMessage msg : msgs) {
++               msg.initMessage(sm);
++               if (safe) {
++                  try {
++                     out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ", msg=" + msg.getMessage().getClass().getSimpleName() + "(safe data, size=" + msg.getMessage().getPersistentSize() + ")");
++                  } catch (Exception e) {
++                     out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ", msg=" + msg.getMessage().getClass().getSimpleName() + "(safe data)");
+                   }
+-                  out.print(",Queues = ");
+-                  long[] q = msg.getQueueIDs();
+-                  for (int i = 0; i < q.length; i++) {
+-                     out.print(q[i]);
+-
+-                     PagePosition posCheck = new PagePositionImpl(pgid, msgID);
++               } else {
++                  out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ",userMessageID=" + (msg.getMessage().getUserID() != null ? msg.getMessage().getUserID() : "") + ", msg=" + msg.getMessage());
++               }
++               out.print(",Queues = ");
++               long[] q = msg.getQueueIDs();
++               for (int i = 0; i < q.length; i++) {
++                  out.print(q[i]);
+ 
+-                     boolean acked = false;
++                  PagePosition posCheck = new PagePositionImpl(pgid, msgID);
+ 
+-                     Set<PagePosition> positions = cursorACKs.getCursorRecords().get(q[i]);
+-                     if (positions != null) {
+-                        acked = positions.contains(posCheck);
+-                     }
++                  boolean acked = false;
+ 
+-                     if (acked) {
+-                        out.print(" (ACK)");
+-                     }
++                  Set<PagePosition> positions = cursorACKs.getCursorRecords().get(q[i]);
++                  if (positions != null) {
++                     acked = positions.contains(posCheck);
++                  }
+ 
+-                     if (cursorACKs.getCompletePages(q[i]).contains(Long.valueOf(pgid))) {
+-                        out.println(" (PG-COMPLETE)");
+-                     }
++                  if (acked) {
++                     out.print(" (ACK)");
++                  }
+ 
+-                     if (i + 1 < q.length) {
+-                        out.print(",");
+-                     }
++                  if (cursorACKs.getCompletePages(q[i]).contains(Long.valueOf(pgid))) {
++                     out.println(" (PG-COMPLETE)");
+                   }
+-                  if (msg.getTransactionID() >= 0 && !pgTXs.contains(msg.getTransactionID())) {
+-                     out.print(", **PG_TX_NOT_FOUND**");
++
++                  if (i + 1 < q.length) {
++                     out.print(",");
+                   }
+-                  out.println();
+-                  msgID++;
+                }
+-               pgid++;
++               if (msg.getTransactionID() >= 0 && !pgTXs.contains(msg.getTransactionID())) {
++                  out.print(", **PG_TX_NOT_FOUND**");
++               }
++               out.println();
++               msgID++;
+             }
++            pgid++;
+          }
+       }
+    }

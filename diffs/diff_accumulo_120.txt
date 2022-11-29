@@ -1,0 +1,87 @@
+diff --git a/server/src/main/java/org/apache/accumulo/server/master/recovery/RecoverLease.java b/server/src/main/java/org/apache/accumulo/server/master/recovery/RecoverLease.java
+index c70cdc0f55..e468a485fe 100644
+--- a/server/src/main/java/org/apache/accumulo/server/master/recovery/RecoverLease.java
++++ b/server/src/main/java/org/apache/accumulo/server/master/recovery/RecoverLease.java
+@@ -20,7 +20,7 @@ import java.io.IOException;
+ 
+ import org.apache.accumulo.core.Constants;
+ import org.apache.accumulo.core.conf.Property;
+-import org.apache.accumulo.fate.Repo;
++import org.apache.accumulo.server.fate.Repo;
+ import org.apache.accumulo.server.master.Master;
+ import org.apache.accumulo.server.master.tableOps.MasterRepo;
+ import org.apache.accumulo.server.trace.TraceFileSystem;
+@@ -33,14 +33,11 @@ public class RecoverLease extends MasterRepo {
+   
+   private static final long serialVersionUID = 1L;
+ 
+-  protected String server;
+-  protected String file;
+-  protected long start;
++  private String server;
++  private String file;
++  private long start;
+ 
+-  public RecoverLease() {
+-  }
+-  
+-  public void init(String server, String file) {
++  public RecoverLease(String server, String file) {
+     this.server = server;
+     this.file = file;
+     this.start = System.currentTimeMillis();
+@@ -66,14 +63,14 @@ public class RecoverLease extends MasterRepo {
+     if (diff < master.getSystemConfiguration().getTimeInMillis(Property.MASTER_RECOVERY_DELAY))
+       return Math.max(diff, 0);
+     FileSystem fs = master.getFileSystem();
+-    if (fs.exists(getSource(master))) {
+-      return recoverLease(master);
+-    }
++    if (fs.exists(getSource(master)))
++      return 0;
+     log.warn("Unable to locate file " + file + " wal for server " + server);
+     return 1000;
+   }
+-  
+-  private long recoverLease(Master master) {
++
++  @Override
++  public Repo<Master> call(long tid, Master master) throws Exception {
+     Path source = getSource(master);
+     FileSystem fs = master.getFileSystem();
+     if (fs instanceof TraceFileSystem)
+@@ -81,12 +78,9 @@ public class RecoverLease extends MasterRepo {
+     try {
+       if (fs instanceof DistributedFileSystem) {
+         DistributedFileSystem dfs = (DistributedFileSystem) fs;
+-        if (!dfs.recoverLease(source)) {
+-          log.info("Waiting for file to be closed " + source.toString());
+-          return 1000;
+-        }
++        dfs.recoverLease(source);
+         log.info("Recovered lease on " + source.toString());
+-        return 0;
++        return new SubmitFileForRecovery(server, file);
+       }
+     } catch (IOException ex) {
+       log.error("error recovering lease ", ex);
+@@ -94,16 +88,12 @@ public class RecoverLease extends MasterRepo {
+     try {
+       fs.append(source).close();
+       log.info("Recovered lease on " + source.toString() + " using append");
+-      return 0;
++
+     } catch (IOException ex) {
+       log.error("error recovering lease using append", ex);
+-      return 1000;
+     }
+-  }
+-
+-  @Override
+-  public Repo<Master> call(long tid, Master master) throws Exception {
+-    return new SubmitFileForRecovery(server, file);
++    // lets do this again
++    return new RecoverLease(server, file);
+   }
+   
+ }

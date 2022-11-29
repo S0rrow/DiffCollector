@@ -1,0 +1,21 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/randomwalk/shard/BulkInsert.java b/test/src/main/java/org/apache/accumulo/test/randomwalk/shard/BulkInsert.java
+index 3ec2d6d5ef..5f696d09c5 100644
+--- a/test/src/main/java/org/apache/accumulo/test/randomwalk/shard/BulkInsert.java
++++ b/test/src/main/java/org/apache/accumulo/test/randomwalk/shard/BulkInsert.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.randomwalk.shard;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.io.BufferedOutputStream;
+@@ -49,6 +48,8 @@ import org.apache.hadoop.io.SequenceFile;
+ import org.apache.hadoop.io.Text;
+ import org.apache.hadoop.util.ToolRunner;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class BulkInsert extends Test {
+ 
+   class SeqfileBatchWriter implements BatchWriter {

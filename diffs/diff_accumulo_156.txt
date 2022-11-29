@@ -1,0 +1,111 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/client/mapreduce/AbstractInputFormat.java b/core/src/main/java/org/apache/accumulo/core/client/mapreduce/AbstractInputFormat.java
+index 889dcbb252..ed29dda737 100644
+--- a/core/src/main/java/org/apache/accumulo/core/client/mapreduce/AbstractInputFormat.java
++++ b/core/src/main/java/org/apache/accumulo/core/client/mapreduce/AbstractInputFormat.java
+@@ -1,19 +1,3 @@
+-/*
+- * Licensed to the Apache Software Foundation (ASF) under one or more
+- * contributor license agreements.  See the NOTICE file distributed with
+- * this work for additional information regarding copyright ownership.
+- * The ASF licenses this file to You under the Apache License, Version 2.0
+- * (the "License"); you may not use this file except in compliance with
+- * the License.  You may obtain a copy of the License at
+- *
+- *     http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+ package org.apache.accumulo.core.client.mapreduce;
+ 
+ import java.io.DataInput;
+@@ -71,10 +55,6 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
+ import org.apache.log4j.Level;
+ import org.apache.log4j.Logger;
+ 
+-/**
+- * An abstract input format to provide shared methods common to all other input format classes. At the very least, any classes inheriting from this class will
+- * need to define their own {@link RecordReader}.
+- */
+ public abstract class AbstractInputFormat<K,V> extends InputFormat<K,V> {
+ 
+   protected static final Class<?> CLASS = AccumuloInputFormat.class;
+@@ -275,14 +255,14 @@ public abstract class AbstractInputFormat<K,V> extends InputFormat<K,V> {
+   }
+ 
+   /**
+-   * Fetches all {@link BatchScanConfig}s that have been set on the given job.
++   * Fetches all {@link BatchScanConfig}s that have been set on the given Hadoop configuration.
+    * 
+    * @param context
+    *          the Hadoop job instance to be configured
+    * @return the {@link BatchScanConfig} objects for the job
+    * @since 1.6.0
+    */
+-  protected static Map<String,BatchScanConfig> getBatchScanConfigs(JobContext context) {
++  protected static Map<String, BatchScanConfig> getBatchScanConfigs(JobContext context) {
+     return InputConfigurator.getBatchScanConfigs(CLASS, getConfiguration(context));
+   }
+ 
+@@ -300,7 +280,7 @@ public abstract class AbstractInputFormat<K,V> extends InputFormat<K,V> {
+    * @since 1.6.0
+    */
+   protected static BatchScanConfig getBatchScanConfig(JobContext context, String tableName) {
+-    return InputConfigurator.getBatchScanConfig(CLASS, getConfiguration(context), tableName);
++    return InputConfigurator.getTableQueryConfig(CLASS, getConfiguration(context), tableName);
+   }
+ 
+   /**
+@@ -352,14 +332,12 @@ public abstract class AbstractInputFormat<K,V> extends InputFormat<K,V> {
+ 
+     /**
+      * Configures the iterators on a scanner for the given table name.
+-     * 
+      * @param context
+      *          the Hadoop context for the configured job
+      * @param scanner
+      *          the scanner for which to configure the iterators
+      * @param tableName
+      *          the table name for which the scanner is configured
+-     * @since 1.6.0
+      */
+     protected abstract void setupIterators(TaskAttemptContext context, Scanner scanner, String tableName);
+ 
+@@ -570,9 +548,9 @@ public abstract class AbstractInputFormat<K,V> extends InputFormat<K,V> {
+     validateOptions(context);
+ 
+     LinkedList<InputSplit> splits = new LinkedList<InputSplit>();
+-    Map<String,BatchScanConfig> tableConfigs = getBatchScanConfigs(context);
+-    for (Map.Entry<String,BatchScanConfig> tableConfigEntry : tableConfigs.entrySet()) {
+-
++    Map<String, BatchScanConfig> tableConfigs = getBatchScanConfigs(context);
++    for (Map.Entry<String, BatchScanConfig> tableConfigEntry : tableConfigs.entrySet()) {
++      
+       String tableName = tableConfigEntry.getKey();
+       BatchScanConfig tableConfig = tableConfigEntry.getValue();
+ 
+@@ -589,7 +567,7 @@ public abstract class AbstractInputFormat<K,V> extends InputFormat<K,V> {
+       TabletLocator tl;
+       try {
+         if (tableConfig.isOfflineScan()) {
+-          binnedRanges = binOfflineTable(context, tableName, ranges);
++          binnedRanges = binOfflineTable(context,tableName, ranges);
+           while (binnedRanges == null) {
+             // Some tablets were still online, try again
+             UtilWaitThread.sleep(100 + (int) (Math.random() * 100)); // sleep randomly between 100 and 200 ms
+@@ -605,11 +583,11 @@ public abstract class AbstractInputFormat<K,V> extends InputFormat<K,V> {
+ 
+           while (!tl.binRanges(creds, ranges, binnedRanges).isEmpty()) {
+             if (!(instance instanceof MockInstance)) {
+-              tableId = Tables.getTableId(instance, tableName);
+               if (!Tables.exists(instance, tableId))
+                 throw new TableDeletedException(tableId);
+               if (Tables.getTableState(instance, tableId) == TableState.OFFLINE)
+                 throw new TableOfflineException(instance, tableId);
++              tableId = Tables.getTableId(instance, tableName);
+             }
+             binnedRanges.clear();
+             log.warn("Unable to locate bins for specified ranges. Retrying.");

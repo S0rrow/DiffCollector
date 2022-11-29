@@ -1,0 +1,274 @@
+diff --git a/src/org/apache/axis/providers/java/RPCProvider.java b/src/org/apache/axis/providers/java/RPCProvider.java
+index dbdf38a1d..3ba812ee7 100644
+--- a/src/org/apache/axis/providers/java/RPCProvider.java
++++ b/src/org/apache/axis/providers/java/RPCProvider.java
+@@ -58,7 +58,7 @@ package org.apache.axis.providers.java ;
+ import org.apache.axis.AxisFault;
+ import org.apache.axis.Constants;
+ import org.apache.axis.MessageContext;
+-import org.apache.axis.attachments.MimeMultipartDataSource;
++import org.apache.axis.attachments.AttachmentPart;
+ import org.apache.axis.attachments.PlainTextDataSource;
+ import org.apache.axis.enum.Style;
+ import org.apache.axis.description.OperationDesc;
+@@ -70,22 +70,17 @@ import org.apache.axis.message.RPCParam;
+ import org.apache.axis.message.SOAPEnvelope;
+ import org.apache.axis.message.SOAPBodyElement;
+ import org.apache.axis.soap.SOAPConstants;
+-import org.apache.axis.utils.ClassUtils;
+ import org.apache.axis.utils.JavaUtils;
++import org.apache.axis.utils.cache.JavaClass;
+ 
+ import org.apache.axis.components.logger.LogFactory;
+ import org.apache.commons.logging.Log;
+ 
+ import javax.activation.DataHandler;
+-import javax.mail.internet.MimeMultipart;
+ import javax.xml.namespace.QName;
+ import javax.xml.rpc.holders.Holder;
+-
+-import java.io.IOException;
+-
+-import java.lang.reflect.Constructor;
+ import java.lang.reflect.Method;
+-
++import java.util.StringTokenizer;
+ import java.util.Vector;
+ import java.util.Iterator;
+ import java.util.ArrayList;
+@@ -106,13 +101,19 @@ public class RPCProvider extends JavaProvider
+      * Result in resEnv.
+      *
+      * @param msgContext self-explanatory
++     * @param serviceName the class name of the ServiceHandler
++     * @param allowedMethods the 'method name' of ditto
+      * @param reqEnv the request envelope
+      * @param resEnv the response envelope
++     * @param jc the JavaClass of the service object
+      * @param obj the service object itself
+      */
+     public void processMessage (MessageContext msgContext,
++                                String serviceName,
++                                String allowedMethods,
+                                 SOAPEnvelope reqEnv,
+                                 SOAPEnvelope resEnv,
++                                JavaClass jc,
+                                 Object obj)
+         throws Exception
+     {
+@@ -222,6 +223,7 @@ public class RPCProvider extends JavaProvider
+         for ( int i = 0 ; i < numArgs ; i++ ) {
+             RPCParam rpcParam = (RPCParam)args.get(i);
+             Object value = rpcParam.getValue();
++            boolean mimeType = value instanceof AttachmentPart;
+             ParameterDesc paramDesc = rpcParam.getParamDesc();
+             if (paramDesc != null && paramDesc.getJavaType() != null) {
+ 
+@@ -231,14 +233,12 @@ public class RPCProvider extends JavaProvider
+                 // Convert the value into the expected type in the signature
+                 value = JavaUtils.convert(value,
+                                           sigType);
+-
+-                if (value != null && value.getClass().getName().equals(
+-                        "javax.activation.DataHandler")) {
+-                    value = getDataFromDataHandler(value, paramDesc);
+-                }
+-
+                 rpcParam.setValue(value);
+                 if (paramDesc.getMode() == ParameterDesc.INOUT) {
++                    if (mimeType) {
++                        rpcParam.getParamDesc().setTypeQName(
++                                new QName("", "DataHandler"));
++                    }
+                     outs.add(rpcParam);
+                 }
+             }
+@@ -254,12 +254,11 @@ public class RPCProvider extends JavaProvider
+             }
+         }
+ 
+-        // See if any subclasses want a crack at faulting on a bad operation
+-        // FIXME : Does this make sense here???
+-        String allowedMethods = (String)service.getOption("allowedMethods");
++        // Check if we can find a Method by this name
++        // FIXME : Shouldn't this type of thing have already occurred?
+         checkMethodName(msgContext, allowedMethods, operation.getName());
+ 
+-       // Now create any out holders we need to pass in
++        // Now create any out holders we need to pass in
+         if (numArgs < argValues.length) {
+             ArrayList outParams = operation.getOutParams();
+             for (int i = 0; i < outParams.size(); i++) {
+@@ -323,9 +322,6 @@ public class RPCProvider extends JavaProvider
+                 returnQName = new QName("", methodName + "Return");
+             }
+ 
+-            // Convert any MIME type returns into a DataHandler.
+-            objRes = convertMIMEType(objRes, operation.getReturnType());
+-
+             // For SOAP 1.2, add a result
+             if (msgContext.getSOAPConstants() == SOAPConstants.SOAP12_CONSTANTS)
+             {
+@@ -347,11 +343,15 @@ public class RPCProvider extends JavaProvider
+                 Holder holder = (Holder)param.getValue();
+                 Object value = JavaUtils.getHolderValue(holder);
+                 ParameterDesc paramDesc = param.getParamDesc();
+-
+-                // Convert any MIME attachment outputs into a DataHandler.
+-                value = convertMIMEType(value,
+-                        paramDesc == null ? null : paramDesc.getTypeQName());
+-
++                boolean mimeType = paramDesc == null ? false :
++                        new QName("", "DataHandler").equals(
++                            paramDesc.getTypeQName());
++                if (mimeType) {
++                    if (value instanceof String) {
++                        value = new DataHandler(
++                                new PlainTextDataSource("out", (String) value));
++                    }
++                }
+                 param.setValue(value);
+                 resBody.addParam(param);
+             }
+@@ -360,91 +360,6 @@ public class RPCProvider extends JavaProvider
+         resEnv.addBodyElement(resBody);
+     }
+ 
+-    /**
+-     * If the object is a MIME type, convert it to a DataHandler.
+-     * If it is not a MIME type, the input object is simply returned.
+-     */
+-    private Object convertMIMEType(Object object, QName qname) {
+-        if (qname != null &&
+-                qname.getNamespaceURI().equals(Constants.NS_URI_XMLSOAP)) {
+-            // We have a potential attachment, put the return
+-            // into a DataHandler.
+-            if (qname.equals(Constants.MIME_IMAGE)) {
+-            }
+-            else if (qname.equals(Constants.MIME_PLAINTEXT)) {
+-                object = instantiateDataHandler(
+-                        "org.apache.axis.attachments.PlainTextDataSource",
+-                        "java.lang.String",
+-                        object);
+-            }
+-            else if (qname.equals(Constants.MIME_MULTIPART)) {
+-                object = instantiateDataHandler(
+-                        "org.apache.axis.attachments.MimeMultipartDataSource",
+-                        "javax.mail.internet.MimeMultipart",
+-                        object);
+-            }
+-            else if (qname.equals(Constants.MIME_SOURCE)) {
+-            }
+-        }
+-        return object;
+-    } // convertMIMEType
+-
+-    /**
+-     * This method is the same as:
+-     *   new DataHandler(new DataSource("out", value));
+-     * but we want to be able to instantiate an RPCProvider without
+-     * requiring activation.jar and mail.jar.  If we use the raw
+-     * new statement, we get an error on instantiation of RPCProvider.
+-     */
+-    private Object instantiateDataHandler(String dataSourceName,
+-            String valueClass, Object value) {
+-        try {
+-            // Instantiate the DataSource
+-            Class dataSource = ClassUtils.forName(dataSourceName);
+-            Class[] dsFormalParms = {String.class,
+-                    ClassUtils.forName(valueClass)};
+-            Object[] dsActualParms = {"out", value};
+-            Constructor ctor = dataSource.getConstructor(dsFormalParms);
+-            Object ds = ctor.newInstance(dsActualParms);
+-
+-            // Instantiate the DataHandler
+-            Class dataHandler = ClassUtils.forName(
+-                    "javax.activation.DataHandler");
+-            Class[] dhFormalParms = {ClassUtils.forName(
+-                    "javax.activation.DataSource")};
+-            Object[] dhActualParms = {ds};
+-            ctor = dataHandler.getConstructor(dhFormalParms);
+-            value = ctor.newInstance(dhActualParms);
+-        }
+-        catch (Throwable t) {
+-            // If we have a problem, just return the input value
+-            String realValueClass = value.getClass().getName();
+-            log.debug(JavaUtils.getMessage("noDataHandler", realValueClass, realValueClass), t);
+-        }
+-        return value;
+-    } // instantiateDataHandler
+-
+-    /**
+-     * Get the data from the DataHandler.
+-     */
+-    private Object getDataFromDataHandler(Object handler, ParameterDesc paramDesc) {
+-        Object value = handler;
+-        QName qname = paramDesc.getTypeQName();
+-        if (qname != null &&
+-                (qname.equals(Constants.MIME_IMAGE) ||
+-                 qname.equals(Constants.MIME_PLAINTEXT) ||
+-                 qname.equals(Constants.MIME_MULTIPART) ||
+-                 qname.equals(Constants.MIME_SOURCE))) {
+-            try {
+-                value = ((DataHandler) handler).getContent();
+-            }
+-            catch (IOException ioe) {
+-                // If there are any problems, just return the DataHandler.
+-            }
+-        }
+-        return value;
+-    } // getDataFromDataHandler
+-
+     /**
+      * This method encapsulates the method invocation.             
+      * @param msgContext MessageContext
+@@ -471,7 +386,47 @@ public class RPCProvider extends JavaProvider
+                                    String methodName)
+         throws Exception
+     {
+-        // Our version doesn't need to do anything, though inherited
+-        // ones might.
++        String methodNameMatch = allowedMethods;
++
++        // allowedMethods may be a comma-delimited string of method names.
++        // If so, look for the one matching methodName.
++        if (allowedMethods != null) {
++            StringTokenizer tok = new StringTokenizer(allowedMethods, ", ");
++            String nextMethodName = null;
++            while (tok.hasMoreElements()) {
++                String token = tok.nextToken();
++                if (token.equals(methodName)) {
++                    nextMethodName = token;
++                    break;
++                }
++            }
++            // didn't find a matching one...
++            if (nextMethodName == null) {
++                throw new AxisFault( "AxisServer.error",
++                        JavaUtils.getMessage("namesDontMatch00", methodName,
++                                             allowedMethods),
++                        null, null );  // should they??
++            }
++            methodNameMatch = nextMethodName;
++        }
++
++        if ( methodNameMatch != null && !methodNameMatch.equals(methodName) )
++            throw new AxisFault( "AxisServer.error",
++                    JavaUtils.getMessage("namesDontMatch01",
++                        new String[] {methodName, methodNameMatch,
++                                      allowedMethods}),
++                    null, null );  // should they??
++
++        if (log.isDebugEnabled()) {
++            log.debug( "methodName: " + methodName );
++            log.debug( "MethodNameMatch: " + methodNameMatch );
++            log.debug( "MethodName List: " + allowedMethods );
++        }
++
++        ///////////////////////////////////////////////////////////////
++        // If allowedMethods (i.e. methodNameMatch) is null,
++        //  then treat it as a wildcard automatically matching methodName
++        ///////////////////////////////////////////////////////////////
++        return;
+     }
+ }

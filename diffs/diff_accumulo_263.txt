@@ -1,0 +1,31 @@
+diff --git a/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java b/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java
+index 7d8f406168..7f23ad5ad1 100644
+--- a/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java
++++ b/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.master;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.nio.ByteBuffer;
+ import java.util.ArrayList;
+ import java.util.Collections;
+@@ -98,14 +96,15 @@ import org.apache.zookeeper.KeeperException;
+ import org.apache.zookeeper.KeeperException.NoNodeException;
+ import org.slf4j.Logger;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import com.google.protobuf.InvalidProtocolBufferException;
+ 
+-public class MasterClientServiceHandler extends FateServiceHandler implements MasterClientService.Iface {
++class MasterClientServiceHandler extends FateServiceHandler implements MasterClientService.Iface {
+ 
+   private static final Logger log = Master.log;
+   private Instance instance;
+ 
+-  protected MasterClientServiceHandler(Master master) {
++  MasterClientServiceHandler(Master master) {
+     super(master);
+     this.instance = master.getInstance();
+   }

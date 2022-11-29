@@ -1,0 +1,44 @@
+diff --git a/shell/src/main/java/org/apache/accumulo/shell/commands/TraceCommand.java b/shell/src/main/java/org/apache/accumulo/shell/commands/TraceCommand.java
+index 7c298f863c..4506f28bdd 100644
+--- a/shell/src/main/java/org/apache/accumulo/shell/commands/TraceCommand.java
++++ b/shell/src/main/java/org/apache/accumulo/shell/commands/TraceCommand.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.shell.commands;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.io.IOException;
+ import java.util.Map;
+ import java.util.concurrent.TimeUnit;
+@@ -34,6 +32,8 @@ import org.apache.accumulo.tracer.TraceDump.Printer;
+ import org.apache.commons.cli.CommandLine;
+ import org.apache.hadoop.io.Text;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class TraceCommand extends DebugCommand {
+ 
+   @Override
+@@ -45,10 +45,10 @@ public class TraceCommand extends DebugCommand {
+         if (Trace.isTracing()) {
+           final long trace = Trace.currentTraceId();
+           Trace.off();
+-          StringBuilder sb = new StringBuilder();
++          StringBuffer sb = new StringBuffer();
+           int traceCount = 0;
+           for (int i = 0; i < 30; i++) {
+-            sb = new StringBuilder();
++            sb = new StringBuffer();
+             try {
+               final Map<String,String> properties = shellState.getConnector().instanceOperations().getSystemConfiguration();
+               final String table = properties.get(Property.TRACE_TABLE.getKey());
+@@ -56,7 +56,7 @@ public class TraceCommand extends DebugCommand {
+               final Authorizations auths = shellState.getConnector().securityOperations().getUserAuthorizations(user);
+               final Scanner scanner = shellState.getConnector().createScanner(table, auths);
+               scanner.setRange(new Range(new Text(Long.toHexString(trace))));
+-              final StringBuilder finalSB = sb;
++              final StringBuffer finalSB = sb;
+               traceCount = TraceDump.printTrace(scanner, new Printer() {
+                 @Override
+                 public void print(final String line) {

@@ -1,0 +1,87 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasEntityStore.java b/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasEntityStore.java
+index c256ae203..260c5a895 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasEntityStore.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasEntityStore.java
+@@ -18,15 +18,12 @@
+ package org.apache.atlas.repository.store.graph;
+ 
+ 
+-import org.apache.atlas.GraphTransaction;
+ import org.apache.atlas.exception.AtlasBaseException;
+-import org.apache.atlas.model.impexp.AtlasImportResult;
+ import org.apache.atlas.model.instance.AtlasClassification;
+ import org.apache.atlas.model.instance.AtlasEntity;
+-import org.apache.atlas.model.instance.AtlasEntity.AtlasEntitiesWithExtInfo;
+ import org.apache.atlas.model.instance.AtlasEntity.AtlasEntityWithExtInfo;
++import org.apache.atlas.model.instance.AtlasEntity.AtlasEntitiesWithExtInfo;
+ import org.apache.atlas.model.instance.EntityMutationResponse;
+-import org.apache.atlas.repository.store.graph.v1.EntityImportStream;
+ import org.apache.atlas.repository.store.graph.v1.EntityStream;
+ import org.apache.atlas.type.AtlasEntityType;
+ 
+@@ -71,14 +68,6 @@ public interface AtlasEntityStore {
+      */
+     EntityMutationResponse createOrUpdate(EntityStream entityStream, boolean isPartialUpdate) throws AtlasBaseException;
+ 
+-    /**
+-     * Create or update  entities in the stream using repeated commits of connected entities
+-     * @param entityStream AtlasEntityStream
+-     * @return EntityMutationResponse Entity mutations operations with the corresponding set of entities on which these operations were performed
+-     * @throws AtlasBaseException
+-     */
+-    EntityMutationResponse bulkImport(EntityImportStream entityStream, AtlasImportResult importResult) throws AtlasBaseException;
+-
+     /**
+      * Update a single entity
+      * @param entityType     type of the entity
+@@ -88,17 +77,7 @@ public interface AtlasEntityStore {
+      *
+      */
+     EntityMutationResponse updateByUniqueAttributes(AtlasEntityType entityType, Map<String, Object> uniqAttributes,
+-                                                    AtlasEntityWithExtInfo entity) throws AtlasBaseException;
+-
+-    /**
+-     * Partial update entities attribute using its guid.
+-     * @param guid Entity guid
+-     * @param attrName attribute name to be updated
+-     * @param attrValue updated attribute value
+-     * @return EntityMutationResponse details of the updates performed by this call
+-     * @throws AtlasBaseException
+-     */
+-    EntityMutationResponse updateEntityAttributeByGuid(String guid, String attrName, Object attrValue) throws AtlasBaseException;
++                                                    AtlasEntity entity) throws AtlasBaseException;
+ 
+     /**
+      * Delete an entity by its guid
+@@ -108,7 +87,7 @@ public interface AtlasEntityStore {
+     EntityMutationResponse deleteById(String guid) throws AtlasBaseException;
+ 
+     /**
+-     * Deletes an entity using its type and unique attributes
++     * @deprecated
+      * @param entityType      type of the entity
+      * @param uniqAttributes Attributes that uniquely identify the entity
+      * @return EntityMutationResponse details of the updates performed by this call
+@@ -127,17 +106,14 @@ public interface AtlasEntityStore {
+      */
+     void addClassifications(String guid, List<AtlasClassification> classification) throws AtlasBaseException;
+ 
+-    @GraphTransaction
+-    void addClassification(List<String> guids, AtlasClassification classification) throws AtlasBaseException;
++
++    /**
++     * Update classification(s)
++     */
++    void updateClassifications(String guid, List<AtlasClassification> classification) throws AtlasBaseException;
+ 
+     /**
+      * Delete classification(s)
+      */
+     void deleteClassifications(String guid, List<String> classificationNames) throws AtlasBaseException;
+-
+-    @GraphTransaction
+-    List<AtlasClassification> getClassifications(String guid) throws AtlasBaseException;
+-
+-    @GraphTransaction
+-    AtlasClassification getClassification(String guid, String classificationName) throws AtlasBaseException;
+ }

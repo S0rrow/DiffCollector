@@ -1,0 +1,31 @@
+diff --git a/integration/artemis-cdi-integration/src/main/java/org/apache/artemis/client/cdi/logger/ActiveMQCDILogger.java b/integration/artemis-cdi-integration/src/main/java/org/apache/artemis/client/cdi/logger/ActiveMQCDILogger.java
+index fd2f7e7efa..ef8952f8b7 100644
+--- a/integration/artemis-cdi-integration/src/main/java/org/apache/artemis/client/cdi/logger/ActiveMQCDILogger.java
++++ b/integration/artemis-cdi-integration/src/main/java/org/apache/artemis/client/cdi/logger/ActiveMQCDILogger.java
+@@ -19,14 +19,14 @@
+ 
+ package org.apache.artemis.client.cdi.logger;
+ 
+-import javax.enterprise.inject.spi.ProcessAnnotatedType;
+-
+ import org.jboss.logging.BasicLogger;
+ import org.jboss.logging.Logger;
+ import org.jboss.logging.annotations.LogMessage;
+ import org.jboss.logging.annotations.Message;
+ import org.jboss.logging.annotations.MessageLogger;
+ 
++import javax.enterprise.inject.spi.ProcessAnnotatedType;
++
+ /**
+  * Logger code 57
+  *
+@@ -44,7 +44,8 @@ import org.jboss.logging.annotations.MessageLogger;
+ @MessageLogger(projectCode = "AMQ")
+ public interface ActiveMQCDILogger extends BasicLogger {
+ 
+-   ActiveMQCDILogger LOGGER = Logger.getMessageLogger(ActiveMQCDILogger.class, ActiveMQCDILogger.class.getPackage().getName());
++   ActiveMQCDILogger LOGGER = Logger.getMessageLogger(ActiveMQCDILogger.class,
++                                                      ActiveMQCDILogger.class.getPackage().getName());
+ 
+    @LogMessage
+    @Message(id = 571000, value = "Discovered configuration class {0}", format = Message.Format.MESSAGE_FORMAT)

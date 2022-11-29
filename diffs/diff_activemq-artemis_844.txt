@@ -1,0 +1,166 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/remoting/impl/invm/InVMConnection.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/remoting/impl/invm/InVMConnection.java
+index 02f1c84acf..27fc5440ed 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/remoting/impl/invm/InVMConnection.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/remoting/impl/invm/InVMConnection.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.activemq.artemis.core.remoting.impl.invm;
+ 
+-import java.io.RandomAccessFile;
+-import java.nio.channels.FileChannel;
+ import java.util.HashMap;
+ import java.util.Map;
+ import java.util.concurrent.CountDownLatch;
+@@ -65,10 +63,6 @@ public class InVMConnection implements Connection {
+ 
+    private RemotingConnection protocolConnection;
+ 
+-   private boolean bufferPoolingEnabled = TransportConstants.DEFAULT_BUFFER_POOLING;
+-
+-   private boolean directDeliver = TransportConstants.DEFAULT_DIRECT_DELIVER;
+-
+    public InVMConnection(final int serverID,
+                          final BufferHandler handler,
+                          final BaseConnectionLifeCycleListener listener,
+@@ -90,7 +84,6 @@ public class InVMConnection implements Connection {
+                          final BaseConnectionLifeCycleListener listener,
+                          final Executor executor,
+                          final ActiveMQPrincipal defaultActiveMQPrincipal) {
+-
+       this.serverID = serverID;
+ 
+       this.handler = handler;
+@@ -104,10 +97,6 @@ public class InVMConnection implements Connection {
+       this.defaultActiveMQPrincipal = defaultActiveMQPrincipal;
+    }
+ 
+-   public void setEnableBufferPooling(boolean enableBufferPooling) {
+-      this.bufferPoolingEnabled = enableBufferPooling;
+-   }
+-
+    @Override
+    public void forceClose() {
+       // no op
+@@ -118,11 +107,6 @@ public class InVMConnection implements Connection {
+       return true;
+    }
+ 
+-   @Override
+-   public boolean isOpen() {
+-      return true;
+-   }
+-
+    @Override
+    public void fireReady(boolean ready) {
+    }
+@@ -162,10 +146,7 @@ public class InVMConnection implements Connection {
+ 
+    @Override
+    public ActiveMQBuffer createTransportBuffer(final int size) {
+-      if (bufferPoolingEnabled) {
+-         return ActiveMQBuffers.pooledBuffer( size );
+-      }
+-      return ActiveMQBuffers.dynamicBuffer( size );
++      return ActiveMQBuffers.dynamicBuffer(size);
+    }
+ 
+    @Override
+@@ -192,6 +173,9 @@ public class InVMConnection implements Connection {
+                      final boolean flush,
+                      final boolean batch,
+                      final ChannelFutureListener futureListener) {
++      final ActiveMQBuffer copied = buffer.copy(0, buffer.capacity());
++
++      copied.setIndex(buffer.readerIndex(), buffer.writerIndex());
+ 
+       try {
+          executor.execute(new Runnable() {
+@@ -199,12 +183,13 @@ public class InVMConnection implements Connection {
+             public void run() {
+                try {
+                   if (!closed) {
+-                     buffer.readInt(); // read and discard
++                     copied.readInt(); // read and discard
+                      if (logger.isTraceEnabled()) {
+                         logger.trace(InVMConnection.this + "::Sending inVM packet");
+                      }
+-                     handler.bufferReceived(id, buffer);
++                     handler.bufferReceived(id, copied);
+                      if (futureListener != null) {
++                        // TODO BEFORE MERGE: (is null a good option here?)
+                         futureListener.operationComplete(null);
+                      }
+                   }
+@@ -213,7 +198,6 @@ public class InVMConnection implements Connection {
+                   ActiveMQServerLogger.LOGGER.errorWritingToInvmConnector(e, this);
+                   throw new IllegalStateException(msg, e);
+                } finally {
+-                  buffer.release();
+                   if (logger.isTraceEnabled()) {
+                      logger.trace(InVMConnection.this + "::packet sent done");
+                   }
+@@ -244,28 +228,6 @@ public class InVMConnection implements Connection {
+ 
+    }
+ 
+-   @Override
+-   public void write(RandomAccessFile raf,
+-                     FileChannel fileChannel,
+-                     long offset,
+-                     int dataSize,
+-                     final ChannelFutureListener futureListener) {
+-      if (futureListener == null) {
+-         return;
+-      }
+-      try {
+-         executor.execute(() -> {
+-            try {
+-               futureListener.operationComplete(null);
+-            } catch (Exception e) {
+-               throw new IllegalStateException(e);
+-            }
+-         });
+-      } catch (RejectedExecutionException e) {
+-
+-      }
+-   }
+-
+    @Override
+    public String getRemoteAddress() {
+       return "invm:" + serverID;
+@@ -307,35 +269,9 @@ public class InVMConnection implements Connection {
+       return new TransportConfiguration(InVMConnectorFactory.class.getName(), params);
+    }
+ 
+-   @Override
+-   public boolean isDirectDeliver() {
+-      return directDeliver;
+-   }
+-
+-   public void setDirectDeliver(boolean directDeliver) {
+-      this.directDeliver = directDeliver;
+-   }
+-
+    @Override
+    public String toString() {
+       return "InVMConnection [serverID=" + serverID + ", id=" + id + "]";
+    }
+ 
+-   @Override
+-   public boolean isSameTarget(TransportConfiguration... configs) {
+-      boolean result = false;
+-      for (TransportConfiguration cfg : configs) {
+-         if (cfg == null) {
+-            continue;
+-         }
+-         if (InVMConnectorFactory.class.getName().equals(cfg.getFactoryClassName())) {
+-            //factory same, get id
+-            if (serverID == (int) cfg.getParams().get(TransportConstants.SERVER_ID_PROP_NAME)) {
+-               result = true;
+-               break;
+-            }
+-         }
+-      }
+-      return result;
+-   }
+ }

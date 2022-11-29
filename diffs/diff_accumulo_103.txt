@@ -1,0 +1,140 @@
+diff --git a/src/core/src/main/java/org/apache/accumulo/core/client/mapreduce/InputFormatBase.java b/src/core/src/main/java/org/apache/accumulo/core/client/mapreduce/InputFormatBase.java
+index e09b095164..a2e5760597 100644
+--- a/src/core/src/main/java/org/apache/accumulo/core/client/mapreduce/InputFormatBase.java
++++ b/src/core/src/main/java/org/apache/accumulo/core/client/mapreduce/InputFormatBase.java
+@@ -194,9 +194,10 @@ public abstract class InputFormatBase<K,V> extends InputFormat<K,V> {
+   }
+   
+   /**
++   * @throws IOException
+    * @deprecated Use {@link #setInputInfo(Configuration,String,byte[],String,Authorizations)} instead
+    */
+-  public static void setInputInfo(JobContext job, String user, byte[] passwd, String table, Authorizations auths) {
++  public static void setInputInfo(JobContext job, String user, byte[] passwd, String table, Authorizations auths) throws IOException {
+     setInputInfo(job.getConfiguration(), user, passwd, table, auths);
+   }
+   
+@@ -213,8 +214,9 @@ public abstract class InputFormatBase<K,V> extends InputFormat<K,V> {
+    *          the table to read
+    * @param auths
+    *          the authorizations used to restrict data read
++   * @throws IOException
+    */
+-  public static void setInputInfo(Configuration conf, String user, byte[] passwd, String table, Authorizations auths) {
++  public static void setInputInfo(Configuration conf, String user, byte[] passwd, String table, Authorizations auths) throws IOException {
+     if (conf.getBoolean(INPUT_INFO_HAS_BEEN_SET, false))
+       throw new IllegalStateException("Input info can only be set once per job");
+     conf.setBoolean(INPUT_INFO_HAS_BEEN_SET, true);
+@@ -225,24 +227,19 @@ public abstract class InputFormatBase<K,V> extends InputFormat<K,V> {
+     if (auths != null && !auths.isEmpty())
+       conf.set(AUTHORIZATIONS, auths.serialize());
+     
+-    try {
+-      FileSystem fs = FileSystem.get(conf);
+-      Path file = new Path(fs.getWorkingDirectory(), conf.get("mapred.job.name") + System.currentTimeMillis() + ".pw");
+-      conf.set(PASSWORD_PATH, file.toString());
+-      FSDataOutputStream fos = fs.create(file, false);
+-      fs.setPermission(file, new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE));
+-      fs.deleteOnExit(file);
+-      
+-      byte[] encodedPw = Base64.encodeBase64(passwd);
+-      fos.writeInt(encodedPw.length);
+-      fos.write(encodedPw);
+-      fos.close();
+-      
+-      DistributedCache.addCacheFile(file.toUri(), conf);
+-    } catch (IOException ioe) {
+-      throw new RuntimeException(ioe);
+-    }
++    FileSystem fs = FileSystem.get(conf);
++    Path file = new Path(fs.getWorkingDirectory(), conf.get("mapred.job.name") + System.currentTimeMillis() + ".pw");
++    conf.set(PASSWORD_PATH, file.toString());
++    FSDataOutputStream fos = fs.create(file, false);
++    fs.setPermission(file, new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE));
++    fs.deleteOnExit(file);
+ 
++    byte[] encodedPw = Base64.encodeBase64(passwd);
++    fos.writeInt(encodedPw.length);
++    fos.write(encodedPw);
++    fos.close();
++    
++    DistributedCache.addCacheFile(file.toUri(), conf);
+   }
+   
+   /**
+@@ -310,24 +307,17 @@ public abstract class InputFormatBase<K,V> extends InputFormat<K,V> {
+    */
+   public static void setRanges(Configuration conf, Collection<Range> ranges) {
+     ArgumentChecker.notNull(ranges);
++    ArrayList<String> rangeStrings = new ArrayList<String>(ranges.size());
+     try {
+-      FileSystem fs = FileSystem.get(conf);
+-      Path file = new Path(fs.getWorkingDirectory(), conf.get("mapred.job.name") + System.currentTimeMillis() + ".ranges");
+-      conf.set(RANGES, file.toString());
+-      FSDataOutputStream fos = fs.create(file, false);
+-      fs.setPermission(file, new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE));
+-      fs.deleteOnExit(file);
+-      
+-      fos.writeInt(ranges.size());
+       for (Range r : ranges) {
+-        r.write(fos);
++        ByteArrayOutputStream baos = new ByteArrayOutputStream();
++        r.write(new DataOutputStream(baos));
++        rangeStrings.add(new String(Base64.encodeBase64(baos.toByteArray())));
+       }
+-      fos.close();
+-      
+-      DistributedCache.addCacheFile(file.toUri(), conf);
+-    } catch (IOException e) {
+-      throw new RuntimeException("Unable to write ranges to file", e);
++    } catch (IOException ex) {
++      throw new IllegalArgumentException("Unable to encode ranges to Base64", ex);
+     }
++    conf.setStrings(RANGES, rangeStrings.toArray(new String[0]));
+   }
+   
+   /**
+@@ -800,21 +790,12 @@ public abstract class InputFormatBase<K,V> extends InputFormat<K,V> {
+    */
+   protected static List<Range> getRanges(Configuration conf) throws IOException {
+     ArrayList<Range> ranges = new ArrayList<Range>();
+-    FileSystem fs = FileSystem.get(conf);
+-    String rangePath = conf.get(RANGES);
+-    if (rangePath == null)
+-      return ranges;
+-    Path file = new Path(rangePath);
+-    
+-    FSDataInputStream fdis = fs.open(file);
+-    int numRanges = fdis.readInt();
+-    while (numRanges > 0) {
+-      Range r = new Range();
+-      r.readFields(fdis);
+-      ranges.add(r);
+-      numRanges--;
++    for (String rangeString : conf.getStringCollection(RANGES)) {
++      ByteArrayInputStream bais = new ByteArrayInputStream(Base64.decodeBase64(rangeString.getBytes()));
++      Range range = new Range();
++      range.readFields(new DataInputStream(bais));
++      ranges.add(range);
+     }
+-    fdis.close();
+     return ranges;
+   }
+   
+@@ -1361,8 +1342,6 @@ public abstract class InputFormatBase<K,V> extends InputFormat<K,V> {
+         Instance instance = getInstance(job.getConfiguration());
+         String tableId = null;
+         tl = getTabletLocator(job.getConfiguration());
+-        // its possible that the cache could contain complete, but old information about a tables tablets... so clear it
+-        tl.invalidateCache();
+         while (!tl.binRanges(ranges, binnedRanges).isEmpty()) {
+           if (!(instance instanceof MockInstance)) {
+             if (tableId == null)
+@@ -1375,7 +1354,6 @@ public abstract class InputFormatBase<K,V> extends InputFormat<K,V> {
+           binnedRanges.clear();
+           log.warn("Unable to locate bins for specified ranges. Retrying.");
+           UtilWaitThread.sleep(100 + (int) (Math.random() * 100)); // sleep randomly between 100 and 200 ms
+-          tl.invalidateCache();
+         }
+       }
+     } catch (Exception e) {

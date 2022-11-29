@@ -1,0 +1,21 @@
+diff --git a/server/master/src/main/java/org/apache/accumulo/master/replication/DistributedWorkQueueWorkAssigner.java b/server/master/src/main/java/org/apache/accumulo/master/replication/DistributedWorkQueueWorkAssigner.java
+index 3d22d9f85b..a10c90d634 100644
+--- a/server/master/src/main/java/org/apache/accumulo/master/replication/DistributedWorkQueueWorkAssigner.java
++++ b/server/master/src/main/java/org/apache/accumulo/master/replication/DistributedWorkQueueWorkAssigner.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.master.replication;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.Collection;
+ import java.util.Map.Entry;
+ import java.util.Set;
+@@ -49,6 +47,7 @@ import org.apache.hadoop.io.Text;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import com.google.protobuf.InvalidProtocolBufferException;
+ 
+ /**

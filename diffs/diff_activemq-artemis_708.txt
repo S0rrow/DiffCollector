@@ -1,0 +1,169 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/protocol/core/ServerSessionPacketHandler.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/protocol/core/ServerSessionPacketHandler.java
+index 982bc88d9a..bd979395c2 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/protocol/core/ServerSessionPacketHandler.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/protocol/core/ServerSessionPacketHandler.java
+@@ -19,7 +19,7 @@ package org.apache.activemq.artemis.core.protocol.core;
+ import javax.transaction.xa.XAResource;
+ import javax.transaction.xa.Xid;
+ import java.util.List;
+-import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.concurrent.Executor;
+ 
+ import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.api.core.ActiveMQExceptionType;
+@@ -92,10 +92,10 @@ import org.apache.activemq.artemis.core.server.LargeServerMessage;
+ import org.apache.activemq.artemis.core.server.QueueQueryResult;
+ import org.apache.activemq.artemis.core.server.ServerSession;
+ import org.apache.activemq.artemis.spi.core.remoting.Connection;
++import org.apache.activemq.artemis.utils.actors.Actor;
++import org.apache.activemq.artemis.utils.actors.OrderedExecutorFactory;
+ import org.apache.activemq.artemis.utils.SimpleFuture;
+ import org.apache.activemq.artemis.utils.SimpleFutureImpl;
+-import org.apache.activemq.artemis.utils.actors.Actor;
+-import org.apache.activemq.artemis.utils.actors.ArtemisExecutor;
+ import org.jboss.logging.Logger;
+ 
+ import static org.apache.activemq.artemis.core.protocol.core.impl.PacketImpl.CREATE_ADDRESS;
+@@ -150,7 +150,7 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+ 
+    private final Actor<Packet> packetActor;
+ 
+-   private final ArtemisExecutor callExecutor;
++   private final Executor callExecutor;
+ 
+    private final CoreProtocolManager manager;
+ 
+@@ -159,8 +159,6 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+ 
+    private final boolean direct;
+ 
+-   private static final ThreadLocal<AtomicBoolean> inHandler = ThreadLocal.withInitial(AtomicBoolean::new);
+-
+    public ServerSessionPacketHandler(final ActiveMQServer server,
+                                      final CoreProtocolManager manager,
+                                      final ServerSession session,
+@@ -182,11 +180,8 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+ 
+       this.callExecutor = server.getExecutorFactory().getExecutor();
+ 
+-      // In an optimized way packetActor should use the threadPool as the parent executor
+-      // directly from server.getThreadPool();
+-      // However due to how transferConnection is handled we need to
+-      // use the same executor
+-      this.packetActor = new Actor<>(callExecutor, this::onMessagePacket);
++      // TODO: I wish I could figure out how to create this through OrderedExecutor
++      this.packetActor = new Actor<>(server.getThreadPool(), this::onMessagePacket);
+ 
+       if (conn instanceof NettyConnection) {
+          direct = ((NettyConnection) conn).isDirectDeliver();
+@@ -216,22 +211,19 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+    public void connectionFailed(final ActiveMQException exception, boolean failedOver) {
+       ActiveMQServerLogger.LOGGER.clientConnectionFailed(session.getName());
+ 
+-      flushExecutor();
+-
+       try {
+          session.close(true);
+       } catch (Exception e) {
+          ActiveMQServerLogger.LOGGER.errorClosingSession(e);
+       }
++      flushExecutor();
+ 
+       ActiveMQServerLogger.LOGGER.clearingUpSession(session.getName());
+    }
+ 
+-   public void flushExecutor() {
+-      if (!inHandler.get().get()) {
+-         packetActor.flush();
+-         callExecutor.flush();
+-      }
++   private void flushExecutor() {
++      packetActor.flush();
++      OrderedExecutorFactory.flushExecutor(callExecutor);
+    }
+ 
+    public void close() {
+@@ -252,6 +244,7 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+ 
+    @Override
+    public void handlePacket(final Packet packet) {
++      channel.confirm(packet);
+ 
+       // This method will call onMessagePacket through an actor
+       packetActor.act(packet);
+@@ -261,33 +254,28 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+       if (logger.isTraceEnabled()) {
+          logger.trace("ServerSessionPacketHandler::handlePacket," + packet);
+       }
+-      inHandler.get().set(true);
+-      try {
+-         final byte type = packet.getType();
+-         switch (type) {
+-            case SESS_SEND: {
+-               onSessionSend(packet);
+-               break;
+-            }
+-            case SESS_ACKNOWLEDGE: {
+-               onSessionAcknowledge(packet);
+-               break;
+-            }
+-            case SESS_PRODUCER_REQUEST_CREDITS: {
+-               onSessionRequestProducerCredits(packet);
+-               break;
+-            }
+-            case SESS_FLOWTOKEN: {
+-               onSessionConsumerFlowCredit(packet);
+-               break;
+-            }
+-            default:
+-               // separating a method for everything else as JIT was faster this way
+-               slowPacketHandler(packet);
+-               break;
++      final byte type = packet.getType();
++      switch (type) {
++         case SESS_SEND: {
++            onSessionSend(packet);
++            break;
+          }
+-      } finally {
+-         inHandler.get().set(false);
++         case SESS_ACKNOWLEDGE: {
++            onSessionAcknowledge(packet);
++            break;
++         }
++         case SESS_PRODUCER_REQUEST_CREDITS: {
++            onSessionRequestProducerCredits(packet);
++            break;
++         }
++         case SESS_FLOWTOKEN: {
++            onSessionConsumerFlowCredit(packet);
++            break;
++         }
++         default:
++            // separating a method for everything else as JIT was faster this way
++            slowPacketHandler(packet);
++            break;
+       }
+    }
+ 
+@@ -396,11 +384,6 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+                   requiresResponse = true;
+                   SessionQueueQueryMessage request = (SessionQueueQueryMessage) packet;
+                   QueueQueryResult result = session.executeQueueQuery(request.getQueueName(remotingConnection.getClientVersion()));
+-
+-                  if (remotingConnection.getClientVersion() < PacketImpl.ADDRESSING_CHANGE_VERSION) {
+-                     result.setAddress(SessionQueueQueryMessage.getOldPrefixedAddress(result.getAddress(), result.getRoutingType()));
+-                  }
+-
+                   if (channel.supports(PacketImpl.SESS_QUEUEQUERY_RESP_V3)) {
+                      response = new SessionQueueQueryResponseMessage_V3(result);
+                   } else if (channel.supports(PacketImpl.SESS_QUEUEQUERY_RESP_V2)) {
+@@ -847,8 +830,6 @@ public class ServerSessionPacketHandler implements ChannelHandler {
+                                      final boolean flush,
+                                      final boolean closeChannel) {
+       if (confirmPacket != null) {
+-         channel.confirm(confirmPacket);
+-
+          if (flush) {
+             channel.flushConfirmations();
+          }

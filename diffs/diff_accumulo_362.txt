@@ -1,0 +1,211 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/client/mapred/AbstractInputFormat.java b/core/src/main/java/org/apache/accumulo/core/client/mapred/AbstractInputFormat.java
+index 7d75f6416f..2a25dd5bed 100644
+--- a/core/src/main/java/org/apache/accumulo/core/client/mapred/AbstractInputFormat.java
++++ b/core/src/main/java/org/apache/accumulo/core/client/mapred/AbstractInputFormat.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.core.client.mapred;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.io.IOException;
+ import java.net.InetAddress;
+ import java.util.ArrayList;
+@@ -59,7 +57,7 @@ import org.apache.accumulo.core.client.mapreduce.InputTableConfig;
+ import org.apache.accumulo.core.client.mapreduce.impl.SplitUtils;
+ import org.apache.accumulo.core.client.mapreduce.lib.impl.ConfiguratorBase;
+ import org.apache.accumulo.core.client.mapreduce.lib.impl.InputConfigurator;
+-import org.apache.accumulo.core.client.sample.SamplerConfiguration;
++import org.apache.accumulo.core.client.mock.MockInstance;
+ import org.apache.accumulo.core.client.security.tokens.AuthenticationToken;
+ import org.apache.accumulo.core.client.security.tokens.DelegationToken;
+ import org.apache.accumulo.core.client.security.tokens.KerberosToken;
+@@ -70,7 +68,6 @@ import org.apache.accumulo.core.data.Value;
+ import org.apache.accumulo.core.data.impl.KeyExtent;
+ import org.apache.accumulo.core.master.state.tables.TableState;
+ import org.apache.accumulo.core.security.Authorizations;
+-import org.apache.accumulo.core.util.DeprecationUtil;
+ import org.apache.accumulo.core.util.Pair;
+ import org.apache.hadoop.io.Text;
+ import org.apache.hadoop.mapred.InputFormat;
+@@ -81,6 +78,8 @@ import org.apache.hadoop.security.token.Token;
+ import org.apache.log4j.Level;
+ import org.apache.log4j.Logger;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ /**
+  * An abstract input format to provide shared methods common to all other input format classes. At the very least, any classes inheriting from this class will
+  * need to define their own {@link RecordReader}.
+@@ -89,31 +88,6 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+   protected static final Class<?> CLASS = AccumuloInputFormat.class;
+   protected static final Logger log = Logger.getLogger(CLASS);
+ 
+-  /**
+-   * Sets the name of the classloader context on this scanner
+-   *
+-   * @param job
+-   *          the Hadoop job instance to be configured
+-   * @param context
+-   *          name of the classloader context
+-   * @since 1.8.0
+-   */
+-  public static void setClassLoaderContext(JobConf job, String context) {
+-    InputConfigurator.setClassLoaderContext(CLASS, job, context);
+-  }
+-
+-  /**
+-   * Returns the name of the current classloader context set on this scanner
+-   *
+-   * @param job
+-   *          the Hadoop job instance to be configured
+-   * @return name of the current context
+-   * @since 1.8.0
+-   */
+-  public static String getClassLoaderContext(JobConf job) {
+-    return InputConfigurator.getClassLoaderContext(CLASS, job);
+-  }
+-
+   /**
+    * Sets the connector information needed to communicate with Accumulo in this job.
+    *
+@@ -255,9 +229,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+    * @param instanceName
+    *          the Accumulo instance name
+    * @since 1.5.0
+-   * @deprecated since 1.8.0; use MiniAccumuloCluster or a standard mock framework
+    */
+-  @Deprecated
+   public static void setMockInstance(JobConf job, String instanceName) {
+     InputConfigurator.setMockInstance(CLASS, job, instanceName);
+   }
+@@ -270,6 +242,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+    * @return an Accumulo instance
+    * @since 1.5.0
+    * @see #setZooKeeperInstance(JobConf, ClientConfiguration)
++   * @see #setMockInstance(JobConf, String)
+    */
+   protected static Instance getInstance(JobConf job) {
+     return InputConfigurator.getInstance(CLASS, job);
+@@ -509,7 +482,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+       if (null == authorizations) {
+         authorizations = getScanAuthorizations(job);
+       }
+-      String classLoaderContext = getClassLoaderContext(job);
++
+       String table = baseSplit.getTableName();
+ 
+       // in case the table name changed, we can still use the previous name for terms of configuration,
+@@ -529,9 +502,6 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+           int scanThreads = 1;
+           scanner = instance.getConnector(principal, token).createBatchScanner(baseSplit.getTableName(), authorizations, scanThreads);
+           setupIterators(job, scanner, baseSplit.getTableName(), baseSplit);
+-          if (null != classLoaderContext) {
+-            scanner.setClassLoaderContext(classLoaderContext);
+-          }
+         } catch (Exception e) {
+           throw new IOException(e);
+         }
+@@ -561,7 +531,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+         try {
+           if (isOffline) {
+             scanner = new OfflineScanner(instance, new Credentials(principal, token), baseSplit.getTableId(), authorizations);
+-          } else if (DeprecationUtil.isMockInstance(instance)) {
++          } else if (instance instanceof MockInstance) {
+             scanner = instance.getConnector(principal, token).createScanner(baseSplit.getTableName(), authorizations);
+           } else {
+             ClientConfiguration clientConf = getClientConfiguration(job);
+@@ -603,15 +573,6 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+         }
+       }
+ 
+-      SamplerConfiguration samplerConfig = baseSplit.getSamplerConfiguration();
+-      if (null == samplerConfig) {
+-        samplerConfig = tableConfig.getSamplerConfiguration();
+-      }
+-
+-      if (samplerConfig != null) {
+-        scannerBase.setSamplerConfiguration(samplerConfig);
+-      }
+-
+       scannerIterator = scannerBase.iterator();
+       numKeysRead = 0;
+     }
+@@ -662,7 +623,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+     validateOptions(job);
+ 
+     Random random = new Random();
+-    LinkedList<InputSplit> splits = new LinkedList<>();
++    LinkedList<InputSplit> splits = new LinkedList<InputSplit>();
+     Map<String,InputTableConfig> tableConfigs = getInputTableConfigs(job);
+     for (Map.Entry<String,InputTableConfig> tableConfigEntry : tableConfigs.entrySet()) {
+       String tableName = tableConfigEntry.getKey();
+@@ -671,7 +632,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+       Instance instance = getInstance(job);
+       String tableId;
+       // resolve table name to id once, and use id from this point forward
+-      if (DeprecationUtil.isMockInstance(instance)) {
++      if (instance instanceof MockInstance) {
+         tableId = "";
+       } else {
+         try {
+@@ -696,12 +657,12 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+ 
+       List<Range> ranges = autoAdjust ? Range.mergeOverlapping(tableConfig.getRanges()) : tableConfig.getRanges();
+       if (ranges.isEmpty()) {
+-        ranges = new ArrayList<>(1);
++        ranges = new ArrayList<Range>(1);
+         ranges.add(new Range());
+       }
+ 
+       // get the metadata information for these ranges
+-      Map<String,Map<KeyExtent,List<Range>>> binnedRanges = new HashMap<>();
++      Map<String,Map<KeyExtent,List<Range>>> binnedRanges = new HashMap<String,Map<KeyExtent,List<Range>>>();
+       TabletLocator tl;
+       try {
+         if (tableConfig.isOfflineScan()) {
+@@ -720,7 +681,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+           ClientContext context = new ClientContext(getInstance(job), new Credentials(getPrincipal(job), getAuthenticationToken(job)),
+               getClientConfiguration(job));
+           while (!tl.binRanges(context, ranges, binnedRanges).isEmpty()) {
+-            if (!DeprecationUtil.isMockInstance(instance)) {
++            if (!(instance instanceof MockInstance)) {
+               if (!Tables.exists(instance, tableId))
+                 throw new TableDeletedException(tableId);
+               if (Tables.getTableState(instance, tableId) == TableState.OFFLINE)
+@@ -740,9 +701,9 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+       HashMap<Range,ArrayList<String>> splitsToAdd = null;
+ 
+       if (!autoAdjust)
+-        splitsToAdd = new HashMap<>();
++        splitsToAdd = new HashMap<Range,ArrayList<String>>();
+ 
+-      HashMap<String,String> hostNameCache = new HashMap<>();
++      HashMap<String,String> hostNameCache = new HashMap<String,String>();
+       for (Map.Entry<String,Map<KeyExtent,List<Range>>> tserverBin : binnedRanges.entrySet()) {
+         String ip = tserverBin.getKey().split(":", 2)[0];
+         String location = hostNameCache.get(ip);
+@@ -755,7 +716,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+           Range ke = extentRanges.getKey().toDataRange();
+           if (batchScan) {
+             // group ranges by tablet to be read by a BatchScanner
+-            ArrayList<Range> clippedRanges = new ArrayList<>();
++            ArrayList<Range> clippedRanges = new ArrayList<Range>();
+             for (Range r : extentRanges.getValue())
+               clippedRanges.add(ke.clip(r));
+ 
+@@ -779,7 +740,7 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+                 // don't divide ranges
+                 ArrayList<String> locations = splitsToAdd.get(r);
+                 if (locations == null)
+-                  locations = new ArrayList<>(1);
++                  locations = new ArrayList<String>(1);
+                 locations.add(location);
+                 splitsToAdd.put(r, locations);
+               }
+@@ -802,5 +763,4 @@ public abstract class AbstractInputFormat<K,V> implements InputFormat<K,V> {
+ 
+     return splits.toArray(new InputSplit[splits.size()]);
+   }
+-
+ }

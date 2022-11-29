@@ -1,0 +1,202 @@
+diff --git a/server/src/main/java/org/apache/accumulo/server/client/ClientServiceHandler.java b/server/src/main/java/org/apache/accumulo/server/client/ClientServiceHandler.java
+index 1a3a3796d8..8ee1d1994d 100644
+--- a/server/src/main/java/org/apache/accumulo/server/client/ClientServiceHandler.java
++++ b/server/src/main/java/org/apache/accumulo/server/client/ClientServiceHandler.java
+@@ -16,52 +16,39 @@
+  */
+ package org.apache.accumulo.server.client;
+ 
+-import java.io.IOException;
+ import java.nio.ByteBuffer;
+-import java.util.ArrayList;
+ import java.util.HashMap;
+-import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Map.Entry;
+ import java.util.Set;
+-import java.util.TreeSet;
+ import java.util.concurrent.Callable;
+ 
+ import org.apache.accumulo.core.Constants;
+-import org.apache.accumulo.core.client.AccumuloException;
+ import org.apache.accumulo.core.client.AccumuloSecurityException;
+-import org.apache.accumulo.core.client.Connector;
+ import org.apache.accumulo.core.client.Instance;
+ import org.apache.accumulo.core.client.impl.Tables;
+ import org.apache.accumulo.core.client.impl.thrift.ClientService;
+ import org.apache.accumulo.core.client.impl.thrift.ConfigurationType;
+ import org.apache.accumulo.core.client.impl.thrift.SecurityErrorCode;
+-import org.apache.accumulo.core.client.impl.thrift.TDiskUsage;
+ import org.apache.accumulo.core.client.impl.thrift.TableOperation;
+ import org.apache.accumulo.core.client.impl.thrift.TableOperationExceptionType;
+ import org.apache.accumulo.core.client.impl.thrift.ThriftSecurityException;
+ import org.apache.accumulo.core.client.impl.thrift.ThriftTableOperationException;
+-import org.apache.accumulo.core.client.security.tokens.AuthenticationToken;
+-import org.apache.accumulo.core.client.security.tokens.AuthenticationToken.AuthenticationTokenSerializer;
+ import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+ import org.apache.accumulo.core.conf.AccumuloConfiguration;
+ import org.apache.accumulo.core.conf.Property;
+-import org.apache.accumulo.core.file.FileUtil;
+ import org.apache.accumulo.core.security.Authorizations;
+-import org.apache.accumulo.core.security.Credentials;
++import org.apache.accumulo.core.security.CredentialHelper;
+ import org.apache.accumulo.core.security.SystemPermission;
+ import org.apache.accumulo.core.security.TablePermission;
+ import org.apache.accumulo.core.security.thrift.TCredentials;
+-import org.apache.accumulo.core.util.CachedConfiguration;
+ import org.apache.accumulo.server.conf.ServerConfiguration;
+ import org.apache.accumulo.server.security.AuditedSecurityOperation;
+ import org.apache.accumulo.server.security.SecurityOperation;
+-import org.apache.accumulo.server.util.TableDiskUsage;
+ import org.apache.accumulo.server.zookeeper.TransactionWatcher;
+ import org.apache.accumulo.start.classloader.vfs.AccumuloVFSClassLoader;
+ import org.apache.accumulo.trace.thrift.TInfo;
+-import org.apache.hadoop.fs.FileSystem;
+ import org.apache.log4j.Logger;
+ import org.apache.thrift.TException;
+ 
+@@ -137,14 +124,14 @@ public class ClientServiceHandler implements ClientService.Iface {
+   @Override
+   public void changeLocalUserPassword(TInfo tinfo, TCredentials credentials, String principal, ByteBuffer password) throws ThriftSecurityException {
+     PasswordToken token = new PasswordToken(password);
+-    Credentials toChange = new Credentials(principal, token);
++    TCredentials toChange = CredentialHelper.createSquelchError(principal, token, credentials.instanceId);
+     security.changePassword(credentials, toChange);
+   }
+   
+   @Override
+   public void createLocalUser(TInfo tinfo, TCredentials credentials, String principal, ByteBuffer password) throws ThriftSecurityException {
+     PasswordToken token = new PasswordToken(password);
+-    Credentials newUser = new Credentials(principal, token);
++    TCredentials newUser = CredentialHelper.createSquelchError(principal, token, credentials.instanceId);
+     security.createUser(credentials, newUser, new Authorizations());
+   }
+   
+@@ -199,15 +186,17 @@ public class ClientServiceHandler implements ClientService.Iface {
+     return security.listUsers(credentials);
+   }
+   
+-  private static Map<String,String> conf(TCredentials credentials, AccumuloConfiguration conf) throws TException {
++  static private Map<String,String> conf(TCredentials credentials, AccumuloConfiguration conf) throws TException {
+     security.authenticateUser(credentials, credentials);
+-    conf.invalidateCache();
+     
+     Map<String,String> result = new HashMap<String,String>();
+     for (Entry<String,String> entry : conf) {
+-      String key = entry.getKey();
+-      if (!Property.isSensitive(key))
+-        result.put(key, entry.getValue());
++      // TODO: do we need to send any instance information?
++      if (entry.getKey().equals(Property.INSTANCE_SECRET.getKey()))
++        continue;
++      if (entry.getKey().toLowerCase().contains("password"))
++        continue;
++      result.put(entry.getKey(), entry.getValue());
+     }
+     return result;
+   }
+@@ -232,16 +221,16 @@ public class ClientServiceHandler implements ClientService.Iface {
+   }
+   
+   @Override
+-  public List<String> bulkImportFiles(TInfo tinfo, final TCredentials credentials, final long tid, final String tableId, final List<String> files,
++  public List<String> bulkImportFiles(TInfo tinfo, final TCredentials tikw, final long tid, final String tableId, final List<String> files,
+       final String errorDir, final boolean setTime) throws ThriftSecurityException, ThriftTableOperationException, TException {
+     try {
+-      if (!security.canPerformSystemActions(credentials))
++      final TCredentials credentials = new TCredentials(tikw);
++      if (!security.hasSystemPermission(credentials, credentials.getPrincipal(), SystemPermission.SYSTEM))
+         throw new AccumuloSecurityException(credentials.getPrincipal(), SecurityErrorCode.PERMISSION_DENIED);
+       return transactionWatcher.run(Constants.BULK_ARBITRATOR_TYPE, tid, new Callable<List<String>>() {
+         @Override
+         public List<String> call() throws Exception {
+-          return BulkImporter.bulkLoad(new ServerConfiguration(instance).getConfiguration(), instance, new Credentials(credentials.getPrincipal(),
+-              AuthenticationTokenSerializer.deserialize(credentials.getTokenClassName(), credentials.getToken())), tid, tableId, files, errorDir, setTime);
++          return BulkImporter.bulkLoad(new ServerConfiguration(instance).getConfiguration(), instance, credentials, tid, tableId, files, errorDir, setTime);
+         }
+       });
+     } catch (AccumuloSecurityException e) {
+@@ -259,8 +248,6 @@ public class ClientServiceHandler implements ClientService.Iface {
+   @SuppressWarnings({"rawtypes", "unchecked"})
+   @Override
+   public boolean checkClass(TInfo tinfo, TCredentials credentials, String className, String interfaceMatch) throws TException {
+-    security.authenticateUser(credentials, credentials);
+-    
+     ClassLoader loader = getClass().getClassLoader();
+     Class shouldMatch;
+     try {
+@@ -283,73 +270,4 @@ public class ClientServiceHandler implements ClientService.Iface {
+     }
+   }
+   
+-  @Override
+-  public boolean checkTableClass(TInfo tinfo, TCredentials credentials, String tableName, String className, String interfaceMatch) throws TException,
+-      ThriftTableOperationException, ThriftSecurityException {
+-    
+-    security.authenticateUser(credentials, credentials);
+-    
+-    String tableId = checkTableId(tableName, null);
+-    
+-    ClassLoader loader = getClass().getClassLoader();
+-    Class<?> shouldMatch;
+-    try {
+-      shouldMatch = loader.loadClass(interfaceMatch);
+-      
+-      new ServerConfiguration(instance).getTableConfiguration(tableId);
+-      
+-      String context = new ServerConfiguration(instance).getTableConfiguration(tableId).get(Property.TABLE_CLASSPATH);
+-      
+-      ClassLoader currentLoader;
+-      
+-      if (context != null && !context.equals("")) {
+-        currentLoader = AccumuloVFSClassLoader.getContextManager().getClassLoader(context);
+-      } else {
+-        currentLoader = AccumuloVFSClassLoader.getClassLoader();
+-      }
+-      
+-      Class<?> test = currentLoader.loadClass(className).asSubclass(shouldMatch);
+-      test.newInstance();
+-      return true;
+-    } catch (Exception e) {
+-      log.warn("Error checking object types", e);
+-      return false;
+-    }
+-  }
+-  
+-  @Override
+-  public List<TDiskUsage> getDiskUsage(Set<String> tables, TCredentials credentials) throws ThriftTableOperationException, ThriftSecurityException, TException {
+-    try {
+-      AuthenticationToken token = AuthenticationTokenSerializer.deserialize(credentials.getTokenClassName(), credentials.getToken());
+-      Connector conn = instance.getConnector(credentials.getPrincipal(), token);
+-      
+-      HashSet<String> tableIds = new HashSet<String>();
+-      
+-      for (String table : tables) {
+-        // ensure that table table exists
+-        String tableId = checkTableId(table, null);
+-        tableIds.add(tableId);
+-        if (!security.canScan(credentials, tableId))
+-          throw new ThriftSecurityException(credentials.getPrincipal(), SecurityErrorCode.PERMISSION_DENIED);
+-      }
+-      
+-      AccumuloConfiguration conf = new ServerConfiguration(instance).getConfiguration();
+-      FileSystem fs = FileUtil.getFileSystem(CachedConfiguration.getInstance(), conf);
+-      
+-      // use the same set of tableIds that were validated above to avoid race conditions
+-      Map<TreeSet<String>,Long> diskUsage = TableDiskUsage.getDiskUsage(new ServerConfiguration(instance).getConfiguration(), tableIds, fs, conn);
+-      List<TDiskUsage> retUsages = new ArrayList<TDiskUsage>();
+-      for (Map.Entry<TreeSet<String>,Long> usageItem : diskUsage.entrySet()) {
+-        retUsages.add(new TDiskUsage(new ArrayList<String>(usageItem.getKey()), usageItem.getValue()));
+-      }
+-      return retUsages;
+-      
+-    } catch (AccumuloSecurityException e) {
+-      throw e.asThriftException();
+-    } catch (AccumuloException e) {
+-      throw new TException(e);
+-    } catch (IOException e) {
+-      throw new TException(e);
+-    }
+-  }
+ }

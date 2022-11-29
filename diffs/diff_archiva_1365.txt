@@ -1,0 +1,111 @@
+diff --git a/archiva-base/archiva-proxy/src/main/java/org/apache/maven/archiva/proxy/DefaultRepositoryProxyConnectors.java b/archiva-base/archiva-proxy/src/main/java/org/apache/maven/archiva/proxy/DefaultRepositoryProxyConnectors.java
+index a2521ef37..b8612a421 100644
+--- a/archiva-base/archiva-proxy/src/main/java/org/apache/maven/archiva/proxy/DefaultRepositoryProxyConnectors.java
++++ b/archiva-base/archiva-proxy/src/main/java/org/apache/maven/archiva/proxy/DefaultRepositoryProxyConnectors.java
+@@ -27,7 +27,6 @@
+ import org.apache.maven.archiva.model.ArchivaRepository;
+ import org.apache.maven.archiva.model.ArtifactReference;
+ import org.apache.maven.archiva.model.ProjectReference;
+-import org.apache.maven.archiva.model.VersionedReference;
+ import org.apache.maven.archiva.policies.DownloadPolicy;
+ import org.apache.maven.archiva.policies.urlcache.UrlFailureCache;
+ import org.apache.maven.archiva.repository.layout.BidirectionalRepositoryLayout;
+@@ -71,6 +70,8 @@
+     extends AbstractLogEnabled
+     implements RepositoryProxyConnectors, RegistryListener, Initializable
+ {
++    private static final String FILENAME_MAVEN_METADATA = "maven-metadata.xml";
++
+     /**
+      * @plexus.requirement
+      */
+@@ -143,63 +144,6 @@ public File fetchFromProxies( ArchivaRepository repository, ArtifactReference ar
+                 BidirectionalRepositoryLayout targetLayout = layoutFactory.getLayout( targetRepository.getLayoutType() );
+                 String targetPath = targetLayout.toPath( artifact );
+ 
+-                getLogger().debug(
+-                                   "Using target repository: " + targetRepository.getId() + " - layout: "
+-                                       + targetRepository.getLayoutType() + " - targetPath: " + targetPath );
+-
+-                File downloadedFile = transferFile( connector, targetRepository, targetPath, localFile,
+-                                                    requestProperties );
+-
+-                if ( fileExists( downloadedFile ) )
+-                {
+-                    getLogger().info( "Successfully transfered: " + downloadedFile.getAbsolutePath() );
+-                    return downloadedFile;
+-                }
+-            }
+-            catch ( LayoutException e )
+-            {
+-                getLogger().error( "Unable to proxy due to bad layout definition: " + e.getMessage(), e );
+-                return null;
+-            }
+-        }
+-
+-        return null;
+-    }
+-    
+-    public File fetchFromProxies( ArchivaRepository repository, VersionedReference metadata )
+-        throws ProxyException
+-    {
+-        if ( !repository.isManaged() )
+-        {
+-            throw new ProxyException( "Can only proxy managed repositories." );
+-        }
+-
+-        File localFile;
+-        try
+-        {
+-            BidirectionalRepositoryLayout sourceLayout = layoutFactory.getLayout( repository.getLayoutType() );
+-            String sourcePath = sourceLayout.toPath( metadata );
+-            localFile = new File( repository.getUrl().getPath(), sourcePath );
+-        }
+-        catch ( LayoutException e )
+-        {
+-            throw new ProxyException( "Unable to proxy due to bad source repository layout definition: "
+-                + e.getMessage(), e );
+-        }
+-
+-        Properties requestProperties = new Properties();
+-
+-        List connectors = getProxyConnectors( repository );
+-        Iterator it = connectors.iterator();
+-        while ( it.hasNext() )
+-        {
+-            ProxyConnector connector = (ProxyConnector) it.next();
+-            ArchivaRepository targetRepository = connector.getTargetRepository();
+-            try
+-            {
+-                BidirectionalRepositoryLayout targetLayout = layoutFactory.getLayout( targetRepository.getLayoutType() );
+-                String targetPath = targetLayout.toPath( metadata );
+-
+                 File downloadedFile = transferFile( connector, targetRepository, targetPath, localFile,
+                                                     requestProperties );
+ 
+@@ -231,7 +175,7 @@ public File fetchFromProxies( ArchivaRepository repository, ProjectReference met
+         try
+         {
+             BidirectionalRepositoryLayout sourceLayout = layoutFactory.getLayout( repository.getLayoutType() );
+-            String sourcePath = sourceLayout.toPath( metadata );
++            String sourcePath = sourceLayout.toPath( metadata ) + FILENAME_MAVEN_METADATA;
+             localFile = new File( repository.getUrl().getPath(), sourcePath );
+         }
+         catch ( LayoutException e )
+@@ -251,7 +195,7 @@ public File fetchFromProxies( ArchivaRepository repository, ProjectReference met
+             try
+             {
+                 BidirectionalRepositoryLayout targetLayout = layoutFactory.getLayout( targetRepository.getLayoutType() );
+-                String targetPath = targetLayout.toPath( metadata );
++                String targetPath = targetLayout.toPath( metadata ) + FILENAME_MAVEN_METADATA;
+ 
+                 File downloadedFile = transferFile( connector, targetRepository, targetPath, localFile,
+                                                     requestProperties );
+@@ -736,7 +680,6 @@ private ArchivaRepository getRepository( String repoId )
+         }
+ 
+         ArchivaRepository repo = new ArchivaRepository( repoConfig.getId(), repoConfig.getName(), repoConfig.getUrl() );
+-        repo.getModel().setLayoutName( repoConfig.getLayout() );
+         return repo;
+     }
+ 

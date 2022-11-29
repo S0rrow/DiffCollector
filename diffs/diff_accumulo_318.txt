@@ -1,0 +1,31 @@
+diff --git a/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/DatafileManager.java b/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/DatafileManager.java
+index fd1ea332e3..6b19b266fe 100644
+--- a/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/DatafileManager.java
++++ b/server/tserver/src/main/java/org/apache/accumulo/tserver/tablet/DatafileManager.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.tserver.tablet;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.io.IOException;
+ import java.util.Collection;
+ import java.util.Collections;
+@@ -53,6 +51,8 @@ import org.apache.accumulo.tserver.TLevel;
+ import org.apache.hadoop.fs.Path;
+ import org.apache.log4j.Logger;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ class DatafileManager {
+   private final Logger log = Logger.getLogger(DatafileManager.class);
+   // access to datafilesizes needs to be synchronized: see CompactionRunner#getNumFiles
+@@ -218,7 +218,7 @@ class DatafileManager {
+       boolean inTheRightDirectory = false;
+       Path parent = tpath.path().getParent().getParent();
+       for (String tablesDir : ServerConstants.getTablesDirs()) {
+-        if (parent.equals(new Path(tablesDir, tablet.getExtent().getTableId()))) {
++        if (parent.equals(new Path(tablesDir, tablet.getExtent().getTableId().toString()))) {
+           inTheRightDirectory = true;
+           break;
+         }

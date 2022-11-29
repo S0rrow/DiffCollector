@@ -1,0 +1,211 @@
+diff --git a/blueprint/blueprint-spring/src/main/java/org/apache/aries/blueprint/spring/BlueprintNamespaceHandler.java b/blueprint/blueprint-spring/src/main/java/org/apache/aries/blueprint/spring/BlueprintNamespaceHandler.java
+index b5403adf1..f65a32a72 100644
+--- a/blueprint/blueprint-spring/src/main/java/org/apache/aries/blueprint/spring/BlueprintNamespaceHandler.java
++++ b/blueprint/blueprint-spring/src/main/java/org/apache/aries/blueprint/spring/BlueprintNamespaceHandler.java
+@@ -22,12 +22,12 @@ import java.util.Properties;
+ import java.util.Set;
+ 
+ import org.apache.aries.blueprint.ComponentDefinitionRegistry;
+-import org.apache.aries.blueprint.NamespaceHandler2;
++import org.apache.aries.blueprint.NamespaceHandler;
+ import org.apache.aries.blueprint.ParserContext;
+ import org.apache.aries.blueprint.PassThroughMetadata;
+-import org.apache.aries.blueprint.mutable.MutableBeanMetadata;
+-import org.apache.aries.blueprint.mutable.MutablePassThroughMetadata;
+-import org.apache.aries.blueprint.mutable.MutableRefMetadata;
++import org.apache.aries.blueprint.reflect.BeanMetadataImpl;
++import org.apache.aries.blueprint.reflect.PassThroughMetadataImpl;
++import org.apache.aries.blueprint.reflect.RefMetadataImpl;
+ import org.apache.aries.blueprint.services.ExtendedBlueprintContainer;
+ import org.osgi.framework.Bundle;
+ import org.osgi.service.blueprint.reflect.BeanMetadata;
+@@ -35,6 +35,7 @@ import org.osgi.service.blueprint.reflect.ComponentMetadata;
+ import org.osgi.service.blueprint.reflect.Metadata;
+ import org.springframework.beans.factory.BeanFactory;
+ import org.springframework.beans.factory.config.BeanDefinition;
++import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+ import org.springframework.beans.factory.parsing.EmptyReaderEventListener;
+ import org.springframework.beans.factory.parsing.FailFastProblemReporter;
+ import org.springframework.beans.factory.parsing.NullSourceExtractor;
+@@ -55,7 +56,7 @@ import org.w3c.dom.Node;
+ /**
+  * Blueprint NamespaceHandler wrapper for a spring NamespaceHandler
+  */
+-public class BlueprintNamespaceHandler implements NamespaceHandler2 {
++public class BlueprintNamespaceHandler implements NamespaceHandler {
+ 
+     public static final String SPRING_CONTEXT_ID = "." + org.springframework.beans.factory.xml.ParserContext.class.getName();
+     public static final String SPRING_BEAN_PROCESSOR_ID = "." + SpringBeanProcessor.class.getName();
+@@ -70,23 +71,12 @@ public class BlueprintNamespaceHandler implements NamespaceHandler2 {
+         this.bundle = bundle;
+         this.schemas = schemas;
+         this.springHandler = springHandler;
+-        springHandler.init();
+     }
+ 
+     public org.springframework.beans.factory.xml.NamespaceHandler getSpringHandler() {
+         return springHandler;
+     }
+ 
+-    @Override
+-    public boolean usePsvi() {
+-        return true;
+-    }
+-
+-    @Override
+-    public boolean mayResolve(String namespace) {
+-        return schemas.containsKey(namespace);
+-    }
+-
+     @Override
+     public URL getSchemaLocation(String s) {
+         if (schemas.containsKey(s)) {
+@@ -107,22 +97,7 @@ public class BlueprintNamespaceHandler implements NamespaceHandler2 {
+             org.springframework.beans.factory.xml.ParserContext springContext
+                     = getOrCreateParserContext(parserContext);
+             // Parse spring bean
+-            BeanDefinition bd = springHandler.parse(element, springContext);
+-            for (String name : springContext.getRegistry().getBeanDefinitionNames()) {
+-                if (springContext.getRegistry().getBeanDefinition(name) == bd) {
+-                    ComponentDefinitionRegistry registry = parserContext.getComponentDefinitionRegistry();
+-                    if (registry.containsComponentDefinition(name)) {
+-                        // Hack: we can't really make the difference between a top level bean
+-                        // and an inlined bean when using custom (eventually nested) namespaces.
+-                        // To work around the problem, the BlueprintBeanFactory will always register
+-                        // a BeanMetadata for each bean, but here, we unregister it and return it instead
+-                        // so that the caller is responsible for registering the metadata.
+-                        ComponentMetadata metadata = registry.getComponentDefinition(name);
+-                        registry.removeComponentDefinition(name);
+-                        return metadata;
+-                    }
+-                }
+-            }
++            springHandler.parse(element, springContext);
+             return null;
+         } catch (Exception e) {
+             throw new RuntimeException(e);
+@@ -131,87 +106,50 @@ public class BlueprintNamespaceHandler implements NamespaceHandler2 {
+ 
+     @Override
+     public ComponentMetadata decorate(Node node, ComponentMetadata componentMetadata, ParserContext parserContext) {
+-        return componentMetadata;
++        throw new UnsupportedOperationException();
+     }
+ 
+     private org.springframework.beans.factory.xml.ParserContext getOrCreateParserContext(ParserContext parserContext) {
+         ComponentDefinitionRegistry registry = parserContext.getComponentDefinitionRegistry();
+-        ExtendedBlueprintContainer container = getBlueprintContainer(parserContext);
+-        // Create spring application context
+-        SpringApplicationContext applicationContext = getPassThrough(parserContext,
+-                SPRING_APPLICATION_CONTEXT_ID, SpringApplicationContext.class);
+-        if (applicationContext == null) {
+-            applicationContext = new SpringApplicationContext(container);
+-            registry.registerComponentDefinition(createPassThrough(parserContext,
++        org.springframework.beans.factory.xml.ParserContext springContext;
++        ComponentMetadata contextMetadata = registry.getComponentDefinition(SPRING_CONTEXT_ID);
++        if (contextMetadata == null) {
++            ExtendedBlueprintContainer container = getBlueprintContainer(parserContext);
++            // Create spring application context
++            SpringApplicationContext applicationContext = new SpringApplicationContext(container);
++            registry.registerComponentDefinition(new PassThroughMetadataImpl(
+                     SPRING_APPLICATION_CONTEXT_ID, applicationContext
+             ));
+-        }
+-        // Create registry
+-        DefaultListableBeanFactory beanFactory = getPassThrough(parserContext,
+-                SPRING_BEAN_FACTORY_ID, DefaultListableBeanFactory.class);
+-        if (beanFactory == null) {
+-            beanFactory = applicationContext.getBeanFactory();
+-            registry.registerComponentDefinition(createPassThrough(parserContext,
++            // Create registry
++            DefaultListableBeanFactory beanFactory = applicationContext.getBeanFactory();
++            registry.registerComponentDefinition(new PassThroughMetadataImpl(
+                     SPRING_BEAN_FACTORY_ID, beanFactory
+             ));
+-        }
+-        // Create spring parser context
+-        org.springframework.beans.factory.xml.ParserContext springParserContext
+-                = getPassThrough(parserContext, SPRING_CONTEXT_ID, org.springframework.beans.factory.xml.ParserContext.class);
+-        if (springParserContext == null) {
+             // Create spring context
+-            springParserContext = createSpringParserContext(parserContext, beanFactory);
+-            registry.registerComponentDefinition(createPassThrough(parserContext,
+-                    SPRING_CONTEXT_ID, springParserContext
++            springContext = createSpringParserContext(parserContext, beanFactory);
++            registry.registerComponentDefinition(new PassThroughMetadataImpl(
++                    SPRING_CONTEXT_ID, springContext
+             ));
+-        }
+-        // Create processor
+-        if (!parserContext.getComponentDefinitionRegistry().containsComponentDefinition(SPRING_BEAN_PROCESSOR_ID)) {
+-            MutableBeanMetadata bm = parserContext.createMetadata(MutableBeanMetadata.class);
++            // Create processor
++            BeanMetadataImpl bm = new BeanMetadataImpl();
+             bm.setId(SPRING_BEAN_PROCESSOR_ID);
+             bm.setProcessor(true);
+             bm.setScope(BeanMetadata.SCOPE_SINGLETON);
+             bm.setRuntimeClass(SpringBeanProcessor.class);
+             bm.setActivation(BeanMetadata.ACTIVATION_EAGER);
+-            bm.addArgument(createRef(parserContext, "blueprintBundleContext"), null, 0);
+-            bm.addArgument(createRef(parserContext, "blueprintContainer"), null, 0);
+-            bm.addArgument(createRef(parserContext, SPRING_APPLICATION_CONTEXT_ID), null, 0);
++            bm.addArgument(new RefMetadataImpl("blueprintBundleContext"), null, 0);
++            bm.addArgument(new RefMetadataImpl("blueprintContainer"), null, 0);
++            bm.addArgument(new RefMetadataImpl(SPRING_APPLICATION_CONTEXT_ID), null, 0);
+             registry.registerComponentDefinition(bm);
++        } else {
++            PassThroughMetadata ptm = (PassThroughMetadata) contextMetadata;
++            springContext = (org.springframework.beans.factory.xml.ParserContext) ptm.getObject();
+         }
+-        // Add the namespace handler's bundle to the application context classloader
+-        applicationContext.addSourceBundle(bundle);
+-        return springParserContext;
+-    }
+-
+-    private ComponentMetadata createPassThrough(ParserContext parserContext, String id, Object o) {
+-        MutablePassThroughMetadata pt = parserContext.createMetadata(MutablePassThroughMetadata.class);
+-        pt.setId(id);
+-        pt.setObject(o);
+-        return pt;
+-    }
+-
+-    private Metadata createRef(ParserContext parserContext, String id) {
+-        MutableRefMetadata ref = parserContext.createMetadata(MutableRefMetadata.class);
+-        ref.setComponentId(id);
+-        return ref;
++        return springContext;
+     }
+ 
+     private ExtendedBlueprintContainer getBlueprintContainer(ParserContext parserContext) {
+-        ExtendedBlueprintContainer container = getPassThrough(parserContext, "blueprintContainer", ExtendedBlueprintContainer.class);
+-        if (container == null) {
+-            throw new IllegalStateException();
+-        }
+-        return container;
+-    }
+-
+-    @SuppressWarnings("unchecked")
+-    private <T> T getPassThrough(ParserContext parserContext, String name, Class<T> clazz) {
+-        Metadata metadata = parserContext.getComponentDefinitionRegistry().getComponentDefinition(name);
+-        if (metadata instanceof PassThroughMetadata) {
+-            return (T) ((PassThroughMetadata) metadata).getObject();
+-        } else {
+-            return null;
+-        }
++        return (ExtendedBlueprintContainer) ((PassThroughMetadata) parserContext.getComponentDefinitionRegistry().getComponentDefinition("blueprintContainer")).getObject();
+     }
+ 
+     private org.springframework.beans.factory.xml.ParserContext createSpringParserContext(ParserContext parserContext, DefaultListableBeanFactory registry) {
+@@ -222,11 +160,7 @@ public class BlueprintNamespaceHandler implements NamespaceHandler2 {
+             ReaderEventListener listener = new EmptyReaderEventListener();
+             SourceExtractor extractor = new NullSourceExtractor();
+             NamespaceHandlerResolver resolver = new SpringNamespaceHandlerResolver(parserContext);
+-            xbdr.setProblemReporter(problemReporter);
+-            xbdr.setEventListener(listener);
+-            xbdr.setSourceExtractor(extractor);
+-            xbdr.setNamespaceHandlerResolver(resolver);
+-            XmlReaderContext xmlReaderContext = xbdr.createReaderContext(resource);
++            XmlReaderContext xmlReaderContext = new XmlReaderContext(resource, problemReporter, listener, extractor, xbdr, resolver);
+             BeanDefinitionParserDelegate bdpd = new BeanDefinitionParserDelegate(xmlReaderContext);
+             return new org.springframework.beans.factory.xml.ParserContext(xmlReaderContext, bdpd);
+         } catch (Exception e) {

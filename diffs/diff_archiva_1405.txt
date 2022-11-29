@@ -1,0 +1,221 @@
+diff --git a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/RepositoryServlet.java b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/RepositoryServlet.java
+index 325e24539..be41f0f8d 100644
+--- a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/RepositoryServlet.java
++++ b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/RepositoryServlet.java
+@@ -19,9 +19,15 @@
+  * under the License.
+  */
+ 
++import org.apache.commons.collections.Closure;
++import org.apache.commons.collections.CollectionUtils;
++import org.apache.commons.collections.functors.IfClosure;
+ import org.apache.maven.archiva.configuration.ArchivaConfiguration;
+ import org.apache.maven.archiva.configuration.ConfigurationNames;
+-import org.apache.maven.archiva.configuration.ManagedRepositoryConfiguration;
++import org.apache.maven.archiva.configuration.RepositoryConfiguration;
++import org.apache.maven.archiva.configuration.functors.LocalRepositoryPredicate;
++import org.apache.maven.archiva.configuration.functors.RepositoryConfigurationToMapClosure;
++import org.apache.maven.archiva.model.RepositoryURL;
+ import org.apache.maven.archiva.security.ArchivaRoleConstants;
+ import org.codehaus.plexus.redback.authentication.AuthenticationException;
+ import org.codehaus.plexus.redback.authentication.AuthenticationResult;
+@@ -40,13 +46,17 @@
+ import org.codehaus.plexus.webdav.servlet.multiplexed.MultiplexedWebDavServlet;
+ import org.codehaus.plexus.webdav.util.WebdavMethodUtil;
+ 
++import java.io.File;
++import java.io.IOException;
++import java.util.HashMap;
++import java.util.Iterator;
++import java.util.List;
++import java.util.Map;
++
+ import javax.servlet.ServletConfig;
+ import javax.servlet.ServletException;
+ import javax.servlet.http.HttpServletRequest;
+ import javax.servlet.http.HttpServletResponse;
+-import java.io.File;
+-import java.io.IOException;
+-import java.util.Map;
+ 
+ /**
+  * RepositoryServlet
+@@ -58,17 +68,29 @@
+     extends MultiplexedWebDavServlet
+     implements RegistryListener
+ {
++    /**
++     * @plexus.requirement
++     */
+     private SecuritySystem securitySystem;
+ 
++    /**
++     * @plexus.requirement role-hint="basic"
++     */
+     private HttpAuthenticator httpAuth;
+ 
++    /**
++     * @plexus.requirement
++     */
+     private AuditLog audit;
+ 
++    /**
++     * @plexus.requirement
++     */
+     private ArchivaConfiguration configuration;
+ 
+-    private Map<String, ManagedRepositoryConfiguration> repositoryMap;
++    private Map repositoryMap = new HashMap();
+ 
+-    public synchronized void initComponents()
++    public void initComponents()
+         throws ServletException
+     {
+         super.initComponents();
+@@ -80,22 +102,32 @@ public synchronized void initComponents()
+         configuration = (ArchivaConfiguration) lookup( ArchivaConfiguration.class.getName() );
+         configuration.addChangeListener( this );
+ 
+-        repositoryMap = configuration.getConfiguration().getManagedRepositoriesAsMap();
++        updateRepositoryMap();
+     }
+ 
+-    public synchronized void initServers( ServletConfig servletConfig )
++    public void initServers( ServletConfig servletConfig )
+         throws DavServerException
+     {
+-        for ( ManagedRepositoryConfiguration repo : repositoryMap.values() )
++        List repositories = configuration.getConfiguration().getRepositories();
++        Iterator itrepos = repositories.iterator();
++        while ( itrepos.hasNext() )
+         {
+-            File repoDir = new File( repo.getLocation() );
++            RepositoryConfiguration repo = (RepositoryConfiguration) itrepos.next();
++            if ( !repo.isManaged() )
++            {
++                // Skip non-managed.
++                continue;
++            }
++
++            RepositoryURL url = new RepositoryURL( repo.getUrl() );
++            File repoDir = new File( url.getPath() );
+ 
+             if ( !repoDir.exists() )
+             {
+                 if ( !repoDir.mkdirs() )
+                 {
+                     // Skip invalid directories.
+-                    log( "Unable to create missing directory for " + repo.getLocation() );
++                    log( "Unable to create missing directory for " + url.getPath() );
+                     continue;
+                 }
+             }
+@@ -106,18 +138,17 @@ public synchronized void initServers( ServletConfig servletConfig )
+         }
+     }
+ 
+-    public synchronized ManagedRepositoryConfiguration getRepository( String prefix )
++    public RepositoryConfiguration getRepository( DavServerRequest request )
+     {
+-        if ( repositoryMap == null )
++        synchronized ( this.repositoryMap )
+         {
+-            repositoryMap = configuration.getConfiguration().getManagedRepositoriesAsMap();
++            return (RepositoryConfiguration) repositoryMap.get( request.getPrefix() );
+         }
+-        return repositoryMap.get( prefix );
+     }
+ 
+-    private String getRepositoryName( DavServerRequest request )
++    public String getRepositoryName( DavServerRequest request )
+     {
+-        ManagedRepositoryConfiguration repoConfig = getRepository( request.getPrefix() );
++        RepositoryConfiguration repoConfig = getRepository( request );
+         if ( repoConfig == null )
+         {
+             return "Unknown";
+@@ -126,6 +157,19 @@ private String getRepositoryName( DavServerRequest request )
+         return repoConfig.getName();
+     }
+ 
++    private void updateRepositoryMap()
++    {
++        RepositoryConfigurationToMapClosure repoMapClosure = new RepositoryConfigurationToMapClosure();
++        Closure localRepoMap = IfClosure.getInstance( LocalRepositoryPredicate.getInstance(), repoMapClosure );
++        CollectionUtils.forAllDo( configuration.getConfiguration().getRepositories(), localRepoMap );
++
++        synchronized ( this.repositoryMap )
++        {
++            this.repositoryMap.clear();
++            this.repositoryMap.putAll( repoMapClosure.getMap() );
++        }
++    }
++
+     public boolean isAuthenticated( DavServerRequest davRequest, HttpServletResponse response )
+         throws ServletException, IOException
+     {
+@@ -136,7 +180,7 @@ public boolean isAuthenticated( DavServerRequest davRequest, HttpServletResponse
+         {
+             AuthenticationResult result = httpAuth.getAuthenticationResult( request, response );
+ 
+-            if ( result != null && !result.isAuthenticated() )
++            if ( ( result != null ) && !result.isAuthenticated() )
+             {
+                 // Must Authenticate.
+                 httpAuth.challenge( request, response, "Repository " + getRepositoryName( davRequest ),
+@@ -181,16 +225,16 @@ public boolean isAuthorized( DavServerRequest davRequest, HttpServletResponse re
+                 permission = ArchivaRoleConstants.OPERATION_REPOSITORY_UPLOAD;
+             }
+ 
+-            AuthorizationResult authzResult =
+-                securitySystem.authorize( securitySession, permission, davRequest.getPrefix() );
++            AuthorizationResult authzResult = securitySystem.authorize( securitySession, permission, davRequest
++                .getPrefix() );
+ 
+             if ( !authzResult.isAuthorized() )
+             {
+                 if ( authzResult.getException() != null )
+                 {
+-                    log( "Authorization Denied [ip=" + request.getRemoteAddr() + ",isWriteRequest=" + isWriteRequest +
+-                        ",permission=" + permission + ",repo=" + davRequest.getPrefix() + "] : " +
+-                        authzResult.getException().getMessage() );
++                    log( "Authorization Denied [ip=" + request.getRemoteAddr() + ",isWriteRequest=" + isWriteRequest
++                        + ",permission=" + permission + ",repo=" + davRequest.getPrefix() + "] : "
++                        + authzResult.getException().getMessage() );
+                 }
+ 
+                 // Issue HTTP Challenge.
+@@ -212,13 +256,29 @@ public void beforeConfigurationChange( Registry registry, String propertyName, O
+         // nothing to do
+     }
+ 
+-    public synchronized void afterConfigurationChange( Registry registry, String propertyName, Object propertyValue )
++    public void afterConfigurationChange( Registry registry, String propertyName, Object propertyValue )
+     {
+-        if ( ConfigurationNames.isManagedRepositories( propertyName ) )
++        if ( ConfigurationNames.isRepositories( propertyName ) )
+         {
+-            if ( propertyName.endsWith( ".id" ) || propertyName.endsWith( ".location" ) )
++            // Attempt to reduce the number of times we refresh the repository map.
++            if ( propertyName.endsWith( ".id" ) || propertyName.endsWith( ".url" ) )
+             {
+-                repositoryMap = null;
++                synchronized ( this.repositoryMap )
++                {
++                    updateRepositoryMap();
++
++                    getDavManager().removeAllServers();
++
++                    try
++                    {
++                        initServers( getServletConfig() );
++                    }
++                    catch ( DavServerException e )
++                    {
++                        log( "Error restarting WebDAV server after configuration change - service disabled: "
++                            + e.getMessage(), e );
++                    }
++                }
+             }
+         }
+     }

@@ -1,0 +1,199 @@
+diff --git a/archiva-modules/archiva-base/archiva-filelock/src/main/java/org/apache/archiva/common/filelock/DefaultFileLockManager.java b/archiva-modules/archiva-base/archiva-filelock/src/main/java/org/apache/archiva/common/filelock/DefaultFileLockManager.java
+index 258366aa9..ba3ab2fa1 100644
+--- a/archiva-modules/archiva-base/archiva-filelock/src/main/java/org/apache/archiva/common/filelock/DefaultFileLockManager.java
++++ b/archiva-modules/archiva-base/archiva-filelock/src/main/java/org/apache/archiva/common/filelock/DefaultFileLockManager.java
+@@ -28,16 +28,14 @@
+ import java.io.FileNotFoundException;
+ import java.io.IOException;
+ import java.io.RandomAccessFile;
+-import java.nio.channels.ClosedChannelException;
+ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.ConcurrentMap;
+-import java.util.concurrent.locks.ReentrantReadWriteLock;
+ 
+ /**
+  * @author Olivier Lamy
+  * @since 2.0.0
+  */
+-@Service("fileLockManager#default")
++@Service( "fileLockManager#default" )
+ public class DefaultFileLockManager
+     implements FileLockManager
+ {
+@@ -52,6 +50,7 @@
+ 
+     private int timeout = 0;
+ 
++
+     @Override
+     public Lock readFileLock( File file )
+         throws FileLockException, FileLockTimeoutException
+@@ -103,10 +102,7 @@ public Lock readFileLock( File file )
+             {
+                 // can happen if an other thread has deleted the file
+                 // close RandomAccessFile!!!
+-                if ( lock != null )
+-                {
+-                    closeQuietly( lock.getRandomAccessFile() );
+-                }
++                closeQuietly( lock.getRandomAccessFile() );
+                 log.debug( "read Lock skip: {} try to create file", e.getMessage() );
+                 createNewFileQuietly( file );
+             }
+@@ -162,74 +158,47 @@ public Lock writeFileLock( File file )
+                 }
+             }
+ 
++            Lock current = lockFiles.get( file );
++
+             try
+             {
+-                Lock current = lockFiles.get( file );
++
+                 if ( current != null )
+                 {
+                     log.debug( "write lock file exist continue wait" );
+ 
+                     continue;
+                 }
+-                lock = new Lock(file, true);
+-                createNewFileQuietly(file);
+-                lock.openLock(true, timeout > 0);
++                lock = new Lock( file, true );
++                createNewFileQuietly( file );
++                lock.openLock( true, timeout > 0 );
+                 acquired = true;
+             }
+             catch ( FileNotFoundException e )
+             {
+                 // can happen if an other thread has deleted the file
+                 // close RandomAccessFile!!!
+-                if ( lock != null )
+-                {
+-                    closeQuietly( lock.getRandomAccessFile() );
+-                }
++                closeQuietly( lock.getRandomAccessFile() );
++
+                 log.debug( "write Lock skip: {} try to create file", e.getMessage() );
+                 createNewFileQuietly( file );
+             }
+             catch ( IOException e )
+             {
+-                if (lock!=null && lock.isValid()) {
+-                    try {
+-                        lock.close();
+-                    } catch (IOException ex) {
+-                        // Ignore
+-                    }
+-                }
+                 throw new FileLockException( e.getMessage(), e );
+             }
+             catch ( IllegalStateException e )
+             {
+-                // Ignore this
+                 log.debug( "openLock {}:{}", e.getClass(), e.getMessage() );
+-            } catch (Throwable t) {
+-                if (lock!=null && lock.isValid()) {
+-                    try {
+-                        lock.close();
+-                    } catch (IOException ex) {
+-                        // Ignore
+-                    }
+-                }
+-                throw t;
+             }
+-
+         }
+ 
+         Lock current = lockFiles.putIfAbsent( file, lock );
+-        if (lock!=null && lock != current) {
+-            try {
+-                lock.close();
+-            } catch (IOException e) {
+-                // ignore
+-            }
+-
+-        }
+         if ( current != null )
+         {
+             lock = current;
+         }
+ 
+-
+         return lock;
+ 
+ 
+@@ -282,18 +251,12 @@ public void release( Lock lock )
+             lockFiles.remove( lock.getFile() );
+             lock.close();
+         }
+-        catch ( ClosedChannelException e )
+-        {
+-            // skip this one
+-            log.debug( "ignore ClosedChannelException: {}", e.getMessage() );
+-        }
+         catch ( IOException e )
+         {
+             throw new FileLockException( e.getMessage(), e );
+         }
+     }
+ 
+-    @Override
+     public void clearLockFiles()
+     {
+         lockFiles.clear();
+@@ -301,28 +264,49 @@ public void clearLockFiles()
+ 
+     private boolean mkdirs( File directory )
+     {
+-        return directory.mkdirs();
++        if ( directory == null )
++        {
++            return false;
++        }
++
++        if ( directory.exists() )
++        {
++            return false;
++        }
++        if ( directory.mkdir() )
++        {
++            return true;
++        }
++
++        File canonDir = null;
++        try
++        {
++            canonDir = directory.getCanonicalFile();
++        }
++        catch ( IOException e )
++        {
++            return false;
++        }
++
++        File parentDir = canonDir.getParentFile();
++        return ( parentDir != null && ( mkdirs( parentDir ) || parentDir.exists() ) && canonDir.mkdir() );
+     }
+ 
+-    @Override
+     public int getTimeout()
+     {
+         return timeout;
+     }
+ 
+-    @Override
+     public void setTimeout( int timeout )
+     {
+         this.timeout = timeout;
+     }
+ 
+-    @Override
+     public boolean isSkipLocking()
+     {
+         return skipLocking;
+     }
+ 
+-    @Override
+     public void setSkipLocking( boolean skipLocking )
+     {
+         this.skipLocking = skipLocking;

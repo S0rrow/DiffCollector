@@ -1,0 +1,285 @@
+diff --git a/modules/rest/client/src/main/java/org/apache/airavata/rest/client/ProjectResourceClient.java b/modules/rest/client/src/main/java/org/apache/airavata/rest/client/ProjectResourceClient.java
+index a451d9472..492b0d37b 100644
+--- a/modules/rest/client/src/main/java/org/apache/airavata/rest/client/ProjectResourceClient.java
++++ b/modules/rest/client/src/main/java/org/apache/airavata/rest/client/ProjectResourceClient.java
+@@ -88,23 +88,17 @@ public class ProjectResourceClient {
+         ClientResponse response = builder.get(ClientResponse.class);
+         int status = response.getStatus();
+ 
+-        if (status == ClientConstant.HTTP_OK) {
+-            if (response.getCookies().size() > 0) {
+-                cookie = response.getCookies().get(0).toCookie();
+-            }
+-            String exists = response.getEntity(String.class);
+-            if (exists.equals("True")) {
+-                return true;
+-            } else {
+-                return false;
+-            }
++        if (status != ClientConstant.HTTP_OK && status != ClientConstant.HTTP_UNAUTHORIZED) {
++            logger.error(response.getEntity(String.class));
++            throw new RuntimeException("Failed : HTTP error code : "
++                    + status);
+         } else if (status == ClientConstant.HTTP_UNAUTHORIZED) {
+             builder = BasicAuthHeaderUtil.getBuilder(
+                     webResource, queryParams, userName, callback.getPassword(userName), null, gateway);
+             response = webResource.queryParams(queryParams).get(ClientResponse.class);
+             status = response.getStatus();
+             if (status == ClientConstant.HTTP_OK) {
+-                if (response.getCookies().size() > 0) {
++                if(response.getCookies().size() > 0){
+                     cookie = response.getCookies().get(0).toCookie();
+                 }
+             }
+@@ -115,9 +109,15 @@ public class ProjectResourceClient {
+                 return false;
+             }
+         } else {
+-            logger.error(response.getEntity(String.class));
+-            throw new RuntimeException("Failed : HTTP error code : "
+-                    + status);
++            if(response.getCookies().size() > 0){
++                cookie = response.getCookies().get(0).toCookie();
++            }
++            String exists = response.getEntity(String.class);
++            if (exists.equals("True")) {
++                return true;
++            } else {
++                return false;
++            }
+         }
+     }
+ 
+@@ -137,16 +137,10 @@ public class ProjectResourceClient {
+         ClientResponse response = builder.accept(MediaType.TEXT_PLAIN).post(ClientResponse.class, formParams);
+         int status = response.getStatus();
+ 
+-        if (status == ClientConstant.HTTP_OK) {
+-            if (response.getCookies().size() > 0) {
+-                cookie = response.getCookies().get(0).toCookie();
+-            }
+-            String exists = response.getEntity(String.class);
+-            if (exists.equals("True")) {
+-                return true;
+-            } else {
+-                return false;
+-            }
++        if (status != ClientConstant.HTTP_OK && status != ClientConstant.HTTP_UNAUTHORIZED) {
++            logger.error(response.getEntity(String.class));
++            throw new RuntimeException("Failed : HTTP error code : "
++                    + status);
+         } else if (status == ClientConstant.HTTP_UNAUTHORIZED) {
+             builder = BasicAuthHeaderUtil.getBuilder(
+                     webResource, null, userName, callback.getPassword(userName), null, gateway);
+@@ -154,7 +148,7 @@ public class ProjectResourceClient {
+             cookie = response.getCookies().get(0).toCookie();
+             status = response.getStatus();
+             if (status == ClientConstant.HTTP_OK) {
+-                if (response.getCookies().size() > 0) {
++                if(response.getCookies().size() > 0){
+                     cookie = response.getCookies().get(0).toCookie();
+                 }
+             }
+@@ -165,10 +159,17 @@ public class ProjectResourceClient {
+                 return false;
+             }
+         } else {
+-            logger.error(response.getEntity(String.class));
+-            throw new RuntimeException("Failed : HTTP error code : "
+-                    + status);
++            if(response.getCookies().size() > 0){
++                cookie = response.getCookies().get(0).toCookie();
++            }
++            String exists = response.getEntity(String.class);
++            if (exists.equals("True")) {
++                return true;
++            } else {
++                return false;
++            }
+         }
++
+     }
+ 
+     public void addWorkspaceProject(WorkspaceProject project) {
+@@ -182,10 +183,10 @@ public class ProjectResourceClient {
+                 MediaType.TEXT_PLAIN).post(ClientResponse.class, formParams);
+         int status = response.getStatus();
+ 
+-        if (status == ClientConstant.HTTP_OK) {
+-            if (response.getCookies().size() > 0) {
+-                cookie = response.getCookies().get(0).toCookie();
+-            }
++        if (status != ClientConstant.HTTP_OK && status != ClientConstant.HTTP_UNAUTHORIZED) {
++            logger.error(response.getEntity(String.class));
++            throw new RuntimeException("Failed : HTTP error code : "
++                    + status);
+         } else if (status == ClientConstant.HTTP_UNAUTHORIZED) {
+             builder = BasicAuthHeaderUtil.getBuilder(
+                     webResource, null, userName, callback.getPassword(userName), null, gateway);
+@@ -197,14 +198,14 @@ public class ProjectResourceClient {
+                 throw new RuntimeException("Failed : HTTP error code : "
+                         + status);
+             } else {
+-                if (response.getCookies().size() > 0) {
++                if(response.getCookies().size() > 0){
+                     cookie = response.getCookies().get(0).toCookie();
+                 }
+             }
+         } else {
+-            logger.error(response.getEntity(String.class));
+-            throw new RuntimeException("Failed : HTTP error code : "
+-                    + status);
++            if(response.getCookies().size() > 0){
++                cookie = response.getCookies().get(0).toCookie();
++            }
+         }
+     }
+ 
+@@ -219,10 +220,10 @@ public class ProjectResourceClient {
+                 MediaType.TEXT_PLAIN).post(ClientResponse.class, formParams);
+         int status = response.getStatus();
+ 
+-        if (status == ClientConstant.HTTP_OK) {
+-            if (response.getCookies().size() > 0) {
+-                cookie = response.getCookies().get(0).toCookie();
+-            }
++        if (status != ClientConstant.HTTP_OK && status != ClientConstant.HTTP_UNAUTHORIZED) {
++            logger.error(response.getEntity(String.class));
++            throw new RuntimeException("Failed : HTTP error code : "
++                    + status);
+         } else if (status == ClientConstant.HTTP_UNAUTHORIZED) {
+             builder = BasicAuthHeaderUtil.getBuilder(
+                     webResource, null, userName, callback.getPassword(userName), null, gateway);
+@@ -234,14 +235,14 @@ public class ProjectResourceClient {
+                 throw new RuntimeException("Failed : HTTP error code : "
+                         + status);
+             } else {
+-                if (response.getCookies().size() > 0) {
++                if(response.getCookies().size() > 0){
+                     cookie = response.getCookies().get(0).toCookie();
+                 }
+             }
+         } else {
+-            logger.error(response.getEntity(String.class));
+-            throw new RuntimeException("Failed : HTTP error code : "
+-                    + status);
++            if(response.getCookies().size() > 0){
++                cookie = response.getCookies().get(0).toCookie();
++            }
+         }
+     }
+ 
+@@ -255,10 +256,10 @@ public class ProjectResourceClient {
+         ClientResponse response = builder.delete(ClientResponse.class);
+         int status = response.getStatus();
+ 
+-        if (status == ClientConstant.HTTP_OK) {
+-            if (response.getCookies().size() > 0) {
+-                cookie = response.getCookies().get(0).toCookie();
+-            }
++        if (status != ClientConstant.HTTP_OK && status != ClientConstant.HTTP_UNAUTHORIZED) {
++            logger.error(response.getEntity(String.class));
++            throw new RuntimeException("Failed : HTTP error code : "
++                    + status);
+         } else if (status == ClientConstant.HTTP_UNAUTHORIZED) {
+             builder = BasicAuthHeaderUtil.getBuilder(
+                     webResource, queryParams, userName, callback.getPassword(userName), null, gateway);
+@@ -269,14 +270,14 @@ public class ProjectResourceClient {
+                 throw new RuntimeException("Failed : HTTP error code : "
+                         + status);
+             } else {
+-                if (response.getCookies().size() > 0) {
++                if(response.getCookies().size() > 0){
+                     cookie = response.getCookies().get(0).toCookie();
+                 }
+             }
+         } else {
+-            logger.error(response.getEntity(String.class));
+-            throw new RuntimeException("Failed : HTTP error code : "
+-                    + status);
++            if(response.getCookies().size() > 0){
++                cookie = response.getCookies().get(0).toCookie();
++            }
+         }
+     }
+ 
+@@ -290,10 +291,12 @@ public class ProjectResourceClient {
+         ClientResponse response = builder.get(ClientResponse.class);
+         int status = response.getStatus();
+ 
+-        if (status == ClientConstant.HTTP_OK) {
+-            if (response.getCookies().size() > 0) {
+-                cookie = response.getCookies().get(0).toCookie();
+-            }
++        if (status != ClientConstant.HTTP_OK &&
++                status != ClientConstant.HTTP_UNAUTHORIZED &&
++                status != ClientConstant.HTTP_NO_CONTENT) {
++            logger.error(response.getEntity(String.class));
++            throw new RuntimeException("Failed : HTTP error code : "
++                    + status);
+         } else if (status == ClientConstant.HTTP_UNAUTHORIZED) {
+             builder = BasicAuthHeaderUtil.getBuilder(
+                     webResource, queryParams, userName, callback.getPassword(userName), null, gateway);
+@@ -307,18 +310,17 @@ public class ProjectResourceClient {
+                 throw new RuntimeException("Failed : HTTP error code : "
+                         + status);
+             } else {
+-                if (response.getCookies().size() > 0) {
++                if(response.getCookies().size() > 0){
+                     cookie = response.getCookies().get(0).toCookie();
+                 }
+             }
+-        } else if (status == ClientConstant.HTTP_NO_CONTENT) {
++        } else  if (status == ClientConstant.HTTP_NO_CONTENT) {
+             return null;
+-        } else {
+-            logger.error(response.getEntity(String.class));
+-            throw new RuntimeException("Failed : HTTP error code : "
+-                    + status);
++        }else {
++            if(response.getCookies().size() > 0){
++                cookie = response.getCookies().get(0).toCookie();
++            }
+         }
+-
+         WorkspaceProject workspaceProject = response.getEntity(WorkspaceProject.class);
+         return workspaceProject;
+     }
+@@ -332,10 +334,12 @@ public class ProjectResourceClient {
+         ClientResponse response = builder.get(ClientResponse.class);
+         int status = response.getStatus();
+ 
+-        if (status == ClientConstant.HTTP_OK) {
+-            if (response.getCookies().size() > 0) {
+-                cookie = response.getCookies().get(0).toCookie();
+-            }
++        if (status != ClientConstant.HTTP_OK &&
++                status != ClientConstant.HTTP_UNAUTHORIZED &&
++                status != ClientConstant.HTTP_NO_CONTENT) {
++            logger.error(response.getEntity(String.class));
++            throw new RuntimeException("Failed : HTTP error code : "
++                    + status);
+         } else if (status == ClientConstant.HTTP_UNAUTHORIZED) {
+             builder = BasicAuthHeaderUtil.getBuilder(
+                     webResource, null, userName, callback.getPassword(userName), null, gateway);
+@@ -349,16 +353,16 @@ public class ProjectResourceClient {
+                 throw new RuntimeException("Failed : HTTP error code : "
+                         + status);
+             } else {
+-                if (response.getCookies().size() > 0) {
++                if(response.getCookies().size() > 0){
+                     cookie = response.getCookies().get(0).toCookie();
+                 }
+             }
+         } else if (status == ClientConstant.HTTP_NO_CONTENT) {
+             return workspaceProjectsList;
+         } else {
+-            logger.error(response.getEntity(String.class));
+-            throw new RuntimeException("Failed : HTTP error code : "
+-                    + status);
++            if(response.getCookies().size() > 0){
++                cookie = response.getCookies().get(0).toCookie();
++            }
+         }
+ 
+         WorkspaceProjectList workspaceProjectList = response.getEntity(WorkspaceProjectList.class);

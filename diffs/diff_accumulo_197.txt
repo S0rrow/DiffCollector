@@ -1,0 +1,87 @@
+diff --git a/server/master/src/main/java/org/apache/accumulo/master/replication/RemoveCompleteReplicationRecords.java b/server/master/src/main/java/org/apache/accumulo/master/replication/RemoveCompleteReplicationRecords.java
+index 5a89842e05..fce72a74db 100644
+--- a/server/master/src/main/java/org/apache/accumulo/master/replication/RemoveCompleteReplicationRecords.java
++++ b/server/master/src/main/java/org/apache/accumulo/master/replication/RemoveCompleteReplicationRecords.java
+@@ -17,7 +17,6 @@
+ package org.apache.accumulo.master.replication;
+ 
+ import java.io.IOException;
+-import java.util.Arrays;
+ import java.util.Collections;
+ import java.util.Map.Entry;
+ import java.util.SortedMap;
+@@ -33,10 +32,6 @@ import org.apache.accumulo.core.data.Mutation;
+ import org.apache.accumulo.core.data.Range;
+ import org.apache.accumulo.core.data.Value;
+ import org.apache.accumulo.core.iterators.user.WholeRowIterator;
+-import org.apache.accumulo.core.protobuf.ProtobufUtil;
+-import org.apache.accumulo.core.replication.ReplicationSchema.OrderSection;
+-import org.apache.accumulo.core.replication.ReplicationSchema.StatusSection;
+-import org.apache.accumulo.core.replication.ReplicationSchema.WorkSection;
+ import org.apache.accumulo.core.replication.ReplicationTarget;
+ import org.apache.accumulo.core.replication.StatusUtil;
+ import org.apache.accumulo.core.replication.proto.Replication.Status;
+@@ -76,8 +71,6 @@ public class RemoveCompleteReplicationRecords implements Runnable {
+ 
+     bs.setRanges(Collections.singleton(new Range()));
+     IteratorSetting cfg = new IteratorSetting(50, WholeRowIterator.class);
+-    StatusSection.limit(bs);
+-    WorkSection.limit(bs);
+     bs.addScanIterator(cfg);
+ 
+     @SuppressWarnings("deprecation")
+@@ -85,7 +78,7 @@ public class RemoveCompleteReplicationRecords implements Runnable {
+     long recordsRemoved = 0;
+     try {
+       sw.start();
+-      recordsRemoved = removeCompleteRecords(conn, bs, bw);
++      recordsRemoved = removeCompleteRecords(conn, ReplicationTable.NAME, bs, bw);
+     } finally {
+       if (null != bs) {
+         bs.close();
+@@ -116,7 +109,7 @@ public class RemoveCompleteReplicationRecords implements Runnable {
+    *          A BatchWriter to write deletes to
+    * @return Number of records removed
+    */
+-  protected long removeCompleteRecords(Connector conn, BatchScanner bs, BatchWriter bw) {
++  protected long removeCompleteRecords(Connector conn, String table, BatchScanner bs, BatchWriter bw) {
+     Text row = new Text(), colf = new Text(), colq = new Text();
+     long recordsRemoved = 0;
+ 
+@@ -141,13 +134,10 @@ public class RemoveCompleteReplicationRecords implements Runnable {
+ 
+   protected long removeRowIfNecessary(BatchWriter bw, SortedMap<Key,Value> columns, Text row, Text colf, Text colq) {
+     long recordsRemoved = 0;
+-    if (columns.isEmpty()) {
+-      return recordsRemoved;
+-    }
+-
++    log.info("Removing {} from the replication table", row);
+     Mutation m = new Mutation(row);
+-    Status status = null;
+     for (Entry<Key,Value> entry : columns.entrySet()) {
++      Status status;
+       try {
+         status = Status.parseFrom(entry.getValue().get());
+       } catch (InvalidProtocolBufferException e) {
+@@ -169,19 +159,12 @@ public class RemoveCompleteReplicationRecords implements Runnable {
+       recordsRemoved++;
+     }
+ 
+-    log.info("Removing {} from the replication table", row);
+-
+-    ReplicationTarget target = ReplicationTarget.from(colq);
+-
+-    Mutation orderMutation = OrderSection.createMutation(row.toString(), status.getClosedTime());
+-    orderMutation.putDelete(OrderSection.NAME, new Text(target.getSourceTableId()));
+-
+     // Send the mutation deleting all the columns at once.
+     // If we send them not as a single Mutation, we run the risk of having some of them be applied
+     // which would mean that we might accidentally re-replicate data. We want to get rid of them all at once
+     // or not at all.
+     try {
+-      bw.addMutations(Arrays.asList(m, orderMutation));
++      bw.addMutation(m);
+       bw.flush();
+     } catch (MutationsRejectedException e) {
+       log.error("Could not submit mutation to remove columns for {} in replication table", row, e);

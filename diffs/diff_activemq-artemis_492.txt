@@ -1,0 +1,73 @@
+diff --git a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java
+index bed47b7a21..708c087b06 100644
+--- a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java
++++ b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/impl/ServerLocatorImpl.java
+@@ -570,9 +570,6 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+ 
+       // if the topologyArray is null, we will use the initialConnectors
+       if (usedTopology != null) {
+-         if (ActiveMQClientLogger.LOGGER.isTraceEnabled()) {
+-            ActiveMQClientLogger.LOGGER.trace("Selecting connector from toplogy.");
+-         }
+          int pos = loadBalancingPolicy.select(usedTopology.length);
+          Pair<TransportConfiguration, TransportConfiguration> pair = usedTopology[pos];
+ 
+@@ -580,9 +577,6 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+       }
+       else {
+          // Get from initialconnectors
+-         if (ActiveMQClientLogger.LOGGER.isTraceEnabled()) {
+-            ActiveMQClientLogger.LOGGER.trace("Selecting connector from initial connectors.");
+-         }
+ 
+          int pos = loadBalancingPolicy.select(initialConnectors.length);
+ 
+@@ -816,9 +810,7 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+                }
+             }
+          } while (retry);
+-      }
+ 
+-      synchronized (topologyArrayGuard) {
+          // We always wait for the topology, as the server
+          // will send a single element if not cluster
+          // so clients can know the id of the server they are connected to
+@@ -826,7 +818,7 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+          while (!isClosed() && !receivedTopology && timeout > System.currentTimeMillis()) {
+             // Now wait for the topology
+             try {
+-               topologyArrayGuard.wait(1000);
++               wait(1000);
+             }
+             catch (InterruptedException e) {
+                throw new ActiveMQInterruptedException(e);
+@@ -849,6 +841,7 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+ 
+          return factory;
+       }
++
+    }
+ 
+    public boolean isHA() {
+@@ -1411,10 +1404,10 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+       updateArraysAndPairs();
+ 
+       if (last) {
+-         synchronized (topologyArrayGuard) {
++         synchronized (this) {
+             receivedTopology = true;
+             // Notify if waiting on getting topology
+-            topologyArrayGuard.notifyAll();
++            notifyAll();
+          }
+       }
+    }
+@@ -1760,8 +1753,4 @@ public final class ServerLocatorImpl implements ServerLocatorInternal, Discovery
+       ServerLocatorImpl clone = new ServerLocatorImpl(this);
+       return clone;
+    }
+-
+-   public boolean isReceivedToplogy() {
+-      return receivedTopology;
+-   }
+ }

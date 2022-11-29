@@ -1,0 +1,67 @@
+diff --git a/repository/src/main/java/org/apache/hadoop/metadata/repository/graph/TitanGraphProvider.java b/repository/src/main/java/org/apache/hadoop/metadata/repository/graph/TitanGraphProvider.java
+index 617fb2050..80a8dcdac 100644
+--- a/repository/src/main/java/org/apache/hadoop/metadata/repository/graph/TitanGraphProvider.java
++++ b/repository/src/main/java/org/apache/hadoop/metadata/repository/graph/TitanGraphProvider.java
+@@ -25,48 +25,35 @@ import org.apache.commons.configuration.ConfigurationException;
+ import org.apache.commons.configuration.PropertiesConfiguration;
+ 
+ import javax.inject.Singleton;
+-import java.util.Iterator;
+ 
+-/**
+- * Default implementation for Graph Provider that doles out Titan Graph.
+- */
+ public class TitanGraphProvider implements GraphProvider<TitanGraph> {
++    private static final String SYSTEM_PROP = "";
++    private static final String DEFAULT_PATH = "graph.properties";
+ 
+-    private static final String CONFIG_PATH = "application.properties";
+-
+-    /**
+-     * Constant for the configuration property that indicates the prefix.
+-     */
+-    private static final String METADATA_PREFIX = "metadata.graph.";
+-
+-    private static Configuration getConfiguration() throws ConfigurationException {
+-        PropertiesConfiguration configProperties = new PropertiesConfiguration(CONFIG_PATH);
++    private final String configPath;
+ 
+-        Configuration graphConfig = new PropertiesConfiguration();
+-
+-        final Iterator<String> iterator = configProperties.getKeys();
+-        while (iterator.hasNext()) {
+-            String key = iterator.next();
+-            if (key.startsWith(METADATA_PREFIX)) {
+-                String value = (String) configProperties.getProperty(key);
+-                key = key.substring(METADATA_PREFIX.length());
+-                graphConfig.setProperty(key, value);
+-            }
+-        }
++    public TitanGraphProvider() {
++        configPath = System.getProperties().getProperty(SYSTEM_PROP,
++                DEFAULT_PATH);
++    }
+ 
+-        return graphConfig;
++    public Configuration getConfiguration() throws ConfigurationException {
++        return new PropertiesConfiguration(configPath);
+     }
+ 
+     @Override
+     @Singleton
+-    public TitanGraph get() {
++    public TitanGraph get() throws ConfigurationException {
++        TitanGraph graph = null;
++
+         Configuration config;
+         try {
+             config = getConfiguration();
+         } catch (ConfigurationException e) {
+             throw new RuntimeException(e);
+         }
++        graph = TitanFactory.open(config);
+ 
+-        return TitanFactory.open(config);
++        return graph;
+     }
+ }

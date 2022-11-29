@@ -1,0 +1,43 @@
+diff --git a/webapp/src/main/java/org/apache/atlas/web/resources/TypesResource.java b/webapp/src/main/java/org/apache/atlas/web/resources/TypesResource.java
+index bbe660ef8..355fb8ddc 100755
+--- a/webapp/src/main/java/org/apache/atlas/web/resources/TypesResource.java
++++ b/webapp/src/main/java/org/apache/atlas/web/resources/TypesResource.java
+@@ -121,9 +121,6 @@ public class TypesResource {
+         } catch (IllegalArgumentException e) {
+             LOG.error("Unable to persist types", e);
+             throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (WebApplicationException e) {
+-            LOG.error("Unable to persist types due to V2 API error", e);
+-            throw e;
+         } catch (Throwable e) {
+             LOG.error("Unable to persist types", e);
+             throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+@@ -165,12 +162,12 @@ public class TypesResource {
+             response.put(AtlasClient.REQUEST_ID, Servlets.getRequestId());
+             response.put(AtlasClient.TYPES, typesResponse);
+             return Response.ok().entity(response).build();
+-        } catch (AtlasBaseException | IllegalArgumentException e) {
++        } catch (TypeExistsException e) {
++            LOG.error("Type already exists", e);
++            throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.CONFLICT));
++        } catch (AtlasException | IllegalArgumentException e) {
+             LOG.error("Unable to persist types", e);
+             throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (WebApplicationException e) {
+-            LOG.error("Unable to persist types due to V2 API error", e);
+-            throw e;
+         } catch (Throwable e) {
+             LOG.error("Unable to persist types", e);
+             throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+@@ -265,8 +262,9 @@ public class TypesResource {
+ 
+             return Response.ok(response).build();
+         } catch (AtlasBaseException e) {
+-            LOG.warn("TypesREST exception: {} {}", e.getClass().getSimpleName(), e.getMessage());
+-            throw new WebApplicationException(Servlets.getErrorResponse(e, e.getAtlasErrorCode().getHttpCode()));
++            LOG.error("Given search filter did not yield any results");
++            throw new WebApplicationException(
++                    Servlets.getErrorResponse(new Exception("Given search filter did not yield any results "), Response.Status.BAD_REQUEST));
+         } catch (Throwable e) {
+             LOG.error("Unable to get types list", e);
+             throw new WebApplicationException(Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));

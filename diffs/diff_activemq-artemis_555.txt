@@ -1,0 +1,271 @@
+diff --git a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/OpenWireConnection.java b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/OpenWireConnection.java
+index a9cbf0c234..f9e8838b79 100644
+--- a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/OpenWireConnection.java
++++ b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/OpenWireConnection.java
+@@ -40,7 +40,6 @@ import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.api.core.ActiveMQNonExistentQueueException;
+ import org.apache.activemq.artemis.api.core.ActiveMQSecurityException;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+-import org.apache.activemq.artemis.core.persistence.OperationContext;
+ import org.apache.activemq.artemis.core.postoffice.Binding;
+ import org.apache.activemq.artemis.core.postoffice.Bindings;
+ import org.apache.activemq.artemis.core.postoffice.QueueBinding;
+@@ -71,6 +70,7 @@ import org.apache.activemq.artemis.core.transaction.TransactionPropertyIndexes;
+ import org.apache.activemq.artemis.spi.core.protocol.AbstractRemotingConnection;
+ import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+ import org.apache.activemq.artemis.spi.core.remoting.Connection;
++import org.apache.activemq.artemis.utils.ConcurrentHashSet;
+ import org.apache.activemq.artemis.utils.UUIDGenerator;
+ import org.apache.activemq.command.ActiveMQDestination;
+ import org.apache.activemq.command.ActiveMQMessage;
+@@ -150,6 +150,8 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+ 
+    private ConnectionState state;
+ 
++   private final Set<ActiveMQDestination> tempQueues = new ConcurrentHashSet<>();
++
+    /**
+     * Openwire doesn't sen transactions associated with any sessions.
+     * It will however send beingTX / endTX as it would be doing it with XA Transactions.
+@@ -222,12 +224,15 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       super.bufferReceived(connectionID, buffer);
+       try {
+ 
++         // TODO-NOW: set OperationContext
++
+          Command command = (Command) wireFormat.unmarshal(buffer);
+ 
+          boolean responseRequired = command.isResponseRequired();
+          int commandId = command.getCommandId();
+ 
+-         // TODO: the server should send packets to the client based on the requested times
++         // TODO-NOW: the server should send packets to the client based on the requested times
++         //           need to look at what Andy did on AMQP
+ 
+          // the connection handles pings, negotiations directly.
+          // and delegate all other commands to manager.
+@@ -280,12 +285,13 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+                }
+             }
+ 
+-            // TODO: response through operation-context
++            // TODO-NOW: response through operation-context
+ 
+             if (response != null && !protocolManager.isStopping()) {
+                response.setCorrelationId(commandId);
+                dispatchSync(response);
+             }
++
+          }
+       }
+       catch (Exception e) {
+@@ -508,6 +514,10 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       return this.wireFormat;
+    }
+ 
++   public void registerTempQueue(ActiveMQDestination queue) {
++      tempQueues.add(queue);
++   }
++
+    private void shutdown(boolean fail) {
+       if (fail) {
+          transportConnection.forceClose();
+@@ -684,17 +694,19 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+          SimpleString qName = OpenWireUtil.toCoreAddress(dest);
+          QueueBinding binding = (QueueBinding) server.getPostOffice().getBinding(qName);
+          if (binding == null) {
+-            if (dest.isTemporary()) {
+-               internalSession.createQueue(qName, qName, null, dest.isTemporary(), false);
+-            }
+-            else {
+-               ConnectionInfo connInfo = getState().getInfo();
++            if (getState().getInfo() != null) {
++
+                CheckType checkType = dest.isTemporary() ? CheckType.CREATE_NON_DURABLE_QUEUE : CheckType.CREATE_DURABLE_QUEUE;
+                server.getSecurityStore().check(qName, checkType, this);
+-               server.checkQueueCreationLimit(getUsername());
+-               server.createQueue(qName, qName, null, connInfo == null ? null : SimpleString.toSimpleString(connInfo.getUserName()), false, false);
+ 
++               server.checkQueueCreationLimit(getUsername());
+             }
++            ConnectionInfo connInfo = getState().getInfo();
++            server.createQueue(qName, qName, null, connInfo == null ? null : SimpleString.toSimpleString(connInfo.getUserName()), false, dest.isTemporary());
++         }
++
++         if (dest.isTemporary()) {
++            registerTempQueue(dest);
+          }
+       }
+ 
+@@ -735,7 +747,7 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+             throw new IllegalStateException("Session not exist! : " + sessionId);
+          }
+ 
+-         List<AMQConsumer> consumersList = amqSession.createConsumer(info, new SlowConsumerDetection());
++         List<AMQConsumer> consumersList = amqSession.createConsumer(info, amqSession, new SlowConsumerDetection());
+ 
+          this.addConsumerBrokerExchange(info.getConsumerId(), amqSession, consumersList);
+          ss.addConsumer(info);
+@@ -1064,7 +1076,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       public Response processBeginTransaction(TransactionInfo info) throws Exception {
+          final TransactionId txID = info.getTransactionId();
+ 
+-         setOperationContext(null);
+          try {
+             internalSession.resetTX(null);
+             if (txID.isXATransaction()) {
+@@ -1084,7 +1095,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+          }
+          finally {
+             internalSession.resetTX(null);
+-            clearOpeartionContext();
+          }
+          return null;
+       }
+@@ -1101,13 +1111,7 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+ 
+          AMQSession session = (AMQSession) tx.getProtocolData();
+ 
+-         setOperationContext(session);
+-         try {
+-            tx.commit(onePhase);
+-         }
+-         finally {
+-            clearOpeartionContext();
+-         }
++         tx.commit(onePhase);
+ 
+          return null;
+       }
+@@ -1121,24 +1125,18 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       public Response processForgetTransaction(TransactionInfo info) throws Exception {
+          TransactionId txID = info.getTransactionId();
+ 
+-         setOperationContext(null);
+-         try {
+-            if (txID.isXATransaction()) {
+-               try {
+-                  Xid xid = OpenWireUtil.toXID(info.getTransactionId());
+-                  internalSession.xaForget(xid);
+-               }
+-               catch (Exception e) {
+-                  e.printStackTrace();
+-                  throw e;
+-               }
++         if (txID.isXATransaction()) {
++            try {
++               Xid xid = OpenWireUtil.toXID(info.getTransactionId());
++               internalSession.xaForget(xid);
+             }
+-            else {
+-               txMap.remove(txID);
++            catch (Exception e) {
++               e.printStackTrace();
++               throw e;
+             }
+          }
+-         finally {
+-            clearOpeartionContext();
++         else {
++            txMap.remove(txID);
+          }
+ 
+          return null;
+@@ -1148,7 +1146,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       public Response processPrepareTransaction(TransactionInfo info) throws Exception {
+          TransactionId txID = info.getTransactionId();
+ 
+-         setOperationContext(null);
+          try {
+             if (txID.isXATransaction()) {
+                try {
+@@ -1167,7 +1164,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+          }
+          finally {
+             internalSession.resetTX(null);
+-            clearOpeartionContext();
+          }
+ 
+          return new IntegerResponse(XAResource.XA_RDONLY);
+@@ -1177,7 +1173,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       public Response processEndTransaction(TransactionInfo info) throws Exception {
+          TransactionId txID = info.getTransactionId();
+ 
+-         setOperationContext(null);
+          if (txID.isXATransaction()) {
+             try {
+                Transaction tx = lookupTX(txID, null);
+@@ -1197,7 +1192,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+          }
+          else {
+             txMap.remove(info);
+-            clearOpeartionContext();
+          }
+ 
+          return null;
+@@ -1261,17 +1255,14 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+ 
+          Transaction tx = lookupTX(messageSend.getTransactionId(), session);
+ 
+-         setOperationContext(session);
+          session.getCoreSession().resetTX(tx);
+          try {
+             session.send(producerInfo, messageSend, sendProducerAck);
+          }
+          finally {
+             session.getCoreSession().resetTX(null);
+-            clearOpeartionContext();
+          }
+ 
+-
+          return null;
+       }
+ 
+@@ -1279,7 +1270,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       public Response processMessageAck(MessageAck ack) throws Exception {
+          AMQSession session = getSession(ack.getConsumerId().getParentId());
+          Transaction tx = lookupTX(ack.getTransactionId(), session);
+-         setOperationContext(session);
+          session.getCoreSession().resetTX(tx);
+ 
+          try {
+@@ -1288,7 +1278,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+          }
+          finally {
+             session.getCoreSession().resetTX(null);
+-            clearOpeartionContext();
+          }
+          return null;
+       }
+@@ -1365,22 +1354,6 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+ 
+    }
+ 
+-   private void setOperationContext(AMQSession session) {
+-      OperationContext ctx;
+-      if (session == null) {
+-         ctx = this.internalSession.getSessionContext();
+-      }
+-      else {
+-         ctx = session.getCoreSession().getSessionContext();
+-      }
+-      server.getStorageManager().setContext(ctx);
+-   }
+-
+-
+-   private void clearOpeartionContext() {
+-      server.getStorageManager().clearContext();
+-   }
+-
+    private Transaction lookupTX(TransactionId txID, AMQSession session) throws IllegalStateException {
+       if (txID == null) {
+          return null;
+@@ -1397,7 +1370,7 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
+       }
+ 
+       if (transaction == null) {
+-         return null;
++         throw new IllegalStateException("cannot find transactionInfo::" + txID + " xid=" + xid);
+       }
+ 
+       if (session != null && transaction.getProtocolData() != session) {

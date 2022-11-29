@@ -1,0 +1,378 @@
+diff --git a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/HostDescriptionDialog.java b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/HostDescriptionDialog.java
+index b9b3079e5..1d32e0fa3 100644
+--- a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/HostDescriptionDialog.java
++++ b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/HostDescriptionDialog.java
+@@ -19,28 +19,24 @@
+  *
+  */
+ 
+-package org.apache.airavata.xbaya.appwrapper;
+-
+-import java.awt.event.ActionEvent;
+-import java.util.regex.Pattern;
+-
+-import javax.swing.AbstractAction;
+-import javax.swing.JButton;
+-import javax.swing.JDialog;
+-import javax.swing.JPanel;
+-
+-import org.apache.airavata.commons.gfac.type.HostDescription;
+-import org.apache.airavata.registry.api.Registry;
+-import org.apache.airavata.registry.api.exception.RegistryException;
++package org.apache.airavata.xbaya.appwrapper;
++
++import org.apache.airavata.commons.gfac.type.HostDescription;
++import org.apache.airavata.registry.api.Registry;
++import org.apache.airavata.registry.api.exception.RegistryException;
+ import org.apache.airavata.schemas.gfac.GlobusHostType;
+ import org.apache.airavata.xbaya.XBayaEngine;
+ import org.apache.airavata.xbaya.gui.GridPanel;
+ import org.apache.airavata.xbaya.gui.XBayaDialog;
+ import org.apache.airavata.xbaya.gui.XBayaLabel;
+ import org.apache.airavata.xbaya.gui.XBayaTextField;
++
++import javax.swing.*;
++import java.awt.event.ActionEvent;
++import java.util.regex.Pattern;
+ 
+-public class HostDescriptionDialog extends JDialog {
+-
++public class HostDescriptionDialog extends JDialog {
++
+     private XBayaEngine engine;
+ 
+     private XBayaDialog dialog;
+@@ -53,20 +49,19 @@ public class HostDescriptionDialog extends JDialog {
+ 
+     private XBayaTextField GridFTPTextField;
+ 
+-    private HostDescription hostDescription;
++    private HostDescription hostDescription;
+ 
+     private GlobusHostType globusHostType;
+ 
+-    private boolean hostCreated = false;
+-
++    private boolean hostCreated = false;
++
+     private boolean isGlobusHostCreated = false;
+ 
+     private Registry registry;
+ 
+-    /**
+-     * @param engine
+-     *            XBaya workflow engine
+-     */
++    /**
++     * @param engine XBaya workflow engine
++     */
+     public HostDescriptionDialog(XBayaEngine engine) {
+         this.engine = engine;
+         setRegistry(engine.getConfiguration().getJcrComponentRegistry().getRegistry());
+@@ -76,12 +71,10 @@ public class HostDescriptionDialog extends JDialog {
+     /**
+      * Displays the dialog.
+      */
+-    @Override
+     public void show() {
+         this.dialog.show();
+     }
+ 
+-    @Override
+     public void hide() {
+         this.dialog.hide();
+     }
+@@ -92,56 +85,56 @@ public class HostDescriptionDialog extends JDialog {
+         String globusGateKeeperEPR = this.globusGateKeeperTextField.getText();
+         String gridFTP = this.GridFTPTextField.getText();
+ 
+-        if ((globusGateKeeperEPR != null) || (gridFTP != null)) {
++        if((globusGateKeeperEPR != null) || (gridFTP != null)){
+             isGlobusHostCreated = true;
+-        }
++        }
+ 
+         // TODO the logic here
+ 
+         setHostId(hostId);
+         setHostLocation(hostAddress);
+-        if (globusGateKeeperEPR != null) {
+-            setGlobusGateKeeperEPR(globusGateKeeperEPR);
++        if(globusGateKeeperEPR != null) {
++          setGlobusGateKeeperEPR(globusGateKeeperEPR);
+         }
+-        if (gridFTP != null) {
+-            setGridFTPEPR(globusGateKeeperEPR);
++        if(gridFTP != null) {
++          setGridFTPEPR(globusGateKeeperEPR);
+         }
+ 
+         saveHostDescription();
+         hide();
+-    }
+-
++    }
++
+     private void setGlobusGateKeeperEPR(String epr) {
+         if (hostDescription.getType() == GlobusHostType.type) {
+-            ((GlobusHostType) hostDescription).addGlobusGateKeeperEndPoint(epr);
++            ((GlobusHostType)hostDescription).addGlobusGateKeeperEndPoint(epr);
+         }
+-    }
+-
++    }
++
+     private String[] getGlobusGateKeeperEPR(String epr) {
+         if (hostDescription.getType() == GlobusHostType.type) {
+-            return ((GlobusHostType) hostDescription).getGlobusGateKeeperEndPointArray();
++            return ((GlobusHostType)hostDescription).getGlobusGateKeeperEndPointArray();
+         } else {
+             return null;
+         }
+-    }
+-
++    }
++
+     private void setGridFTPEPR(String epr) {
+         if (hostDescription.getType() == GlobusHostType.type) {
+-            ((GlobusHostType) hostDescription).addGridFTPEndPoint(epr);
++            ((GlobusHostType)hostDescription).addGridFTPEndPoint(epr);
+         }
+     }
+ 
+     private String[] getGridFTPEPR(String epr) {
+         if (hostDescription.getType() == GlobusHostType.type) {
+-            return ((GlobusHostType) hostDescription).getGridFTPEndPointArray();
++            return ((GlobusHostType)hostDescription).getGridFTPEndPointArray();
+         } else {
+             return null;
+         }
+     }
+ 
+-    /**
++    /**
+      * Initializes the GUI.
+-     */
++     */
+     private void initGUI() {
+         this.hostIdTextField = new XBayaTextField();
+         this.hostAddressTextField = new XBayaTextField();
+@@ -150,8 +143,7 @@ public class HostDescriptionDialog extends JDialog {
+ 
+         XBayaLabel hostIdLabel = new XBayaLabel("Host ID", this.hostIdTextField);
+         XBayaLabel hostAddressLabel = new XBayaLabel("Host Address", this.hostAddressTextField);
+-        XBayaLabel globusGateKeeperLabel = new XBayaLabel("Gloubus Gate Keeper Endpoint",
+-                this.globusGateKeeperTextField);
++        XBayaLabel globusGateKeeperLabel = new XBayaLabel("Gloubus Gate Keeper Endpoint", this.globusGateKeeperTextField);
+         XBayaLabel gridFTPLabel = new XBayaLabel("Grid FTP Endpoint", this.GridFTPTextField);
+ 
+         GridPanel infoPanel = new GridPanel();
+@@ -167,18 +159,16 @@ public class HostDescriptionDialog extends JDialog {
+ 
+         JButton okButton = new JButton("OK");
+         okButton.addActionListener(new AbstractAction() {
+-            @Override
+             public void actionPerformed(ActionEvent e) {
+                 ok();
+-            }
+-        });
+-
++            }
++        });
++
+         JButton cancelButton = new JButton("Cancel");
+         cancelButton.addActionListener(new AbstractAction() {
+-            @Override
+             public void actionPerformed(ActionEvent e) {
+                 hide();
+-            }
++            }
+         });
+ 
+         JPanel buttonPanel = new JPanel();
+@@ -187,95 +177,98 @@ public class HostDescriptionDialog extends JDialog {
+ 
+         this.dialog = new XBayaDialog(this.engine, "New Host Description", infoPanel, buttonPanel);
+         this.dialog.setDefaultButton(okButton);
+-    }
+-
+-    public String getHostId() {
+-        return getHostDescription().getType().getHostName();
+-    }
+-
+-    public void setHostId(String hostId) {
+-        getHostDescription().getType().setHostName(hostId);
+-        updateDialogStatus();
+-    }
+-
+-    public String getHostLocation() {
+-        return getHostDescription().getType().getHostAddress();
+-    }
+-
+-    public void setHostLocation(String hostLocation) {
+-        getHostDescription().getType().setHostAddress(hostLocation);
+-        updateDialogStatus();
+-    }
+-
+-    private void validateDialog() throws Exception {
+-        if (getHostId() == null || getHostId().trim().equals("")) {
+-            throw new Exception("Id of the host cannot be empty!!!");
+-        }
+-
+-        HostDescription hostDescription2 = null;
+-        try {
+-            hostDescription2 = getRegistry().getHostDescription(Pattern.quote(getHostId()));
+-        } catch (RegistryException e) {
+-            throw e;
+-        }
+-        if (hostDescription2 != null) {
+-            throw new Exception("Host descriptor with the given id already exists!!!");
+-        }
+-
+-        if (getHostLocation() == null || getHostLocation().trim().equals("")) {
+-            throw new Exception("Host location/ip cannot be empty!!!");
+-        }
+-    }
+-
+-    private void updateDialogStatus() {
+-        String message = null;
+-        try {
+-            validateDialog();
+-        } catch (Exception e) {
+-            message = e.getLocalizedMessage();
+-        }
+-        // okButton.setEnabled(message == null);
+-        // setError(message);
+-    }
+-
+-    /*
+-     * public void close() { getDialog().setVisible(false); }
+-     */
+-
+-    public boolean isHostCreated() {
+-        return hostCreated;
+-    }
+-
+-    public void setHostCreated(boolean hostCreated) {
+-        this.hostCreated = hostCreated;
+-    }
+-
+-    public HostDescription getHostDescription() {
+-        if (hostDescription == null) {
++    }
++
++    public String getHostId() {
++        return getHostDescription().getType().getHostName();
++    }
++
++    public void setHostId(String hostId) {
++        getHostDescription().getType().setHostName(hostId);
++        updateDialogStatus();
++    }
++
++    public String getHostLocation() {
++        return getHostDescription().getType().getHostAddress();
++    }
++
++    public void setHostLocation(String hostLocation) {
++        getHostDescription().getType().setHostAddress(hostLocation);
++        updateDialogStatus();
++    }
++
++    private void validateDialog() throws Exception {
++        if (getHostId() == null || getHostId().trim().equals("")) {
++            throw new Exception("Id of the host cannot be empty!!!");
++        }
++
++        HostDescription hostDescription2 = null;
++        try {
++            hostDescription2 = getRegistry().getHostDescription(Pattern.quote(getHostId()));
++        } catch (RegistryException e) {
++            throw e;
++        }
++        if (hostDescription2 != null) {
++            throw new Exception("Host descriptor with the given id already exists!!!");
++        }
++
++        if (getHostLocation() == null || getHostLocation().trim().equals("")) {
++            throw new Exception("Host location/ip cannot be empty!!!");
++        }
++    }
++
++    private void updateDialogStatus() {
++        String message = null;
++        try {
++            validateDialog();
++        } catch (Exception e) {
++            message = e.getLocalizedMessage();
++        }
++        //okButton.setEnabled(message == null);
++        //setError(message);
++    }
++
++/*    public void close() {
++        getDialog().setVisible(false);
++    }*/
++
++    public boolean isHostCreated() {
++        return hostCreated;
++    }
++
++    public void setHostCreated(boolean hostCreated) {
++        this.hostCreated = hostCreated;
++    }
++
++    public HostDescription getHostDescription() {
++        if (hostDescription == null) {
+             if (isGlobusHostCreated) {
+                 hostDescription = new HostDescription(GlobusHostType.type);
+             } else {
+                 hostDescription = new HostDescription();
+             }
+-        }
+-        return hostDescription;
+-    }
+-
+-    public void saveHostDescription() {
+-        getRegistry().saveHostDescription(getHostDescription());
+-        setHostCreated(true);
+-    }
+-
+-    /*
+-     * private void setError(String errorMessage) { if (errorMessage == null || errorMessage.trim().equals("")) {
+-     * lblError.setText(""); } else { lblError.setText(errorMessage.trim()); } }
+-     */
+-
+-    public Registry getRegistry() {
+-        return registry;
+-    }
+-
+-    public void setRegistry(Registry registry) {
+-        this.registry = registry;
+-    }
+-}
++        }
++        return hostDescription;
++    }
++
++    public void saveHostDescription() {
++        getRegistry().saveHostDescription(getHostDescription());
++        setHostCreated(true);
++    }
++
++/*    private void setError(String errorMessage) {
++        if (errorMessage == null || errorMessage.trim().equals("")) {
++            lblError.setText("");
++        } else {
++            lblError.setText(errorMessage.trim());
++        }
++    }*/
++
++    public Registry getRegistry() {
++        return registry;
++    }
++
++    public void setRegistry(Registry registry) {
++        this.registry = registry;
++    }
++}

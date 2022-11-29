@@ -1,0 +1,185 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
+index 30643639a6..9b7ed0c45c 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
+@@ -54,7 +54,6 @@ import org.apache.activemq.artemis.core.postoffice.Bindings;
+ import org.apache.activemq.artemis.core.postoffice.BindingsFactory;
+ import org.apache.activemq.artemis.core.postoffice.DuplicateIDCache;
+ import org.apache.activemq.artemis.core.postoffice.PostOffice;
+-import org.apache.activemq.artemis.core.postoffice.QueueBinding;
+ import org.apache.activemq.artemis.core.postoffice.QueueInfo;
+ import org.apache.activemq.artemis.core.postoffice.RoutingStatus;
+ import org.apache.activemq.artemis.core.server.ActiveMQMessageBundle;
+@@ -64,6 +63,7 @@ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+ import org.apache.activemq.artemis.core.server.LargeServerMessage;
+ import org.apache.activemq.artemis.core.server.MessageReference;
+ import org.apache.activemq.artemis.core.server.Queue;
++import org.apache.activemq.artemis.core.server.QueueCreator;
+ import org.apache.activemq.artemis.core.server.QueueFactory;
+ import org.apache.activemq.artemis.core.server.RouteContextList;
+ import org.apache.activemq.artemis.core.server.RoutingContext;
+@@ -132,8 +132,6 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+ 
+    private final ActiveMQServer server;
+ 
+-   private Object addressLock = new Object();
+-
+    public PostOfficeImpl(final ActiveMQServer server,
+                          final StorageManager storageManager,
+                          final PagingManager pagingManager,
+@@ -423,61 +421,19 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+ 
+    @Override
+    public AddressInfo addAddressInfo(AddressInfo addressInfo) {
+-      synchronized (addressLock) {
+-         try {
+-            managementService.registerAddress(addressInfo);
+-         } catch (Exception e) {
+-            e.printStackTrace();
+-         }
+-         return addressManager.addAddressInfo(addressInfo);
+-      }
++      return addressManager.addAddressInfo(addressInfo);
+    }
+ 
+    @Override
+-   public AddressInfo addOrUpdateAddressInfo(AddressInfo addressInfo) {
+-      synchronized (addressLock) {
+-         try {
+-            managementService.registerAddress(addressInfo);
+-         } catch (Exception e) {
+-            e.printStackTrace();
+-         }
+-         return addressManager.addOrUpdateAddressInfo(addressInfo);
+-      }
+-   }
+-
+-   @Override
+-   public AddressInfo removeAddressInfo(SimpleString address) throws Exception {
+-      synchronized (addressLock) {
+-         Bindings bindingsForAddress = getBindingsForAddress(address);
+-         if (bindingsForAddress.getBindings().size() > 0) {
+-            throw new IllegalStateException("Address has bindings");
+-         }
+-         managementService.unregisterAddress(address);
+-         return addressManager.removeAddressInfo(address);
+-      }
++   public AddressInfo removeAddressInfo(SimpleString address) {
++      return addressManager.removeAddressInfo(address);
+    }
+ 
+    @Override
+    public AddressInfo getAddressInfo(SimpleString addressName) {
+-      synchronized (addressLock) {
+-         return addressManager.getAddressInfo(addressName);
+-      }
+-   }
+-
+-   @Override
+-   public List<Queue> listQueuesForAddress(SimpleString address) throws Exception {
+-      Bindings bindingsForAddress = getBindingsForAddress(address);
+-      List<Queue> queues = new ArrayList<>();
+-      for (Binding b : bindingsForAddress.getBindings()) {
+-         if (b instanceof QueueBinding) {
+-            Queue q = ((QueueBinding) b).getQueue();
+-            queues.add(q);
+-         }
+-      }
+-      return queues;
++      return addressManager.getAddressInfo(addressName);
+    }
+ 
+-
+    // TODO - needs to be synchronized to prevent happening concurrently with activate()
+    // (and possible removeBinding and other methods)
+    // Otherwise can have situation where createQueue comes in before failover, then failover occurs
+@@ -529,7 +485,6 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+          throw new ActiveMQNonExistentQueueException();
+       }
+ 
+-      // TODO: see whether we still want to do this or not
+       if (deleteData && addressManager.getBindingsForRoutingAddress(binding.getAddress()) == null) {
+          pagingManager.deletePageStore(binding.getAddress());
+ 
+@@ -541,7 +496,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+       if (binding.getType() == BindingType.LOCAL_QUEUE) {
+          managementService.unregisterQueue(uniqueName, binding.getAddress());
+       } else if (binding.getType() == BindingType.DIVERT) {
+-         managementService.unregisterDivert(uniqueName, binding.getAddress());
++         managementService.unregisterDivert(uniqueName);
+       }
+ 
+       if (binding.getType() != BindingType.DIVERT) {
+@@ -624,34 +579,39 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+ 
+    @Override
+    public RoutingStatus route(final ServerMessage message,
++                              QueueCreator queueCreator,
+                               final boolean direct) throws Exception {
+-      return route(message, (Transaction) null, direct);
++      return route(message, queueCreator, (Transaction) null, direct);
+    }
+ 
+    @Override
+    public RoutingStatus route(final ServerMessage message,
++                              QueueCreator queueCreator,
+                               final Transaction tx,
+                               final boolean direct) throws Exception {
+-      return route(message, new RoutingContextImpl(tx), direct);
++      return route(message, queueCreator, new RoutingContextImpl(tx), direct);
+    }
+ 
+    @Override
+    public RoutingStatus route(final ServerMessage message,
++                              final QueueCreator queueCreator,
+                               final Transaction tx,
+                               final boolean direct,
+                               final boolean rejectDuplicates) throws Exception {
+-      return route(message, new RoutingContextImpl(tx), direct, rejectDuplicates);
++      return route(message, queueCreator, new RoutingContextImpl(tx), direct, rejectDuplicates);
+    }
+ 
+    @Override
+    public RoutingStatus route(final ServerMessage message,
++                              final QueueCreator queueCreator,
+                               final RoutingContext context,
+                               final boolean direct) throws Exception {
+-      return route(message, context, direct, true);
++      return route(message, queueCreator, context, direct, true);
+    }
+ 
+    @Override
+    public RoutingStatus route(final ServerMessage message,
++                              final QueueCreator queueCreator,
+                               final RoutingContext context,
+                               final boolean direct,
+                               boolean rejectDuplicates) throws Exception {
+@@ -681,15 +641,14 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+ 
+       Bindings bindings = addressManager.getBindingsForRoutingAddress(address);
+ 
+-      // TODO auto-create queues here?
+       // first check for the auto-queue creation thing
+-      if (bindings == null) {
++      if (bindings == null && queueCreator != null) {
+          // There is no queue with this address, we will check if it needs to be created
+-//         if (queueCreator.create(address)) {
++         if (queueCreator.create(address)) {
+             // TODO: this is not working!!!!
+             // reassign bindings if it was created
+-//            bindings = addressManager.getBindingsForRoutingAddress(address);
+-//         }
++            bindings = addressManager.getBindingsForRoutingAddress(address);
++         }
+       }
+ 
+       if (bindings != null) {
+@@ -729,7 +688,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+ 
+                message.setAddress(dlaAddress);
+ 
+-               route(message, context.getTransaction(), false);
++               route(message, null, context.getTransaction(), false);
+                result = RoutingStatus.NO_BINDINGS_DLA;
+             }
+          } else {

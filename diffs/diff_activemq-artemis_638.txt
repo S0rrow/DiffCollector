@@ -1,0 +1,682 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java
+index 3e71ded75b..ea72beaaa1 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/ActiveMQServerImpl.java
+@@ -27,7 +27,6 @@ import java.net.URL;
+ import java.security.AccessController;
+ import java.security.PrivilegedAction;
+ import java.util.ArrayList;
+-import java.util.Collection;
+ import java.util.Date;
+ import java.util.HashMap;
+ import java.util.HashSet;
+@@ -109,7 +108,6 @@ import org.apache.activemq.artemis.core.server.ActiveMQComponent;
+ import org.apache.activemq.artemis.core.server.ActiveMQMessageBundle;
+ import org.apache.activemq.artemis.core.server.ActiveMQServer;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+-import org.apache.activemq.artemis.core.server.AddressQueryResult;
+ import org.apache.activemq.artemis.core.server.Bindable;
+ import org.apache.activemq.artemis.core.server.BindingQueryResult;
+ import org.apache.activemq.artemis.core.server.Divert;
+@@ -124,7 +122,6 @@ import org.apache.activemq.artemis.core.server.Queue;
+ import org.apache.activemq.artemis.core.server.QueueConfig;
+ import org.apache.activemq.artemis.core.server.QueueFactory;
+ import org.apache.activemq.artemis.core.server.QueueQueryResult;
+-import org.apache.activemq.artemis.core.server.RoutingType;
+ import org.apache.activemq.artemis.core.server.SecuritySettingPlugin;
+ import org.apache.activemq.artemis.core.server.ServerSession;
+ import org.apache.activemq.artemis.core.server.ServiceRegistry;
+@@ -601,9 +598,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+    }
+ 
+    public void resetNodeManager() throws Exception {
+-      if (nodeManager != null) {
+-         nodeManager.stop();
+-      }
++      nodeManager.stop();
+       nodeManager = createNodeManager(configuration.getJournalLocation(), true);
+    }
+ 
+@@ -687,18 +682,15 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       return postOffice.isAddressBound(SimpleString.toSimpleString(address));
+    }
+ 
++   // TODO: this should probably look at the addresses too, not just queue bindings
+    @Override
+    public BindingQueryResult bindingQuery(SimpleString address) throws Exception {
+       if (address == null) {
+          throw ActiveMQMessageBundle.BUNDLE.addressIsNull();
+       }
+ 
+-      AddressSettings addressSettings = getAddressSettingsRepository().getMatch(address.toString());
+-
+-      boolean autoCreateQeueus = addressSettings.isAutoCreateQueues();
+-      boolean autoCreateAddresses = addressSettings.isAutoCreateAddresses();
+-      boolean defaultDeleteOnNoConsumers = addressSettings.isDefaultDeleteOnNoConsumers();
+-      int defaultMaxConsumers = addressSettings.getDefaultMaxConsumers();
++      boolean autoCreateJmsQueues = getAddressSettingsRepository().getMatch(address.toString()).isAutoCreateJmsQueues();
++      boolean autoCreateJmsTopics = getAddressSettingsRepository().getMatch(address.toString()).isAutoCreateJmsTopics();
+ 
+       List<SimpleString> names = new ArrayList<>();
+ 
+@@ -706,7 +698,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       ManagementService managementService = getManagementService();
+       if (managementService != null) {
+          if (address.equals(managementService.getManagementAddress())) {
+-            return new BindingQueryResult(true, names, autoCreateQeueus, autoCreateAddresses, defaultDeleteOnNoConsumers, defaultMaxConsumers);
++            return new BindingQueryResult(true, names, autoCreateJmsQueues, autoCreateJmsTopics);
+          }
+       }
+ 
+@@ -718,7 +710,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+          }
+       }
+ 
+-      return new BindingQueryResult(getAddressInfo(address) != null, names, autoCreateQeueus, autoCreateAddresses, defaultDeleteOnNoConsumers, defaultMaxConsumers);
++      return new BindingQueryResult(!names.isEmpty(), names, autoCreateJmsQueues, autoCreateJmsTopics);
+    }
+ 
+    @Override
+@@ -727,9 +719,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+          throw ActiveMQMessageBundle.BUNDLE.queueNameIsNull();
+       }
+ 
+-      boolean autoCreateQueues = getAddressSettingsRepository().getMatch(name.toString()).isAutoCreateQueues();
+-      boolean defaultDeleteOnNoConsumers = getAddressSettingsRepository().getMatch(name.toString()).isDefaultDeleteOnNoConsumers();
+-      int defaultMaxConsumers = getAddressSettingsRepository().getMatch(name.toString()).getDefaultMaxConsumers();
++      boolean autoCreateJmsQueues = getAddressSettingsRepository().getMatch(name.toString()).isAutoCreateJmsQueues();
+ 
+       QueueQueryResult response;
+ 
+@@ -744,38 +734,16 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+          SimpleString filterString = filter == null ? null : filter.getFilterString();
+ 
+-         response = new QueueQueryResult(name, binding.getAddress(), queue.isDurable(), queue.isTemporary(), filterString, queue.getConsumerCount(), queue.getMessageCount(), autoCreateQueues, true, queue.isAutoCreated(), queue.isDeleteOnNoConsumers(), queue.getRoutingType(), queue.getMaxConsumers());
++         response = new QueueQueryResult(name, binding.getAddress(), queue.isDurable(), queue.isTemporary(), filterString, queue.getConsumerCount(), queue.getMessageCount(), autoCreateJmsQueues);
+       } else if (name.equals(managementAddress)) {
+          // make an exception for the management address (see HORNETQ-29)
+-         response = new QueueQueryResult(name, managementAddress, true, false, null, -1, -1, autoCreateQueues, true, false, false, RoutingType.MULTICAST, -1);
+-      } else if (autoCreateQueues) {
+-         response = new QueueQueryResult(name, name, true, false, null, 0, 0, true, false, false, defaultDeleteOnNoConsumers, RoutingType.MULTICAST, defaultMaxConsumers);
++         response = new QueueQueryResult(name, managementAddress, true, false, null, -1, -1, autoCreateJmsQueues);
++      } else if (autoCreateJmsQueues) {
++         response = new QueueQueryResult(name, name, true, false, null, 0, 0, true, false);
+       } else {
+-         response = new QueueQueryResult(null, null, false, false, null, 0, 0, false, false, false, false, RoutingType.MULTICAST, 0);
+-      }
+-
+-      return response;
+-   }
+-
+-   @Override
+-   public AddressQueryResult addressQuery(SimpleString name) throws Exception {
+-      if (name == null) {
+-         throw ActiveMQMessageBundle.BUNDLE.queueNameIsNull();
++         response = new QueueQueryResult(null, null, false, false, null, 0, 0, false, false);
+       }
+ 
+-      AddressSettings addressSettings = getAddressSettingsRepository().getMatch(name.toString());
+-
+-      boolean autoCreateAddresses = addressSettings.isAutoCreateAddresses();
+-      boolean defaultDeleteOnNoConsumers = addressSettings.isDefaultDeleteOnNoConsumers();
+-      int defaultMaxConsumers = addressSettings.getDefaultMaxConsumers();
+-
+-      AddressInfo addressInfo = postOffice.getAddressInfo(name);
+-      AddressQueryResult response;
+-      if (addressInfo != null) {
+-         response = new AddressQueryResult(addressInfo.getName(), addressInfo.getRoutingTypes(), addressInfo.getId(), addressInfo.isAutoCreated(), true, autoCreateAddresses, defaultDeleteOnNoConsumers, defaultMaxConsumers);
+-      } else {
+-         response = new AddressQueryResult(name, null, -1, false, false, autoCreateAddresses, defaultDeleteOnNoConsumers, defaultMaxConsumers);
+-      }
+       return response;
+    }
+ 
+@@ -1269,8 +1237,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+                                       final String defaultAddress,
+                                       final SessionCallback callback,
+                                       final boolean autoCreateQueues,
+-                                      final OperationContext context,
+-                                      final Map<SimpleString, RoutingType> prefixes) throws Exception {
++                                      final OperationContext context) throws Exception {
+       String validatedUser = "";
+ 
+       if (securityStore != null) {
+@@ -1283,7 +1250,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+       checkSessionLimit(validatedUser);
+ 
+-      final ServerSessionImpl session = internalCreateSession(name, username, password, validatedUser, minLargeMessageSize, connection, autoCommitSends, autoCommitAcks, preAcknowledge, xa, defaultAddress, callback, context, autoCreateQueues, prefixes);
++      final ServerSessionImpl session = internalCreateSession(name, username, password, validatedUser, minLargeMessageSize, connection, autoCommitSends, autoCommitAcks, preAcknowledge, xa, defaultAddress, callback, context, autoCreateQueues);
+ 
+       sessions.put(name, session);
+ 
+@@ -1355,9 +1322,8 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+                                                      String defaultAddress,
+                                                      SessionCallback callback,
+                                                      OperationContext context,
+-                                                     boolean autoCreateJMSQueues,
+-                                                     Map<SimpleString, RoutingType> prefixes) throws Exception {
+-      return new ServerSessionImpl(name, username, password, validatedUser, minLargeMessageSize, autoCommitSends, autoCommitAcks, preAcknowledge, configuration.isPersistDeliveryCountBeforeDelivery(), xa, connection, storageManager, postOffice, resourceManager, securityStore, managementService, this, configuration.getManagementAddress(), defaultAddress == null ? null : new SimpleString(defaultAddress), callback, context, pagingManager, prefixes);
++                                                     boolean autoCreateJMSQueues) throws Exception {
++      return new ServerSessionImpl(name, username, password, validatedUser, minLargeMessageSize, autoCommitSends, autoCommitAcks, preAcknowledge, configuration.isPersistDeliveryCountBeforeDelivery(), xa, connection, storageManager, postOffice, resourceManager, securityStore, managementService, this, configuration.getManagementAddress(), defaultAddress == null ? null : new SimpleString(defaultAddress), callback, context, pagingManager);
+    }
+ 
+    @Override
+@@ -1497,56 +1463,75 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+    @Override
+    public Queue createQueue(final SimpleString address,
+-                            final RoutingType routingType,
+                             final SimpleString queueName,
+                             final SimpleString filterString,
+                             final boolean durable,
+                             final boolean temporary) throws Exception {
+-      AddressSettings as = getAddressSettingsRepository().getMatch(address.toString());
+-      return createQueue(address, routingType, queueName, filterString, durable, temporary, as.getDefaultMaxConsumers(), as.isDefaultDeleteOnNoConsumers(), as.isAutoCreateAddresses());
++      return createQueue(address, queueName, filterString, null, durable, temporary, false, false, false);
+    }
+ 
+    @Override
+    public Queue createQueue(final SimpleString address,
+-                            final RoutingType routingType,
+                             final SimpleString queueName,
+-                            final SimpleString filter,
++                            final SimpleString filterString,
+                             final boolean durable,
+                             final boolean temporary,
+-                            final int maxConsumers,
+-                            final boolean deleteOnNoConsumers,
++                            final Integer maxConsumers,
++                            final Boolean deleteOnNoConsumers,
+                             final boolean autoCreateAddress) throws Exception {
+-      return createQueue(address, routingType, queueName, filter, null, durable, temporary, false, maxConsumers, deleteOnNoConsumers, autoCreateAddress);
++      return createQueue(address, queueName, filterString, null, durable, temporary, false, false, false, maxConsumers, deleteOnNoConsumers, autoCreateAddress);
++   }
++
++   @Override
++   public Queue createQueue(final SimpleString address,
++                            final SimpleString queueName,
++                            final SimpleString filterString,
++                            final SimpleString user,
++                            final boolean durable,
++                            final boolean temporary) throws Exception {
++      return createQueue(address, queueName, filterString, user, durable, temporary, false, false, false);
+    }
+ 
+    @Override
+    public Queue createQueue(SimpleString address,
+-                            RoutingType routingType,
+                             SimpleString queueName,
+                             SimpleString filter,
+                             SimpleString user,
+                             boolean durable,
+                             boolean temporary,
+-                            boolean autoCreated,
+                             Integer maxConsumers,
+                             Boolean deleteOnNoConsumers,
+                             boolean autoCreateAddress) throws Exception {
+-      return createQueue(address, routingType, queueName, filter, user, durable, temporary, false, false, autoCreated, maxConsumers, deleteOnNoConsumers, autoCreateAddress);
++      return createQueue(address, queueName, filter, user, durable, temporary, false, false, false, maxConsumers, deleteOnNoConsumers, autoCreateAddress);
+    }
+ 
+-   @Deprecated
+    @Override
+    public Queue createQueue(final SimpleString address,
+                             final SimpleString queueName,
+                             final SimpleString filterString,
++                            final SimpleString user,
+                             final boolean durable,
+-                            final boolean temporary) throws Exception {
+-      return createQueue(address, getAddressSettingsRepository().getMatch(address.toString()).getDefaultQueueRoutingType(), queueName, filterString, durable, temporary);
++                            final boolean temporary,
++                            final boolean autoCreated) throws Exception {
++      return createQueue(address, queueName, filterString, user, durable, temporary, false, false, autoCreated);
++   }
++
++   @Override
++   public Queue createQueue(SimpleString address,
++                            SimpleString queueName,
++                            SimpleString filter,
++                            SimpleString user,
++                            boolean durable,
++                            boolean temporary,
++                            boolean autoCreated,
++                            Integer maxConsumers,
++                            Boolean deleteOnNoConsumers,
++                            boolean autoCreateAddress) throws Exception {
++      return createQueue(address, queueName, filter, user, durable, temporary, false, false, autoCreated, maxConsumers, deleteOnNoConsumers, autoCreateAddress);
+    }
+ 
+    @Override
+    public void createSharedQueue(final SimpleString address,
+-                                 RoutingType routingType,
+                                  final SimpleString name,
+                                  final SimpleString filterString,
+                                  final SimpleString user,
+@@ -1555,16 +1540,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       if (address == null) {
+          throw new NullPointerException("address can't be null!");
+       }
+-
+-      if (routingType == null) {
+-         AddressInfo addressInfo = getAddressInfo(address);
+-         routingType = addressInfo.getRoutingTypes().size() == 1 ? addressInfo.getRoutingType() : getAddressSettingsRepository().getMatch(address.toString()).getDefaultQueueRoutingType();
+-         if (routingType == null) {
+-            // TODO (mtaylor) throw exception Can not determine routing type info from address
+-         }
+-      }
+-
+-      final Queue queue = createQueue(address, routingType, name, filterString, user, durable, !durable, true, !durable, false, Queue.MAX_CONSUMERS_UNLIMITED, false, true);
++      final Queue queue = createQueue(address, name, filterString, user, durable, !durable, true, !durable, false);
+ 
+       if (!queue.getAddress().equals(address)) {
+          throw ActiveMQMessageBundle.BUNDLE.queueSubscriptionBelongsToDifferentAddress(name);
+@@ -1597,24 +1573,40 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       return (Queue) binding.getBindable();
+    }
+ 
+-   @Deprecated
+    @Override
+    public Queue deployQueue(final SimpleString address,
+                             final SimpleString resourceName,
+                             final SimpleString filterString,
+                             final boolean durable,
+                             final boolean temporary) throws Exception {
+-      return createQueue(address, getAddressSettingsRepository().getMatch(address.toString()).getDefaultQueueRoutingType(), resourceName, filterString, durable, temporary);
++      return deployQueue(address, resourceName, filterString, durable, temporary, false);
+    }
+ 
+-   @Deprecated
+    @Override
+-   public Queue deployQueue(final String address,
+-                            final String resourceName,
+-                            final String filterString,
++   public Queue deployQueue(final SimpleString address,
++                            final SimpleString queueName,
++                            final SimpleString filterString,
+                             final boolean durable,
+-                            final boolean temporary) throws Exception {
+-      return deployQueue(SimpleString.toSimpleString(address), SimpleString.toSimpleString(resourceName), SimpleString.toSimpleString(filterString), durable, temporary);
++                            final boolean temporary,
++                            final boolean autoCreated) throws Exception {
++      return deployQueue(address, queueName, filterString, durable, temporary, autoCreated, null, null, true);
++   }
++
++   @Override
++   public Queue deployQueue(final SimpleString address,
++                            final SimpleString queueName,
++                            final SimpleString filterString,
++                            final boolean durable,
++                            final boolean temporary,
++                            final boolean autoCreated,
++                            final Integer maxConsumers,
++                            final Boolean deleteOnNoConsumers,
++                            final boolean autoCreateAddress) throws Exception {
++
++      // TODO: fix logging here as this could be for a topic or queue
++      ActiveMQServerLogger.LOGGER.deployQueue(queueName);
++
++      return createQueue(address, queueName, filterString, null, durable, temporary, true, false, autoCreated, maxConsumers, deleteOnNoConsumers, autoCreateAddress);
+    }
+ 
+    @Override
+@@ -1634,7 +1626,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+    public void destroyQueue(final SimpleString queueName,
+                             final SecurityAuth session,
+                             final boolean checkConsumerCount) throws Exception {
+-      destroyQueue(queueName, session, checkConsumerCount, false);
++      destroyQueue(queueName, session, checkConsumerCount, false, true);
+    }
+ 
+    @Override
+@@ -1642,19 +1634,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+                             final SecurityAuth session,
+                             final boolean checkConsumerCount,
+                             final boolean removeConsumers) throws Exception {
+-      if (postOffice == null) {
+-         return;
+-      }
+-
+-      Binding binding = postOffice.getBinding(queueName);
+-
+-      if (binding == null) {
+-         throw ActiveMQMessageBundle.BUNDLE.noSuchQueue(queueName);
+-      }
+-
+-      String address = binding.getAddress().toString();
+-
+-      destroyQueue(queueName, session, checkConsumerCount, removeConsumers, addressSettingsRepository.getMatch(address).isAutoDeleteAddresses());
++      destroyQueue(queueName, session, checkConsumerCount, removeConsumers, true);
+    }
+ 
+    @Override
+@@ -1696,9 +1676,9 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+       queue.deleteQueue(removeConsumers);
+ 
+-      if (autoDeleteAddress && postOffice != null && getAddressInfo(address).isAutoCreated()) {
++      if (autoDeleteAddress && postOffice != null) {
+          try {
+-            removeAddressInfo(address, session);
++            postOffice.removeAddressInfo(address);
+          } catch (ActiveMQDeleteAddressException e) {
+             // Could be thrown if the address has bindings or is not deletable.
+          }
+@@ -1839,7 +1819,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+       Filter filter = FilterImpl.createFilter(config.getFilterString());
+ 
+-      Divert divert = new DivertImpl(new SimpleString(config.getForwardingAddress()), sName, new SimpleString(config.getRoutingName()), config.isExclusive(), filter, transformer, postOffice, storageManager, config.getRoutingType());
++      Divert divert = new DivertImpl(new SimpleString(config.getForwardingAddress()), sName, new SimpleString(config.getRoutingName()), config.isExclusive(), filter, transformer, postOffice, storageManager);
+ 
+       Binding binding = new DivertBinding(storageManager.generateID(), sAddress, divert);
+ 
+@@ -2066,7 +2046,7 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       pagingManager = createPagingManager();
+ 
+       resourceManager = new ResourceManagerImpl((int) (configuration.getTransactionTimeout() / 1000), configuration.getTransactionTimeoutScanPeriod(), scheduledPool);
+-      postOffice = new PostOfficeImpl(this, storageManager, pagingManager, queueFactory, managementService, configuration.getMessageExpiryScanPeriod(), configuration.getMessageExpiryThreadPriority(), configuration.getWildcardConfiguration(), configuration.getIDCacheSize(), configuration.isPersistIDCache(), addressSettingsRepository);
++      postOffice = new PostOfficeImpl(this, storageManager, pagingManager, queueFactory, managementService, configuration.getMessageExpiryScanPeriod(), configuration.getMessageExpiryThreadPriority(), configuration.isWildcardRoutingEnabled(), configuration.getIDCacheSize(), configuration.isPersistIDCache(), addressSettingsRepository);
+ 
+       // This can't be created until node id is set
+       clusterManager = new ClusterManager(executorFactory, this, postOffice, scheduledPool, managementService, configuration, nodeManager, haPolicy.isBackup());
+@@ -2143,6 +2123,16 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       // Deploy any predefined queues
+       deployQueuesFromConfiguration();
+ 
++      //      registerPostQueueDeletionCallback(new PostQueueDeletionCallback() {
++      //         // TODO delete auto-created addresses when queueCount == 0
++      //         @Override
++      //         public void callback(SimpleString address, SimpleString queueName) throws Exception {
++      //            if (getAddressInfo(address).isAutoCreated()) {
++      //               removeAddressInfo(address);
++      //            }
++      //         }
++      //      });
++
+       // We need to call this here, this gives any dependent server a chance to deploy its own addresses
+       // this needs to be done before clustering is fully activated
+       callActivateCallbacks();
+@@ -2220,17 +2210,19 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+    private void deployAddressesFromConfiguration() throws Exception {
+       for (CoreAddressConfiguration config : configuration.getAddressConfigurations()) {
+-         AddressInfo info = new AddressInfo(SimpleString.toSimpleString(config.getName()), config.getRoutingTypes());
+-         addOrUpdateAddressInfo(info);
++         AddressInfo info = new AddressInfo(SimpleString.toSimpleString(config.getName()));
++         info.setRoutingType(config.getRoutingType());
++         info.setDefaultDeleteOnNoConsumers(config.getDefaultDeleteOnNoConsumers());
++         info.setDefaultMaxQueueConsumers(config.getDefaultMaxConsumers());
++
++         createOrUpdateAddressInfo(info);
+          deployQueuesFromListCoreQueueConfiguration(config.getQueueConfigurations());
+       }
+    }
+ 
+    private void deployQueuesFromListCoreQueueConfiguration(List<CoreQueueConfiguration> queues) throws Exception {
+       for (CoreQueueConfiguration config : queues) {
+-         ActiveMQServerLogger.LOGGER.deployQueue(SimpleString.toSimpleString(config.getName()));
+-
+-         createQueue(SimpleString.toSimpleString(config.getAddress()), config.getRoutingType(), SimpleString.toSimpleString(config.getName()), SimpleString.toSimpleString(config.getFilterString()), null, config.isDurable(), false, true, false, false, config.getMaxConsumers(), config.getDeleteOnNoConsumers(), true);
++         deployQueue(SimpleString.toSimpleString(config.getAddress()), SimpleString.toSimpleString(config.getName()), SimpleString.toSimpleString(config.getFilterString()), config.isDurable(), false, false, config.getMaxConsumers(), config.getDeleteOnNoConsumers(), true);
+       }
+    }
+ 
+@@ -2273,16 +2265,16 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+ 
+       recoverStoredConfigs();
+ 
+-      Map<Long, AddressBindingInfo> addressBindingInfosMap = new HashMap<>();
+-
+-      journalLoader.initAddresses(addressBindingInfosMap, addressBindingInfos);
+-
+       Map<Long, QueueBindingInfo> queueBindingInfosMap = new HashMap<>();
+ 
+       journalLoader.initQueues(queueBindingInfosMap, queueBindingInfos);
+ 
+       journalLoader.handleGroupingBindings(groupingInfos);
+ 
++      Map<Long, AddressBindingInfo> addressBindingInfosMap = new HashMap<>();
++
++      journalLoader.initAddresses(addressBindingInfosMap, addressBindingInfos);
++
+       Map<SimpleString, List<Pair<byte[], Long>>> duplicateIDMap = new HashMap<>();
+ 
+       HashSet<Pair<Long, Long>> pendingLargeMessages = new HashSet<>();
+@@ -2327,70 +2319,54 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       List<PersistedRoles> roles = storageManager.recoverPersistedRoles();
+ 
+       for (PersistedRoles roleItem : roles) {
+-         Set<Role> setRoles = SecurityFormatter.createSecurity(roleItem.getSendRoles(), roleItem.getConsumeRoles(), roleItem.getCreateDurableQueueRoles(), roleItem.getDeleteDurableQueueRoles(), roleItem.getCreateNonDurableQueueRoles(), roleItem.getDeleteNonDurableQueueRoles(), roleItem.getManageRoles(), roleItem.getBrowseRoles(), roleItem.getCreateAddressRoles(), roleItem.getDeleteAddressRoles());
++         Set<Role> setRoles = SecurityFormatter.createSecurity(roleItem.getSendRoles(), roleItem.getConsumeRoles(), roleItem.getCreateDurableQueueRoles(), roleItem.getDeleteDurableQueueRoles(), roleItem.getCreateNonDurableQueueRoles(), roleItem.getDeleteNonDurableQueueRoles(), roleItem.getManageRoles(), roleItem.getBrowseRoles(), roleItem.getCreateAddressRoles());
+ 
+          securityRepository.addMatch(roleItem.getAddressMatch().toString(), setRoles);
+       }
+    }
+ 
+    @Override
+-   public boolean updateAddressInfo(SimpleString address, Collection<RoutingType> routingTypes) throws Exception {
+-      if (getAddressInfo(address) == null) {
+-         return false;
+-      }
++   public AddressInfo putAddressInfoIfAbsent(AddressInfo addressInfo) throws Exception {
++      AddressInfo result = postOffice.addAddressInfo(addressInfo);
+ 
+-      //after the postOffice call, updatedAddressInfo could change further (concurrently)!
+-      final AddressInfo updatedAddressInfo = postOffice.updateAddressInfo(address, routingTypes);
+-      //it change the address info without any lock!
+-      final long txID = storageManager.generateID();
+-      try {
+-         storageManager.deleteAddressBinding(txID, updatedAddressInfo.getId());
+-         storageManager.addAddressBinding(txID, updatedAddressInfo);
+-      } finally {
+-         storageManager.commitBindings(txID);
+-      }
++      // TODO: is this the right way to do this?
++      long txID = storageManager.generateID();
++      storageManager.addAddressBinding(txID, addressInfo);
++      storageManager.commitBindings(txID);
+ 
+-      return true;
++      return result;
+    }
+ 
+    @Override
+-   public boolean addAddressInfo(AddressInfo addressInfo) throws Exception {
+-      boolean result = postOffice.addAddressInfo(addressInfo);
+-
+-      if (result) {
+-         long txID = storageManager.generateID();
+-         storageManager.addAddressBinding(txID, addressInfo);
+-         storageManager.commitBindings(txID);
+-      } else {
+-         result = false;
++   public void createAddressInfo(AddressInfo addressInfo) throws Exception {
++      if (putAddressInfoIfAbsent(addressInfo) != null) {
++         throw ActiveMQMessageBundle.BUNDLE.addressAlreadyExists(addressInfo.getName());
+       }
+-
+-      return result;
+    }
+ 
+    @Override
+-   public AddressInfo addOrUpdateAddressInfo(AddressInfo addressInfo) throws Exception {
+-      if (!addAddressInfo(addressInfo)) {
+-         updateAddressInfo(addressInfo.getName(), addressInfo.getRoutingTypes());
+-      }
++   public AddressInfo createOrUpdateAddressInfo(AddressInfo addressInfo) throws Exception {
++      AddressInfo result = postOffice.addOrUpdateAddressInfo(addressInfo);
+ 
+-      return getAddressInfo(addressInfo.getName());
++      // TODO: is this the right way to do this?
++      long txID = storageManager.generateID();
++      storageManager.addAddressBinding(txID, addressInfo);
++      storageManager.commitBindings(txID);
++
++      return result;
+    }
+ 
+    @Override
+-   public void removeAddressInfo(final SimpleString address, final SecurityAuth auth) throws Exception {
+-      if (auth != null) {
+-         securityStore.check(address, CheckType.DELETE_ADDRESS, auth);
+-      }
+-
+-      AddressInfo addressInfo = getAddressInfo(address);
++   public void removeAddressInfo(SimpleString address) throws Exception {
+       if (postOffice.removeAddressInfo(address) == null) {
+          throw ActiveMQMessageBundle.BUNDLE.addressDoesNotExist(address);
+-      }
++      };
++
++      // TODO: is this the right way to do this?
++      //      long txID = storageManager.generateID();
++      //      storageManager.deleteAddressBinding(txID, getAddressInfo(address).getID());
++      //      storageManager.commitBindings(txID);
+ 
+-      long txID = storageManager.generateID();
+-      storageManager.deleteAddressBinding(txID, addressInfo.getId());
+-      storageManager.commitBindings(txID);
+    }
+ 
+    @Override
+@@ -2403,9 +2379,20 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       return postOffice.getAddressInfo(address);
+    }
+ 
++   private Queue createQueue(final SimpleString addressName,
++                             final SimpleString queueName,
++                             final SimpleString filterString,
++                             final SimpleString user,
++                             final boolean durable,
++                             final boolean temporary,
++                             final boolean ignoreIfExists,
++                             final boolean transientQueue,
++                             final boolean autoCreated) throws Exception {
++      return createQueue(addressName, queueName, filterString, user, durable, temporary, ignoreIfExists, transientQueue, autoCreated, null, null, true);
++   }
++
+    @Override
+-   public Queue createQueue(final SimpleString address,
+-                            final RoutingType routingType,
++   public Queue createQueue(final SimpleString addressName,
+                             final SimpleString queueName,
+                             final SimpleString filterString,
+                             final SimpleString user,
+@@ -2414,8 +2401,8 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+                             final boolean ignoreIfExists,
+                             final boolean transientQueue,
+                             final boolean autoCreated,
+-                            final int maxConsumers,
+-                            final boolean deleteOnNoConsumers,
++                            final Integer maxConsumers,
++                            final Boolean deleteOnNoConsumers,
+                             final boolean autoCreateAddress) throws Exception {
+ 
+       final QueueBinding binding = (QueueBinding) postOffice.getBinding(queueName);
+@@ -2433,46 +2420,49 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       final long queueID = storageManager.generateID();
+ 
+       final QueueConfig.Builder queueConfigBuilder;
+-      if (address == null) {
++      if (addressName == null) {
+          queueConfigBuilder = QueueConfig.builderWith(queueID, queueName);
+       } else {
+-         queueConfigBuilder = QueueConfig.builderWith(queueID, queueName, address);
+-      }
+-
+-      AddressInfo info = postOffice.getAddressInfo(address);
+-
+-      if (autoCreateAddress) {
+-         RoutingType rt = (routingType == null ? ActiveMQDefaultConfiguration.getDefaultRoutingType() : routingType);
+-         if (info == null) {
+-            final AddressInfo addressInfo = new AddressInfo(address, rt);
+-            addressInfo.setAutoCreated(true);
+-            addAddressInfo(addressInfo);
+-         } else if (!info.getRoutingTypes().contains(routingType)) {
+-            Set<RoutingType> routingTypes = new HashSet<>();
+-            routingTypes.addAll(info.getRoutingTypes());
+-            routingTypes.add(routingType);
+-            updateAddressInfo(info.getName(), routingTypes);
++         queueConfigBuilder = QueueConfig.builderWith(queueID, queueName, addressName);
++      }
++
++      AddressInfo defaultAddressInfo = new AddressInfo(addressName);
++      AddressInfo info = postOffice.getAddressInfo(addressName);
++
++      if (info == null) {
++         if (autoCreateAddress) {
++            info = defaultAddressInfo;
++         } else {
++            throw ActiveMQMessageBundle.BUNDLE.addressDoesNotExist(addressName);
+          }
+-      } else if (info == null) {
+-         throw ActiveMQMessageBundle.BUNDLE.addressDoesNotExist(address);
+-      } else if (!info.getRoutingTypes().contains(routingType)) {
+-         throw ActiveMQMessageBundle.BUNDLE.invalidRoutingTypeForAddress(routingType, info.getName().toString(), info.getRoutingTypes());
+       }
+ 
+-      final QueueConfig queueConfig = queueConfigBuilder.filter(filter).pagingManager(pagingManager).user(user).durable(durable).temporary(temporary).autoCreated(autoCreated).routingType(routingType).maxConsumers(maxConsumers).deleteOnNoConsumers(deleteOnNoConsumers).build();
++      final boolean isDeleteOnNoConsumers = deleteOnNoConsumers == null ? info.isDefaultDeleteOnNoConsumers() : deleteOnNoConsumers;
++      final int noMaxConsumers = maxConsumers == null ? info.getDefaultMaxQueueConsumers() : maxConsumers;
+ 
++      final QueueConfig queueConfig = queueConfigBuilder.filter(filter).pagingManager(pagingManager).user(user).durable(durable).temporary(temporary).autoCreated(autoCreated).deleteOnNoConsumers(isDeleteOnNoConsumers).maxConsumers(noMaxConsumers).build();
+       final Queue queue = queueFactory.createQueueWith(queueConfig);
+ 
++      boolean addressAlreadyExists = true;
++
++      if (postOffice.getAddressInfo(queue.getAddress()) == null) {
++         postOffice.addAddressInfo(new AddressInfo(queue.getAddress()).setRoutingType(AddressInfo.RoutingType.MULTICAST).setDefaultMaxQueueConsumers(maxConsumers == null ? ActiveMQDefaultConfiguration.getDefaultMaxQueueConsumers() : maxConsumers));
++         addressAlreadyExists = false;
++      }
++
+       if (transientQueue) {
+          queue.setConsumersRefCount(new TransientQueueManagerImpl(this, queue.getName()));
+       } else if (queue.isAutoCreated()) {
+          queue.setConsumersRefCount(new AutoCreatedQueueManagerImpl(this, queue.getName()));
+       }
+ 
+-      final QueueBinding localQueueBinding = new LocalQueueBinding(queue.getAddress(), queue, nodeManager.getNodeId());
++      final QueueBinding localQueueBinding = new LocalQueueBinding(getAddressInfo(queue.getAddress()), queue, nodeManager.getNodeId());
+ 
+       if (queue.isDurable()) {
+          storageManager.addQueueBinding(txID, localQueueBinding);
++         if (!addressAlreadyExists) {
++            storageManager.addAddressBinding(txID, getAddressInfo(queue.getAddress()));
++         }
+       }
+ 
+       try {
+@@ -2506,31 +2496,6 @@ public class ActiveMQServerImpl implements ActiveMQServer {
+       return queue;
+    }
+ 
+-   @Override
+-   public Queue updateQueue(String name,
+-                            RoutingType routingType,
+-                            Integer maxConsumers,
+-                            Boolean deleteOnNoConsumers) throws Exception {
+-      final QueueBinding queueBinding = this.postOffice.updateQueue(new SimpleString(name), routingType, maxConsumers, deleteOnNoConsumers);
+-      if (queueBinding != null) {
+-         final Queue queue = queueBinding.getQueue();
+-         if (queue.isDurable()) {
+-            final long txID = storageManager.generateID();
+-            try {
+-               storageManager.deleteQueueBinding(txID, queueBinding.getID());
+-               storageManager.addQueueBinding(txID, queueBinding);
+-               storageManager.commitBindings(txID);
+-            } catch (Throwable throwable) {
+-               storageManager.rollbackBindings(txID);
+-               throw throwable;
+-            }
+-         }
+-         return queue;
+-      } else {
+-         return null;
+-      }
+-   }
+-
+    private void deployDiverts() throws Exception {
+       for (DivertConfiguration config : configuration.getDivertConfigurations()) {
+          deployDivert(config);

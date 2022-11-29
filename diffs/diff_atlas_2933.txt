@@ -1,0 +1,882 @@
+diff --git a/repository/src/main/java/org/apache/atlas/query/QueryProcessor.java b/repository/src/main/java/org/apache/atlas/query/QueryProcessor.java
+index 599f37042..60480a10e 100644
+--- a/repository/src/main/java/org/apache/atlas/query/QueryProcessor.java
++++ b/repository/src/main/java/org/apache/atlas/query/QueryProcessor.java
+@@ -22,10 +22,13 @@ import org.apache.atlas.exception.AtlasBaseException;
+ import org.apache.atlas.model.TypeCategory;
+ import org.apache.atlas.model.discovery.SearchParameters;
+ import org.apache.atlas.query.Expressions.Expression;
+-import org.apache.atlas.type.*;
++import org.apache.atlas.type.AtlasArrayType;
++import org.apache.atlas.type.AtlasBuiltInTypes;
++import org.apache.atlas.type.AtlasEntityType;
++import org.apache.atlas.type.AtlasStructType;
++import org.apache.atlas.type.AtlasType;
++import org.apache.atlas.type.AtlasTypeRegistry;
+ import org.apache.commons.lang.StringUtils;
+-import org.apache.commons.lang3.tuple.Pair;
+-import org.joda.time.DateTime;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+@@ -35,196 +38,167 @@ import java.util.HashMap;
+ import java.util.LinkedList;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
+ 
+ public class QueryProcessor {
+     private static final Logger LOG = LoggerFactory.getLogger(QueryProcessor.class);
+ 
+     private final int DEFAULT_QUERY_RESULT_LIMIT = 25;
+-    private final int DEFAULT_QUERY_RESULT_OFFSET = 0;
+ 
+-    private final boolean isNestedQuery;
+-    private final List<String>      errorList    = new ArrayList<>();
+-    private final GremlinClauseList queryClauses = new GremlinClauseList();
+-    private int providedLimit = DEFAULT_QUERY_RESULT_LIMIT;
+-    private int providedOffset = DEFAULT_QUERY_RESULT_OFFSET;
++    private final Pattern SINGLE_QUOTED_IDENTIFIER   = Pattern.compile("'(\\w[\\w\\d\\.\\s]*)'");
++    private final Pattern DOUBLE_QUOTED_IDENTIFIER   = Pattern.compile("\"(\\w[\\w\\d\\.\\s]*)\"");
++    private final Pattern BACKTICK_QUOTED_IDENTIFIER = Pattern.compile("`(\\w[\\w\\d\\.\\s]*)`");
++
++    private final List<String> errorList         = new ArrayList<>();
++    private final GremlinClauseList queryClauses = new GremlinClauseList(errorList);
+     private int currentStep;
+-    private final org.apache.atlas.query.Lookup lookup;
+-    private Context context;
++    private final TypeRegistryLookup registryLookup;
+ 
+     @Inject
+     public QueryProcessor(AtlasTypeRegistry typeRegistry) {
+-        this.isNestedQuery = false;
+-        lookup = new Lookup(errorList, typeRegistry);
+-        context = new Context(errorList, lookup);
++        registryLookup = new TypeRegistryLookup(errorList, typeRegistry);
+         init();
+     }
+ 
+-    public QueryProcessor(AtlasTypeRegistry typeRegistry, int limit, int offset) {
+-        this(typeRegistry);
+-        this.providedLimit = limit;
+-        this.providedOffset = offset < 0 ? DEFAULT_QUERY_RESULT_OFFSET : offset;
+-    }
+-
+     @VisibleForTesting
+-    QueryProcessor(org.apache.atlas.query.Lookup lookup, Context context) {
+-        this.isNestedQuery = false;
+-        this.lookup = lookup;
+-        this.context = context;
++    public QueryProcessor(TypeRegistryLookup lookup) {
++        registryLookup = lookup;
+         init();
+     }
+ 
+-    public QueryProcessor(org.apache.atlas.query.Lookup registryLookup, boolean isNestedQuery) {
+-        this.isNestedQuery = isNestedQuery;
+-        this.lookup = registryLookup;
+-        init();
++    private void init() {
++        add(GremlinClause.G);
++        add(GremlinClause.V);
+     }
+ 
+     public Expression validate(Expression expression) {
+         return expression.isReady();
+     }
+ 
+-    private void init() {
+-        if (!isNestedQuery) {
+-            add(GremlinClause.G);
+-            add(GremlinClause.V);
+-        } else {
+-            add(GremlinClause.NESTED_START);
+-        }
+-    }
+-
+     public void addFrom(String typeName) {
+         if (LOG.isDebugEnabled()) {
+             LOG.debug("addFrom(typeName={})", typeName);
+         }
+ 
+-        IdentifierHelper.Advice ta = getAdvice(typeName);
+-        if(context.shouldRegister(ta.get())) {
+-            context.registerActive(ta.get());
++        String actualTypeName = extractIdentifier(typeName);
+ 
+-            IdentifierHelper.Advice ia = getAdvice(ta.get());
+-            if (ia.isTrait()) {
+-                add(GremlinClause.TRAIT, ia.get());
++        if(registryLookup.isTypeTrait(actualTypeName)) {
++            addTraitAndRegister(actualTypeName);
++        } else if (!registryLookup.hasActiveType()) {
++            registryLookup.registerActive(actualTypeName);
++            if(registryLookup.doesActiveTypeHaveSubTypes()) {
++                add(GremlinClause.HAS_TYPE_WITHIN, registryLookup.getActiveTypeAndSubTypes());
+             } else {
+-                if (ia.hasSubtypes()) {
+-                    add(GremlinClause.HAS_TYPE_WITHIN, ia.getSubTypes());
+-                } else {
+-                    add(GremlinClause.HAS_TYPE, ia.get());
+-                }
++                add(GremlinClause.HAS_TYPE, actualTypeName);
+             }
+         } else {
+-            IdentifierHelper.Advice ia = getAdvice(ta.get());
+-            introduceType(ia);
++            add(GremlinClause.OUT, registryLookup.getRelationshipEdgeLabelForActiveType(actualTypeName));
++            registryLookup.registerActive(registryLookup.getTypeFromEdge(actualTypeName));
+         }
+     }
+ 
+-    private void introduceType(IdentifierHelper.Advice ia) {
+-        if (!ia.isPrimitive() && ia.getIntroduceType()) {
+-            add(GremlinClause.OUT, ia.getEdgeLabel());
+-            context.registerActive(ia.getTypeName());
+-        }
+-    }
+-
+-    private IdentifierHelper.Advice getAdvice(String actualTypeName) {
+-        return IdentifierHelper.create(context, lookup, actualTypeName);
+-    }
+-
+-    public void addFromProperty(String typeName, String attribute) {
++    private void addTraitAndRegister(String typeName) {
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addFromProperty(typeName={}, attribute={})", typeName, attribute);
++            LOG.debug("addTraitAndRegister(typeName={})", typeName);
+         }
+ 
+-        addFrom(typeName);
+-        add(GremlinClause.HAS_PROPERTY,
+-                IdentifierHelper.getQualifiedName(lookup, context, attribute));
+-    }
+-
+-
+-    public void addFromIsA(String typeName, String traitName) {
+-        addFrom(typeName);
+-        add(GremlinClause.TRAIT, traitName);
++        add(GremlinClause.TRAIT, typeName);
++        registryLookup.registerActive(typeName);
+     }
+ 
+-    public void addWhere(String lhs, String operator, String rhs) {
++    public void addFromIsA(String typeName, String trait) {
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addWhere(lhs={}, operator={}, rhs={})", lhs, operator, rhs);
++            LOG.debug("addFromIsA(typeName={}, trait={})", typeName, trait);
+         }
+ 
+-        String currentType  = context.getActiveTypeName();
+-        SearchParameters.Operator op = SearchParameters.Operator.fromString(operator);
+-        IdentifierHelper.Advice org = null;
+-        IdentifierHelper.Advice lhsI = getAdvice(lhs);
+-        if(lhsI.isPrimitive() == false) {
+-            introduceType(lhsI);
+-            org = lhsI;
+-            lhsI = getAdvice(lhs);
++        if(!registryLookup.hasActiveType()) {
++            addFrom(typeName);
+         }
+ 
+-        if(lhsI.isDate()) {
+-            rhs = parseDate(rhs);
+-        }
++        add(GremlinClause.TRAIT, trait);
++    }
+ 
+-        rhs = addQuotesIfNecessary(rhs);
+-        if(op == SearchParameters.Operator.LIKE) {
+-            add(GremlinClause.TEXT_CONTAINS, lhsI.getQualifiedName(), rhs.replace("*", ".*").replace('?', '.'));
+-        } else if(op == SearchParameters.Operator.IN) {
+-            add(GremlinClause.HAS_OPERATOR, lhsI.getQualifiedName(), "within", rhs);
+-        } else {
+-            add(GremlinClause.HAS_OPERATOR, lhsI.getQualifiedName(), op.getSymbols()[1], rhs);
++    public void addFromProperty(String typeName, String attribute) {
++        if (LOG.isDebugEnabled()) {
++            LOG.debug("addFromIsA(typeName={}, attribute={})", typeName, attribute);
+         }
+ 
+-        if(org != null && org.isPrimitive() == false && org.getIntroduceType()) {
+-            add(GremlinClause.IN, org.getEdgeLabel());
+-            context.registerActive(currentType);
++        if(registryLookup.isSameAsActive(typeName) == false) {
++            addFrom(typeName);
+         }
+-    }
+ 
+-    private String addQuotesIfNecessary(String rhs) {
+-        if(IdentifierHelper.isQuoted(rhs)) return rhs;
+-        return quoted(rhs);
++        add(GremlinClause.HAS_PROPERTY, registryLookup.getQualifiedAttributeName(attribute));
+     }
+ 
+-    private static String quoted(String rhs) {
+-        return IdentifierHelper.getQuoted(rhs);
+-    }
++    public void addFromAlias(String typeName, String alias) {
++        if (LOG.isDebugEnabled()) {
++            LOG.debug("addFromAlias(typeName={}, alias={})", typeName, alias);
++        }
+ 
+-    private String parseDate(String rhs) {
+-        String s = IdentifierHelper.isQuoted(rhs) ?
+-                IdentifierHelper.removeQuotes(rhs) :
+-                rhs;
+-        return String.format("'%d'", DateTime.parse(s).getMillis());
++        addFrom(typeName);
++        addAsClause(alias);
+     }
+ 
+-    public void addAndClauses(List<String> clauses) {
+-        queryClauses.add(GremlinClause.AND, StringUtils.join(clauses, ','));
+-    }
++    public void addWhere(String lhs, String operator, String rhs) {
++        if (LOG.isDebugEnabled()) {
++            LOG.debug("addWhere(lhs={}, operator={}, rhs={})", lhs, operator, rhs);
++        }
+ 
+-    public void addOrClauses(List<String> clauses) {
+-        queryClauses.add(GremlinClause.OR, StringUtils.join(clauses, ','));
+-    }
++        lhs = registryLookup.getQualifiedAttributeName(lhs);
+ 
+-    public void addSelect(List<Pair<String, String>> items) {
++        SearchParameters.Operator op = SearchParameters.Operator.fromString(operator);
++        switch (op) {
++            case LT:
++                add(GremlinClause.HAS_OPERATOR, lhs, "lt", rhs);
++                break;
++            case GT:
++                add(GremlinClause.HAS_OPERATOR, lhs, "gt", rhs);
++                break;
++            case LTE:
++                add(GremlinClause.HAS_OPERATOR, lhs, "lte", rhs);
++                break;
++            case GTE:
++                add(GremlinClause.HAS_OPERATOR, lhs, "gte", rhs);
++                break;
++            case EQ:
++                add(GremlinClause.HAS_OPERATOR, lhs, "eq", rhs);
++                break;
++            case NEQ:
++                add(GremlinClause.HAS_OPERATOR, lhs, "neq", rhs);
++                break;
++            case IN:
++                // TODO: Handle multiple RHS values
++                add(GremlinClause.HAS_OPERATOR, lhs, "within", rhs);
++                break;
++            case LIKE:
++                add(GremlinClause.TEXT_CONTAINS, lhs, rhs.replace("*", ".*").replace('?', '.'));
++                break;
++        }
++    }
++
++    public void addSelect(String[] items) {
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addSelect(items.length={})", items != null ? items.size() : -1);
++            LOG.debug("addSelect(items.length={})", items != null ? items.length : -1);
+         }
+ 
+         StringBuilder sb = new StringBuilder();
+-        for (int i = 0; i < items.size(); i++) {
+-            IdentifierHelper.Advice ia = getAdvice(items.get(i).getLeft());
+-            if(StringUtils.isNotEmpty(items.get(i).getRight())) {
+-                context.aliasMap.put(items.get(i).getRight(), ia.getQualifiedName());
+-            }
+ 
+-            if(!ia.isPrimitive() && ia.getIntroduceType()) {
+-                add(GremlinClause.OUT, ia.getEdgeLabel());
++        for (int i = 0; i < items.length; i++) {
++            String s = registryLookup.getQualifiedAttributeName(items[i]);
++
++            if (items[i].contains(".") || registryLookup.isAttributePrimitiveTypeForActiveType(items[i])) {
++                sb.append(String.format("'%s'", s));
++
++                if (i != items.length - 1) {
++                    sb.append(", ");
++                }
++            } else {
++                add(GremlinClause.OUT, registryLookup.getRelationshipEdgeLabelForActiveType(items[i]));
+                 add(GremlinClause.AS, getCurrentStep());
+                 addSelectClause(getCurrentStep());
+                 incrementCurrentStep();
+-            }  else {
+-                sb.append(quoted(ia.getQualifiedName()));
+-            }
+-
+-            if (i != items.size() - 1) {
+-                sb.append(",");
+             }
+         }
+ 
+@@ -233,44 +207,62 @@ public class QueryProcessor {
+         }
+     }
+ 
+-    private void addSelectClause(String s) {
++    public void addLimit(String limit, String offset) {
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addSelectClause(s={})", s);
++            LOG.debug("addLimit(limit={}, offset={})", limit, offset);
+         }
+ 
+-        add(GremlinClause.SELECT, s);
+-    }
++        add(GremlinClause.ORDER);
+ 
+-    private String getCurrentStep() {
+-        return String.format("s%d", currentStep);
++        if (offset.equalsIgnoreCase("0")) {
++            add(GremlinClause.LIMIT, limit);
++        } else {
++            addRangeClause(offset, limit);
++        }
+     }
+ 
+-    private void incrementCurrentStep() {
+-        currentStep++;
+-    }
++    public void addGroupBy(String item) {
++        if (LOG.isDebugEnabled()) {
++            LOG.debug("addGroupBy(item={})", item);
++        }
+ 
+-    public QueryProcessor createNestedProcessor() {
+-        QueryProcessor qp = new QueryProcessor(lookup, true);
+-        qp.context = this.context;
+-        return qp;
++        add(GremlinClause.GROUP);
++        addByClause(item, false);
+     }
+ 
+-    private void addValueMapClause(String s) {
++    private void addRangeClause(String startIndex, String endIndex) {
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addValueMapClause(s={})", s);
++            LOG.debug("addRangeClause(startIndex={}, endIndex={})", startIndex, endIndex);
+         }
+ 
+-        add(GremlinClause.VALUE_MAP, s);
++        add(GremlinClause.RANGE, startIndex, startIndex, endIndex);
+     }
+ 
+-    public void addFromAlias(String typeName, String alias) {
++    public String getText() {
++        String[] items = new String[queryClauses.size()];
++
++        for (int i = 0; i < queryClauses.size(); i++) {
++            items[i] = queryClauses.getValue(i);
++        }
++
++        String ret = StringUtils.join(items, ".");
++
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addFromAlias(typeName={}, alias={})", typeName, alias);
++            LOG.debug("getText() => {}", ret);
+         }
+ 
+-        addFrom(typeName);
+-        addAsClause(alias);
+-        context.registerAlias(alias);
++        return ret;
++    }
++
++    public void close() {
++        if(queryClauses.hasClause(GremlinClause.LIMIT) == -1) {
++            add(GremlinClause.LIMIT, "" + DEFAULT_QUERY_RESULT_LIMIT);
++        }
++        add(GremlinClause.TO_LIST);
++    }
++
++    public boolean hasSelect() {
++        return (queryClauses.hasClause(GremlinClause.VALUE_MAP) != -1);
+     }
+ 
+     public void addAsClause(String stepName) {
+@@ -279,28 +271,32 @@ public class QueryProcessor {
+         }
+ 
+         add(GremlinClause.AS, stepName);
++        registryLookup.registerStepType(stepName);
+     }
+ 
+-    private void add(GremlinClause clause, String... args) {
+-        queryClauses.add(new GremlinClauseValue(clause, clause.get(args)));
++    public void addOrderBy(String name, boolean isDesc) {
++        if (LOG.isDebugEnabled()) {
++            LOG.debug("addOrderBy(name={}, isDesc={})", name, isDesc);
++        }
++
++        add(GremlinClause.ORDER);
++        addByClause(registryLookup.getQualifiedAttributeName(name), isDesc);
+     }
+ 
+-    private void addRangeClause(String startIndex, String endIndex) {
++    private void addValueMapClause(String s) {
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addRangeClause(startIndex={}, endIndex={})", startIndex, endIndex);
++            LOG.debug("addValueMapClause(s={})", s);
+         }
+ 
+-        add(GremlinClause.RANGE, startIndex, startIndex, endIndex);
++        add(GremlinClause.VALUE_MAP, s);
+     }
+ 
+-
+-    public void addGroupBy(String item) {
++    private void addSelectClause(String s) {
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("addGroupBy(item={})", item);
++            LOG.debug("addSelectClause(s={})", s);
+         }
+ 
+-        add(GremlinClause.GROUP);
+-        addByClause(item, false);
++        add(GremlinClause.SELECT, s);
+     }
+ 
+     private void addByClause(String name, boolean descr) {
+@@ -308,81 +304,47 @@ public class QueryProcessor {
+             LOG.debug("addByClause(name={})", name, descr);
+         }
+ 
+-        IdentifierHelper.Advice ia = getAdvice(name);
+         add((!descr) ? GremlinClause.BY : GremlinClause.BY_DESC,
+-                ia.getQualifiedName());
++                registryLookup.getQualifiedAttributeName(name));
+     }
+ 
+-    public void addLimit(String limit, String offset) {
+-        if (LOG.isDebugEnabled()) {
+-            LOG.debug("addLimit(limit={}, offset={})", limit, offset);
+-        }
+-
+-        if (offset.equalsIgnoreCase("0")) {
+-            add(GremlinClause.LIMIT, limit);
+-        } else {
+-            addRangeClause(offset, limit);
+-        }
++    private String getCurrentStep() {
++        return String.format("s%d", currentStep);
+     }
+ 
+-    public void close() {
+-        if (queryClauses.isEmpty()) {
+-            queryClauses.clear();
+-            return;
+-        }
+-
+-        if (queryClauses.hasClause(GremlinClause.LIMIT) == -1) {
+-            addLimit(Integer.toString(providedLimit), Integer.toString(providedOffset));
+-        }
+-
+-        add(GremlinClause.TO_LIST);
++    private void incrementCurrentStep() {
++        currentStep++;
+     }
+ 
+-    public String getText() {
+-        String[] items = new String[queryClauses.size()];
+-
+-        for (int i = 0; i < queryClauses.size(); i++) {
+-            items[i] = queryClauses.getValue(i);
+-        }
+-
+-        String ret = StringUtils.join(items, ".");
+-
+-        if (LOG.isDebugEnabled()) {
+-            LOG.debug("getText() => {}", ret);
+-        }
+-
+-        return ret;
++    private void add(GremlinClause clause, String... args) {
++        queryClauses.add(new GremlinClauseValue(clause, clause.get(args)));
+     }
+ 
+-    public boolean hasSelect() {
+-        return (queryClauses.hasClause(GremlinClause.VALUE_MAP) != -1);
+-    }
++    private String extractIdentifier(String quotedIdentifier) {
++        String ret;
+ 
+-    public void addOrderBy(String name, boolean isDesc) {
+-        if (LOG.isDebugEnabled()) {
+-            LOG.debug("addOrderBy(name={}, isDesc={})", name, isDesc);
++        if (quotedIdentifier.charAt(0) == '`') {
++            ret = extract(BACKTICK_QUOTED_IDENTIFIER, quotedIdentifier);
++        } else if (quotedIdentifier.charAt(0) == '\'') {
++            ret = extract(SINGLE_QUOTED_IDENTIFIER, quotedIdentifier);
++        } else if (quotedIdentifier.charAt(0) == '"') {
++            ret = extract(DOUBLE_QUOTED_IDENTIFIER, quotedIdentifier);
++        } else {
++            ret = quotedIdentifier;
+         }
+ 
+-        add(GremlinClause.ORDER);
+-        addByClause(name, isDesc);
+-        updateSelectClausePosition();
++        return ret;
+     }
+ 
+-    private void updateSelectClausePosition() {
+-        int selectClauseIndex = queryClauses.hasClause(GremlinClause.VALUE_MAP);
+-        if(-1 == selectClauseIndex) {
+-            return;
+-        }
+-
+-        GremlinClauseValue gcv = queryClauses.remove(selectClauseIndex);
+-        queryClauses.add(gcv);
++    private String extract(Pattern p, String s) {
++        Matcher m = p.matcher(s);
++        return m.find() ? m.group(1) : s;
+     }
+ 
+     private enum GremlinClause {
+         AS("as('%s')"),
+         BY("by('%s')"),
+         BY_DESC("by('%s', decr)"),
+-        DEDUP("dedup()"),
+         G("g"),
+         GROUP("group()"),
+         HAS("has('%s', %s)"),
+@@ -392,11 +354,7 @@ public class QueryProcessor {
+         HAS_TYPE("has('__typeName', '%s')"),
+         HAS_TYPE_WITHIN("has('__typeName', within(%s))"),
+         HAS_WITHIN("has('%s', within(%s))"),
+-        IN("in('%s')"),
+-        OR("or(%s)"),
+-        AND("and(%s)"),
+-        NESTED_START("__"),
+-        NESTED_HAS_OPERATOR("has('%s', %s(%s))"),
++        IN("in()"),
+         LIMIT("limit(%s)"),
+         ORDER("order()"),
+         OUT("out('%s')"),
+@@ -442,9 +400,13 @@ public class QueryProcessor {
+     }
+ 
+     private static class GremlinClauseList {
++        private final List<String> errorList;
++        private AtlasEntityType activeType;
++
+         private final List<GremlinClauseValue> list;
+ 
+-        private GremlinClauseList() {
++        private GremlinClauseList(List<String> errorList) {
++            this.errorList = errorList;
+             this.list = new LinkedList<>();
+         }
+ 
+@@ -454,6 +416,7 @@ public class QueryProcessor {
+ 
+         public void add(GremlinClauseValue g, AtlasEntityType t) {
+             add(g);
++            activeType = t;
+         }
+ 
+         public void add(GremlinClause clause, String... args) {
+@@ -464,10 +427,6 @@ public class QueryProcessor {
+             return list.get(i).value;
+         }
+ 
+-        public GremlinClauseValue get(int i) {
+-            return list.get(i);
+-        }
+-
+         public int size() {
+             return list.size();
+         }
+@@ -480,218 +439,133 @@ public class QueryProcessor {
+ 
+             return -1;
+         }
+-
+-        public boolean isEmpty() {
+-            return list.size() == 0 || list.size() == 2;
+-        }
+-
+-        public void clear() {
+-            list.clear();
+-        }
+-
+-        public GremlinClauseValue remove(int index) {
+-            GremlinClauseValue gcv = get(index);
+-            list.remove(index);
+-            return gcv;
+-        }
+     }
+ 
+     @VisibleForTesting
+-    static class Context {
++    static class TypeRegistryLookup {
+         private final List<String> errorList;
+-        org.apache.atlas.query.Lookup lookup;
+-        private AtlasType activeType;
+-        Map<String, String> aliasMap = new HashMap<>();
++        private final AtlasTypeRegistry typeRegistry;
+ 
+-        public Context(List<String> errorList, org.apache.atlas.query.Lookup lookup) {
+-            this.lookup = lookup;
++        private AtlasEntityType activeType;
++        private final Map<String, AtlasEntityType> asClauseContext = new HashMap<>();
++
++        public TypeRegistryLookup(List<String> errorList, AtlasTypeRegistry typeRegistry) {
+             this.errorList = errorList;
++            this.typeRegistry = typeRegistry;
+         }
+ 
+         public void registerActive(String typeName) {
+-            if(shouldRegister(typeName)) {
+-                activeType = lookup.getType(typeName);
+-            }
+-
+-            aliasMap.put(typeName, typeName);
++            activeType = typeRegistry.getEntityTypeByName(typeName);
+         }
+ 
+-        public AtlasType getActiveType() {
+-            return activeType;
++        public boolean hasActiveType() {
++            return (activeType != null);
+         }
+ 
+-        public AtlasEntityType getActiveEntityType() {
+-            return (activeType instanceof AtlasEntityType) ?
+-                    (AtlasEntityType) activeType :
+-                    null;
++        public void registerStepType(String stepName) {
++            if (!asClauseContext.containsKey(stepName)) {
++                asClauseContext.put(stepName, activeType);
++            } else {
++                addError(String.format("Multiple steps with same name detected: %s", stepName));
++            }
+         }
+ 
+-        public String getActiveTypeName() {
+-            return activeType.getTypeName();
++        protected void addError(String s) {
++            errorList.add(s);
+         }
+ 
+-        public boolean shouldRegister(String typeName) {
+-            return activeType == null ||
+-                    (activeType != null && !StringUtils.equals(getActiveTypeName(), typeName)) &&
+-                            (activeType != null && !lookup.hasAttribute(this, typeName));
++        public String getRelationshipEdgeLabelForActiveType(String item) {
++            return getRelationshipEdgeLabel(activeType, item);
+         }
+ 
+-        public void registerAlias(String alias) {
+-            if(aliasMap.containsKey(alias)) {
+-                errorList.add(String.format("Duplicate alias found: %s for type %s already present.", alias, getActiveEntityType()));
+-                return;
++        private String getRelationshipEdgeLabel(AtlasEntityType t, String item) {
++            if(t == null) {
++                return "";
+             }
+ 
+-            aliasMap.put(alias, getActiveTypeName());
+-        }
+-
+-        public boolean hasAlias(String alias) {
+-            return aliasMap.containsKey(alias);
+-        }
+-
+-        public String getTypeNameFromAlias(String alias) {
+-            return aliasMap.get(alias);
+-        }
+-
+-        public boolean isEmpty() {
+-            return activeType == null;
++            AtlasStructType.AtlasAttribute attr = t.getAttribute(item);
++            return (attr != null) ? attr.getRelationshipEdgeLabel() : "";
+         }
+-    }
+-
+-    private static class Lookup implements org.apache.atlas.query.Lookup {
+-        private final List<String> errorList;
+-        private final AtlasTypeRegistry typeRegistry;
+ 
+-        public Lookup(List<String> errorList, AtlasTypeRegistry typeRegistry) {
+-            this.errorList = errorList;
+-            this.typeRegistry = typeRegistry;
++        protected boolean isAttributePrimitiveTypeForActiveType(String name) {
++            return isAttributePrimitiveType(activeType, name);
+         }
+ 
+-        @Override
+-        public AtlasType getType(String typeName) {
+-            try {
+-                return typeRegistry.getType(typeName);
+-            } catch (AtlasBaseException e) {
+-                addError(e.getMessage());
++        private boolean isAttributePrimitiveType(AtlasEntityType t, String name) {
++            if (activeType == null) {
++                return false;
+             }
+ 
+-            return null;
+-        }
+-
+-        @Override
+-        public String getQualifiedName(Context context, String name) {
+-            try {
+-                AtlasEntityType et = context.getActiveEntityType();
+-                if(et == null) {
+-                    return "";
+-                }
+-
+-                return et.getQualifiedAttributeName(name);
+-            } catch (AtlasBaseException e) {
+-                addError(e.getMessage());
+-            }
++            AtlasType attrType = t.getAttributeType(name);
++            TypeCategory attrTypeCategory = attrType.getTypeCategory();
+ 
+-            return "";
++            return (attrTypeCategory == TypeCategory.PRIMITIVE || attrTypeCategory == TypeCategory.ENUM);
+         }
+ 
+-        protected void addError(String s) {
+-            errorList.add(s);
++        public boolean isTypeTrait(String name) {
++            return (typeRegistry.getClassificationTypeByName(name) != null);
+         }
+ 
+-        @Override
+-        public boolean isPrimitive(Context context, String attributeName) {
+-            AtlasEntityType et = context.getActiveEntityType();
+-            if(et == null) {
+-                return false;
+-            }
++        public String getQualifiedAttributeName(String item) {
++            if (item.contains(".")) {
++                String[] keyValue = StringUtils.split(item, ".");
+ 
+-            AtlasType attr = et.getAttributeType(attributeName);
+-            if(attr == null) {
+-                return false;
++                if (!asClauseContext.containsKey(keyValue[0])) {
++                    return item;
++                } else {
++                    String s = getStitchedString(keyValue, 1, keyValue.length - 1);
++                    return getQualifiedAttributeNameFromType(
++                            asClauseContext.get(keyValue[0]), s);
++                }
+             }
+ 
+-            TypeCategory attrTypeCategory = attr.getTypeCategory();
+-            return (attrTypeCategory != null) && (attrTypeCategory == TypeCategory.PRIMITIVE || attrTypeCategory == TypeCategory.ENUM);
++            return getQualifiedAttributeNameFromType(activeType, item);
+         }
+ 
+-        @Override
+-        public String getRelationshipEdgeLabel(Context context, String attributeName) {
+-            AtlasEntityType et = context.getActiveEntityType();
+-            if(et == null) {
+-                return "";
++        protected String getStitchedString(String[] keyValue, int startIndex, int endIndex) {
++            if(startIndex == endIndex) {
++                return keyValue[startIndex];
+             }
+ 
+-            AtlasStructType.AtlasAttribute attr = et.getAttribute(attributeName);
+-            return (attr != null) ? attr.getRelationshipEdgeLabel() : "";
+-        }
+-
+-        @Override
+-        public boolean hasAttribute(Context context, String typeName) {
+-            return (context.getActiveEntityType() != null) && context.getActiveEntityType().getAttribute(typeName) != null;
+-        }
+-
+-        @Override
+-        public boolean doesTypeHaveSubTypes(Context context) {
+-            return (context.getActiveEntityType() != null && context.getActiveEntityType().getAllSubTypes().size() > 0);
++            return StringUtils.join(keyValue, ".", startIndex, endIndex);
+         }
+ 
+-        @Override
+-        public String getTypeAndSubTypes(Context context) {
+-            String[] str = context.getActiveEntityType() != null ?
+-                            context.getActiveEntityType().getTypeAndAllSubTypes().toArray(new String[]{}) :
+-                            new String[]{};
+-            if(str.length == 0) {
+-                return null;
+-            }
+-
+-            String[] quoted = new String[str.length];
+-            for (int i = 0; i < str.length; i++) {
+-                quoted[i] = quoted(str[i]);
++        private String getQualifiedAttributeNameFromType(AtlasEntityType t, String item) {
++            try {
++                return (t != null) ? t.getQualifiedAttributeName(item) : item;
++            } catch (AtlasBaseException e) {
++                addError(e.getMessage());
+             }
+ 
+-            return StringUtils.join(quoted, ",");
+-        }
+-
+-        @Override
+-        public boolean isTraitType(Context context) {
+-            return (context.getActiveType() != null &&
+-                    context.getActiveType().getTypeCategory() == TypeCategory.CLASSIFICATION);
++            return item;
+         }
+ 
+-        @Override
+-        public String getTypeFromEdge(Context context, String item) {
+-            AtlasEntityType et = context.getActiveEntityType();
+-            if(et == null) {
+-                return "";
+-            }
+-
+-            AtlasStructType.AtlasAttribute attr = et.getAttribute(item);
+-            if(attr == null) {
+-                return null;
+-            }
+-
+-            AtlasType at = attr.getAttributeType();
++        public String getTypeFromEdge(String item) {
++            AtlasType at = activeType.getAttribute(item).getAttributeType();
+             if(at.getTypeCategory() == TypeCategory.ARRAY) {
+                 AtlasArrayType arrType = ((AtlasArrayType)at);
+                 return ((AtlasBuiltInTypes.AtlasObjectIdType) arrType.getElementType()).getObjectType();
+             }
+ 
+-            return context.getActiveEntityType().getAttribute(item).getTypeName();
++            return activeType.getAttribute(item).getTypeName();
+         }
+ 
+-        @Override
+-        public boolean isDate(Context context, String attributeName) {
+-            AtlasEntityType et = context.getActiveEntityType();
+-            if(et == null) {
+-                return false;
+-            }
++        public boolean doesActiveTypeHaveSubTypes() {
++            return (activeType.getAllSubTypes().size() != 0);
++        }
+ 
+-            AtlasType attr = et.getAttributeType(attributeName);
+-            if(attr == null) {
+-                return false;
++        public String getActiveTypeAndSubTypes() {
++            Set<String> set = activeType.getTypeAndAllSubTypes();
++            String[] str = set.toArray(new String[]{});
++            for (int i = 0; i < str.length; i++) {
++                str[i] = String.format("'%s'", str[i]);
+             }
+ 
+-            return attr.getTypeName().equals("date");
++            return StringUtils.join(str, ",");
++        }
++
++        public boolean isSameAsActive(String typeName) {
++            return (activeType != null) && activeType.getTypeName().equalsIgnoreCase(typeName);
+         }
+     }
+ }

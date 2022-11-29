@@ -1,0 +1,316 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ActiveMQProtonConnectionCallback.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ActiveMQProtonConnectionCallback.java
+index d5b2ff7385..52bc316a6a 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ActiveMQProtonConnectionCallback.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ActiveMQProtonConnectionCallback.java
+@@ -1,4 +1,4 @@
+-/*
++/**
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements. See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.
+@@ -16,61 +16,26 @@
+  */
+ package org.apache.activemq.artemis.core.protocol.proton.plug;
+ 
+-import java.util.ArrayList;
+-import java.util.Collections;
+-import java.util.HashMap;
+-import java.util.List;
+-import java.util.Map;
+-import java.util.concurrent.ConcurrentHashMap;
+-import java.util.concurrent.ConcurrentMap;
+ import java.util.concurrent.Executor;
+ import java.util.concurrent.TimeUnit;
+-import java.util.concurrent.atomic.AtomicBoolean;
+ 
+ import io.netty.buffer.ByteBuf;
+ import io.netty.channel.ChannelFuture;
+ import io.netty.channel.ChannelFutureListener;
+-import org.apache.activemq.artemis.api.core.ActiveMQBuffers;
+-import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.core.buffers.impl.ChannelBufferWrapper;
+ import org.apache.activemq.artemis.core.protocol.proton.ActiveMQProtonRemotingConnection;
+ import org.apache.activemq.artemis.core.protocol.proton.ProtonProtocolManager;
+ import org.apache.activemq.artemis.core.protocol.proton.sasl.ActiveMQPlainSASL;
+-import org.apache.activemq.artemis.core.remoting.CloseListener;
+-import org.apache.activemq.artemis.core.remoting.FailureListener;
+-import org.apache.activemq.artemis.core.server.ActiveMQServer;
+-import org.apache.activemq.artemis.core.transaction.Transaction;
+-import org.apache.activemq.artemis.core.transaction.impl.TransactionImpl;
+-import org.apache.activemq.artemis.core.transaction.impl.XidImpl;
+ import org.apache.activemq.artemis.spi.core.remoting.Connection;
+ import org.apache.activemq.artemis.utils.ReusableLatch;
+-import org.apache.activemq.artemis.utils.UUIDGenerator;
+-import org.apache.qpid.proton.amqp.Binary;
+-import org.apache.qpid.proton.amqp.Symbol;
+-import org.apache.qpid.proton.amqp.transport.AmqpError;
+-import org.jboss.logging.Logger;
+ import org.proton.plug.AMQPConnectionCallback;
+ import org.proton.plug.AMQPConnectionContext;
+ import org.proton.plug.AMQPSessionCallback;
+-import org.proton.plug.SASLResult;
+ import org.proton.plug.ServerSASL;
+-import org.proton.plug.exceptions.ActiveMQAMQPException;
+-import org.proton.plug.handler.ExtCapability;
+-import org.proton.plug.logger.ActiveMQAMQPProtocolMessageBundle;
+ import org.proton.plug.sasl.AnonymousServerSASL;
+ 
+-import static org.proton.plug.AmqpSupport.CONTAINER_ID;
+-import static org.proton.plug.AmqpSupport.INVALID_FIELD;
+-import static org.proton.plug.context.AbstractConnectionContext.CONNECTION_OPEN_FAILED;
+-
+-public class ActiveMQProtonConnectionCallback implements AMQPConnectionCallback, FailureListener, CloseListener {
+-   private static final Logger logger = Logger.getLogger(ActiveMQProtonConnectionCallback.class);
+-   private static final List<String> connectedContainers = Collections.synchronizedList(new ArrayList());
+-
+-   private ConcurrentMap<XidImpl, Transaction> transactions = new ConcurrentHashMap<>();
+-
+-   private static final Logger log = Logger.getLogger(ActiveMQProtonConnectionCallback.class);
+-
++public class ActiveMQProtonConnectionCallback implements AMQPConnectionCallback
++{
+    private final ProtonProtocolManager manager;
+ 
+    private final Connection connection;
+@@ -81,118 +46,80 @@ public class ActiveMQProtonConnectionCallback implements AMQPConnectionCallback,
+ 
+    private final ReusableLatch latch = new ReusableLatch(0);
+ 
+-   private final Executor closeExecutor;
+-
+-   private String remoteContainerId;
+-
+-   private AtomicBoolean registeredConnectionId = new AtomicBoolean(false);
+-
+-   private ActiveMQServer server;
+-
+-   public ActiveMQProtonConnectionCallback(ProtonProtocolManager manager,
+-                                           Connection connection,
+-                                           Executor closeExecutor,
+-                                           ActiveMQServer server) {
++   public ActiveMQProtonConnectionCallback(ProtonProtocolManager manager, Connection connection)
++   {
+       this.manager = manager;
+       this.connection = connection;
+-      this.closeExecutor = closeExecutor;
+-      this.server = server;
+    }
+ 
+    @Override
+-   public ServerSASL[] getSASLMechnisms() {
+-
+-      ServerSASL[] result;
+-
+-      if (isSupportsAnonymous()) {
+-         result = new ServerSASL[]{new ActiveMQPlainSASL(manager.getServer().getSecurityStore()), new AnonymousServerSASL()};
+-      }
+-      else {
+-         result = new ServerSASL[]{new ActiveMQPlainSASL(manager.getServer().getSecurityStore())};
+-      }
+-
+-      return result;
++   public ServerSASL[] getSASLMechnisms()
++   {
++      return new ServerSASL[]{new AnonymousServerSASL(), new ActiveMQPlainSASL(manager.getServer().getSecurityStore(), manager.getServer().getSecurityManager())};
+    }
+ 
+    @Override
+-   public boolean isSupportsAnonymous() {
+-      boolean supportsAnonymous = false;
+-      try {
+-         manager.getServer().getSecurityStore().authenticate(null, null, null);
+-         supportsAnonymous = true;
+-      }
+-      catch (Exception e) {
+-         // authentication failed so no anonymous support
+-      }
+-      return supportsAnonymous;
+-   }
++   public void close()
++   {
+ 
+-   @Override
+-   public void close() {
+-      try {
+-         if (registeredConnectionId.getAndSet(false)) {
+-            server.removeClientConnection(remoteContainerId);
+-         }
+-         connection.close();
+-         amqpConnection.close();
+-      }
+-      finally {
+-         for (Transaction tx : transactions.values()) {
+-            try {
+-               tx.rollback();
+-            }
+-            catch (Exception e) {
+-               logger.warn(e.getMessage(), e);
+-            }
+-         }
+-      }
+    }
+ 
+-   public Executor getExeuctor() {
+-      if (protonConnectionDelegate != null) {
++   public Executor getExeuctor()
++   {
++      if (protonConnectionDelegate != null)
++      {
+          return protonConnectionDelegate.getExecutor();
+       }
+-      else {
++      else
++      {
+          return null;
+       }
+    }
+ 
+    @Override
+-   public void setConnection(AMQPConnectionContext connection) {
++   public void setConnection(AMQPConnectionContext connection)
++   {
+       this.amqpConnection = connection;
+    }
+ 
+    @Override
+-   public AMQPConnectionContext getConnection() {
++   public AMQPConnectionContext getConnection()
++   {
+       return amqpConnection;
+    }
+ 
+-   public ActiveMQProtonRemotingConnection getProtonConnectionDelegate() {
++   public ActiveMQProtonRemotingConnection getProtonConnectionDelegate()
++   {
+       return protonConnectionDelegate;
+    }
+ 
+-   public void setProtonConnectionDelegate(ActiveMQProtonRemotingConnection protonConnectionDelegate) {
+-
++   public void setProtonConnectionDelegate(ActiveMQProtonRemotingConnection protonConnectionDelegate)
++   {
+       this.protonConnectionDelegate = protonConnectionDelegate;
+    }
+ 
+-   @Override
+-   public void onTransport(ByteBuf byteBuf, AMQPConnectionContext amqpConnection) {
++   public void onTransport(ByteBuf byteBuf, AMQPConnectionContext amqpConnection)
++   {
+       final int size = byteBuf.writerIndex();
+ 
+       latch.countUp();
+-      connection.write(new ChannelBufferWrapper(byteBuf, true), false, false, new ChannelFutureListener() {
++      connection.write(new ChannelBufferWrapper(byteBuf, true), false, false, new ChannelFutureListener()
++      {
+          @Override
+-         public void operationComplete(ChannelFuture future) throws Exception {
++         public void operationComplete(ChannelFuture future) throws Exception
++         {
+             latch.countDown();
+          }
+       });
+ 
+-      if (amqpConnection.isSyncOnFlush()) {
+-         try {
++      if (amqpConnection.isSyncOnFlush())
++      {
++         try
++         {
+             latch.await(5, TimeUnit.SECONDS);
+          }
+-         catch (Exception e) {
++         catch (Exception e)
++         {
+             e.printStackTrace();
+          }
+       }
+@@ -200,86 +127,11 @@ public class ActiveMQProtonConnectionCallback implements AMQPConnectionCallback,
+       amqpConnection.outputDone(size);
+    }
+ 
+-   @Override
+-   public AMQPSessionCallback createSessionCallback(AMQPConnectionContext connection) {
+-      return new ProtonSessionIntegrationCallback(this, manager, connection, this.connection, closeExecutor);
+-   }
+-
+-   @Override
+-   public void sendSASLSupported() {
+-      connection.write(ActiveMQBuffers.wrappedBuffer(new byte[]{'A', 'M', 'Q', 'P', 3, 1, 0, 0}));
+-   }
+-
+-   @Override
+-   public boolean validateConnection(org.apache.qpid.proton.engine.Connection connection, SASLResult saslResult) {
+-      remoteContainerId = connection.getRemoteContainer();
+-      boolean idOK = server.addClientConnection(remoteContainerId, ExtCapability.needUniqueConnection(connection));
+-      if (!idOK) {
+-         //https://issues.apache.org/jira/browse/ARTEMIS-728
+-         Map<Symbol, Object> connProp = new HashMap<>();
+-         connProp.put(CONNECTION_OPEN_FAILED, "true");
+-         connection.setProperties(connProp);
+-         connection.getCondition().setCondition(AmqpError.INVALID_FIELD);
+-         Map<Symbol, Symbol> info = new HashMap<>();
+-         info.put(INVALID_FIELD, CONTAINER_ID);
+-         connection.getCondition().setInfo(info);
+-         return false;
+-      }
+-      registeredConnectionId.set(true);
+-      return true;
+-   }
+-
+-   @Override
+-   public void connectionClosed() {
+-      close();
+-   }
+ 
+    @Override
+-   public void connectionFailed(ActiveMQException exception, boolean failedOver) {
+-      close();
++   public AMQPSessionCallback createSessionCallback(AMQPConnectionContext connection)
++   {
++      return new ProtonSessionIntegrationCallback(this, manager, connection);
+    }
+ 
+-   @Override
+-   public void connectionFailed(ActiveMQException exception, boolean failedOver, String scaleDownTargetNodeID) {
+-      close();
+-   }
+-
+-   @Override
+-   public Binary newTransaction() {
+-      XidImpl xid = newXID();
+-      Transaction transaction = new TransactionImpl(xid, server.getStorageManager(), -1);
+-      transactions.put(xid, transaction);
+-      return new Binary(xid.getGlobalTransactionId());
+-   }
+-
+-   @Override
+-   public Transaction getTransaction(Binary txid) throws ActiveMQAMQPException {
+-      XidImpl xid = newXID(txid.getArray());
+-      Transaction tx = transactions.get(xid);
+-
+-      if (tx == null) {
+-         throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.txNotFound(xid.toString());
+-      }
+-
+-      return tx;
+-   }
+-
+-   @Override
+-   public void removeTransaction(Binary txid) {
+-      XidImpl xid = newXID(txid.getArray());
+-      transactions.remove(xid);
+-   }
+-
+-
+-   protected XidImpl newXID() {
+-      return newXID(UUIDGenerator.getInstance().generateStringUUID().getBytes());
+-   }
+-
+-   protected XidImpl newXID(byte[] bytes) {
+-      return new XidImpl("amqp".getBytes(), 1, bytes);
+-   }
+-
+-
+-
+-
+ }

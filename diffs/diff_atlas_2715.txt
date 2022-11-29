@@ -1,0 +1,12 @@
+diff --git a/server-api/src/main/java/org/apache/atlas/listener/EntityChangeListener.java b/server-api/src/main/java/org/apache/atlas/listener/EntityChangeListener.java
+index e9a7d1a08..4bf1d057f 100644
+--- a/server-api/src/main/java/org/apache/atlas/listener/EntityChangeListener.java
++++ b/server-api/src/main/java/org/apache/atlas/listener/EntityChangeListener.java
+@@ -19,7 +19,6 @@
+ package org.apache.atlas.listener;
+ 
+ import org.apache.atlas.AtlasException;
+-import org.apache.atlas.model.instance.AtlasEntity;
+ import org.apache.atlas.typesystem.IStruct;
+ import org.apache.atlas.typesystem.ITypedReferenceableInstance;
+ 

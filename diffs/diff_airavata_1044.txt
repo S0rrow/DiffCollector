@@ -1,0 +1,239 @@
+diff --git a/modules/gfac/gfac-monitor/src/main/java/org/apache/airavata/gfac/monitor/impl/pull/qstat/HPCPullMonitor.java b/modules/gfac/gfac-monitor/src/main/java/org/apache/airavata/gfac/monitor/impl/pull/qstat/HPCPullMonitor.java
+index 35cad8363..a2ead4dd3 100644
+--- a/modules/gfac/gfac-monitor/src/main/java/org/apache/airavata/gfac/monitor/impl/pull/qstat/HPCPullMonitor.java
++++ b/modules/gfac/gfac-monitor/src/main/java/org/apache/airavata/gfac/monitor/impl/pull/qstat/HPCPullMonitor.java
+@@ -29,7 +29,6 @@ import java.util.List;
+ import java.util.Map;
+ import java.util.concurrent.BlockingQueue;
+ import java.util.concurrent.LinkedBlockingDeque;
+-import java.util.concurrent.LinkedBlockingQueue;
+ 
+ import org.apache.airavata.common.utils.MonitorPublisher;
+ import org.apache.airavata.common.utils.ServerSettings;
+@@ -44,12 +43,10 @@ import org.apache.airavata.gfac.monitor.HostMonitorData;
+ import org.apache.airavata.gfac.monitor.UserMonitorData;
+ import org.apache.airavata.gfac.monitor.core.PullMonitor;
+ import org.apache.airavata.gfac.monitor.exception.AiravataMonitorException;
+-import org.apache.airavata.gfac.monitor.impl.push.amqp.SimpleJobFinishConsumer;
+ import org.apache.airavata.gfac.monitor.util.CommonUtils;
+ import org.apache.airavata.gsi.ssh.api.SSHApiException;
+ import org.apache.airavata.gsi.ssh.api.authentication.AuthenticationInfo;
+ import org.apache.airavata.model.workspace.experiment.JobState;
+-import org.apache.airavata.model.workspace.experiment.JobStatus;
+ import org.apache.airavata.model.workspace.experiment.TaskState;
+ import org.apache.airavata.schemas.gfac.GsisshHostType;
+ import org.apache.airavata.schemas.gfac.SSHHostType;
+@@ -64,7 +61,6 @@ import com.google.common.eventbus.EventBus;
+  */
+ public class HPCPullMonitor extends PullMonitor {
+     private final static Logger logger = LoggerFactory.getLogger(HPCPullMonitor.class);
+-    public static final int FAILED_COUNT = 5;
+ 
+     // I think this should use DelayedBlocking Queue to do the monitoring*/
+     private BlockingQueue<UserMonitorData> queue;
+@@ -75,9 +71,8 @@ public class HPCPullMonitor extends PullMonitor {
+ 
+     private MonitorPublisher publisher;
+ 
+-    private LinkedBlockingQueue<String> cancelJobList;
++    private List<MonitorID> cancelJobList;
+ 
+-    private List<String> completedJobsFromPush;
+ 
+     private GFac gfac;
+ 
+@@ -85,30 +80,24 @@ public class HPCPullMonitor extends PullMonitor {
+ 
+     public HPCPullMonitor() {
+         connections = new HashMap<String, ResourceConnection>();
+-        queue = new LinkedBlockingDeque<UserMonitorData>();
++        this.queue = new LinkedBlockingDeque<UserMonitorData>();
+         publisher = new MonitorPublisher(new EventBus());
+-        cancelJobList = new LinkedBlockingQueue<String>();
+-        completedJobsFromPush = new ArrayList<String>();
+-        (new SimpleJobFinishConsumer(this.completedJobsFromPush)).listen();
++        cancelJobList = new ArrayList<MonitorID>();
+     }
+ 
+     public HPCPullMonitor(MonitorPublisher monitorPublisher, AuthenticationInfo authInfo) {
+         connections = new HashMap<String, ResourceConnection>();
+-        queue = new LinkedBlockingDeque<UserMonitorData>();
++        this.queue = new LinkedBlockingDeque<UserMonitorData>();
+         publisher = monitorPublisher;
+         authenticationInfo = authInfo;
+-        cancelJobList = new LinkedBlockingQueue<String>();
+-        this.completedJobsFromPush = new ArrayList<String>();
+-        (new SimpleJobFinishConsumer(this.completedJobsFromPush)).listen();
++        cancelJobList = new ArrayList<MonitorID>();
+     }
+ 
+     public HPCPullMonitor(BlockingQueue<UserMonitorData> queue, MonitorPublisher publisher) {
+         this.queue = queue;
+         this.publisher = publisher;
+         connections = new HashMap<String, ResourceConnection>();
+-        cancelJobList = new LinkedBlockingQueue<String>();
+-        this.completedJobsFromPush = new ArrayList<String>();
+-        (new SimpleJobFinishConsumer(this.completedJobsFromPush)).listen();
++        cancelJobList = new ArrayList<MonitorID>();
+     }
+ 
+ 
+@@ -149,7 +138,7 @@ public class HPCPullMonitor extends PullMonitor {
+      *
+      * @return if the start process is successful return true else false
+      */
+-    synchronized public boolean startPulling() throws AiravataMonitorException {
++    public boolean startPulling() throws AiravataMonitorException {
+         // take the top element in the queue and pull the data and put that element
+         // at the tail of the queue
+         //todo this polling will not work with multiple usernames but with single user
+@@ -169,93 +158,68 @@ public class HPCPullMonitor extends PullMonitor {
+                     String hostName =  iHostMonitorData.getHost().getType().getHostAddress();
+                     ResourceConnection connection = null;
+                     if (connections.containsKey(hostName)) {
+-                        if(!connections.get(hostName).isConnected()){
+-                            connection = new ResourceConnection(iHostMonitorData,getAuthenticationInfo());
+-                            connections.put(hostName, connection);
+-                        }else{
+-                            logger.debug("We already have this connection so not going to create one");
+-                            connection = connections.get(hostName);
+-                        }
++                        logger.debug("We already have this connection so not going to create one");
++                        connection = connections.get(hostName);
+                     } else {
+                         connection = new ResourceConnection(iHostMonitorData,getAuthenticationInfo());
+                         connections.put(hostName, connection);
+                     }
+-
+                     // before we get the statuses, we check the cancel job list and remove them permanently
+                     List<MonitorID> monitorID = iHostMonitorData.getMonitorIDs();
+-                    Iterator<String> iterator1 = cancelJobList.iterator();
+-
+-                    for(MonitorID iMonitorID:monitorID){
+-                        while(iterator1.hasNext()) {
+-                            String cancelMId = iterator1.next();
+-                            if (cancelMId.equals(iMonitorID.getExperimentID() + "+" + iMonitorID.getTaskID())) {
+-                                logger.info("Found a match in monitoring Queue, so marking this job to remove from monitor queue " + cancelMId);
+-                                logger.info("ExperimentID: " + cancelMId.split("\\+")[0] + ",TaskID: " + cancelMId.split("\\+")[1] + "JobID" + iMonitorID.getJobID());
+-                                completedJobs.add(iMonitorID);
+-                                iMonitorID.setStatus(JobState.CANCELED);
+-                                iterator1.remove();
+-                            }
+-                        }
+-                    }
+-                    Iterator<String> iterator = completedJobsFromPush.iterator();
+                     for(MonitorID iMonitorID:monitorID){
+-                        while(iterator.hasNext()) {
+-                            String cancelMId = iterator.next();
+-                            if (cancelMId.equals(iMonitorID.getUserName() + "," + iMonitorID.getJobName())) {
+-                                logger.info("This job is finished because push notification came with <username,jobName> " + cancelMId);
++                        for(MonitorID cancelMId:cancelJobList){
++                            if(iMonitorID.getJobID().equals(cancelMId.getJobID())
++                                    && iMonitorID.getExperimentID().equals(cancelMId.getExperimentID())
++                                    && iMonitorID.getTaskID().equals(cancelMId.getTaskID())){
+                                 completedJobs.add(iMonitorID);
+-                                iterator.remove();
+-                                iMonitorID.setStatus(JobState.COMPLETE);
++                                cancelJobList.remove(cancelMId); // once we found we delte the cancel job, so we don't have to do this check again and again
+                             }
+                         }
+                     }
+                     Map<String, JobState> jobStatuses = connection.getJobStatuses(monitorID);
+                     for (MonitorID iMonitorID : monitorID) {
+                         currentMonitorID = iMonitorID;
+-                        if (!JobState.CANCELED.equals(iMonitorID.getStatus())&&
+-                                !JobState.COMPLETE.equals(iMonitorID.getStatus())) {
+-                            iMonitorID.setStatus(jobStatuses.get(iMonitorID.getJobID() + "," + iMonitorID.getJobName()));    //IMPORTANT this is NOT a simple setter we have a logic
+-                        }
+-                            jobStatus = new JobStatusChangeRequest(iMonitorID);
+-                            // we have this JobStatus class to handle amqp monitoring
++                        iMonitorID.setStatus(jobStatuses.get(iMonitorID.getJobID()+","+iMonitorID.getJobName()));    //IMPORTANT this is not a simple setter we have a logic
++                        jobStatus = new JobStatusChangeRequest(iMonitorID);
++                        // we have this JobStatus class to handle amqp monitoring
+ 
+-                            publisher.publish(jobStatus);
+-                            // if the job is completed we do not have to put the job to the queue again
+-                            iMonitorID.setLastMonitored(new Timestamp((new Date()).getTime()));
++                        publisher.publish(jobStatus);
++                        // if the job is completed we do not have to put the job to the queue again
++                        iMonitorID.setLastMonitored(new Timestamp((new Date()).getTime()));
+ 
+-                            // After successful monitoring perform follow   ing actions to cleanup the queue, if necessary
+-                            if (jobStatus.getState().equals(JobState.COMPLETE)) {
+-                                completedJobs.add(iMonitorID);
+-                                try {
+-                                    gfac.invokeOutFlowHandlers(iMonitorID.getJobExecutionContext());
+-                                } catch (GFacException e) {
+-                                    publisher.publish(new TaskStatusChangeRequest(new TaskIdentity(iMonitorID.getExperimentID(), iMonitorID.getWorkflowNodeID(),
+-                                            iMonitorID.getTaskID()), TaskState.FAILED));
+-                                    //FIXME this is a case where the output retrieving fails even if the job execution was a success. Thus updating the task status
+-                                    //should be done understanding whole workflow of job submission and data transfer
++                        // After successful monitoring perform follow   ing actions to cleanup the queue, if necessary
++                        if (jobStatus.getState().equals(JobState.COMPLETE)) {
++                            completedJobs.add(iMonitorID);
++                            try {
++                                gfac.invokeOutFlowHandlers(iMonitorID.getJobExecutionContext());
++                            } catch (GFacException e) {
++                            	publisher.publish(new TaskStatusChangeRequest(new TaskIdentity(iMonitorID.getExperimentID(), iMonitorID.getWorkflowNodeID(),
++										iMonitorID.getTaskID()), TaskState.FAILED));
++                            	//FIXME this is a case where the output retrieving fails even if the job execution was a success. Thus updating the task status 
++                            	//should be done understanding whole workflow of job submission and data transfer
+ //                            	publisher.publish(new ExperimentStatusChangedEvent(new ExperimentIdentity(iMonitorID.getExperimentID()),
+ //										ExperimentState.FAILED));
+-                                    logger.info(e.getLocalizedMessage(), e);
+-                                }
+-                            } else if (iMonitorID.getFailedCount() > FAILED_COUNT) {
+-                                logger.error("Tried to monitor the job with ID " + iMonitorID.getJobID() + " But failed 3 times, so skip this Job from Monitor");
+-                                iMonitorID.setLastMonitored(new Timestamp((new Date()).getTime()));
+-                                completedJobs.add(iMonitorID);
+-                                try {
+-                                    logger.error("Launching outflow handlers to check output are genereated or not");
+-                                    gfac.invokeOutFlowHandlers(iMonitorID.getJobExecutionContext());
+-                                } catch (GFacException e) {
+-                                    publisher.publish(new TaskStatusChangeRequest(new TaskIdentity(iMonitorID.getExperimentID(), iMonitorID.getWorkflowNodeID(),
+-                                            iMonitorID.getTaskID()), TaskState.FAILED));
+-                                    logger.info(e.getLocalizedMessage(), e);
+-                                }
+-                            } else {
+-                                // Evey
+-                                iMonitorID.setLastMonitored(new Timestamp((new Date()).getTime()));
+-                                // if the job is complete we remove it from the Map, if any of these maps
+-                                // get empty this userMonitorData will get delete from the queue
++                                logger.info(e.getLocalizedMessage(), e);
+                             }
++                        } else if (iMonitorID.getFailedCount() > 2) {
++                            logger.error("Tried to monitor the job with ID " + iMonitorID.getJobID() + " But failed 3 times, so skip this Job from Monitor");
++                            iMonitorID.setLastMonitored(new Timestamp((new Date()).getTime()));
++                            completedJobs.add(iMonitorID);
++                            try {
++                                logger.error("Launching outflow handlers to check output are genereated or not");
++                                gfac.invokeOutFlowHandlers(iMonitorID.getJobExecutionContext());
++                            } catch (GFacException e) {
++                                publisher.publish(new TaskStatusChangeRequest(new TaskIdentity(iMonitorID.getExperimentID(), iMonitorID.getWorkflowNodeID(),
++                                        iMonitorID.getTaskID()), TaskState.FAILED));
++                                logger.info(e.getLocalizedMessage(), e);
++                            }
++                        } else {
++                            // Evey
++                            iMonitorID.setLastMonitored(new Timestamp((new Date()).getTime()));
++                            // if the job is complete we remove it from the Map, if any of these maps
++                            // get empty this userMonitorData will get delete from the queue
+                         }
++                    }
+                 } else {
+                     logger.debug("Qstat Monitor doesn't handle non-gsissh hosts");
+                 }
+@@ -393,11 +357,11 @@ public class HPCPullMonitor extends PullMonitor {
+         this.authenticationInfo = authenticationInfo;
+     }
+ 
+-    public LinkedBlockingQueue<String> getCancelJobList() {
++    public List<MonitorID> getCancelJobList() {
+         return cancelJobList;
+     }
+ 
+-    public void setCancelJobList(LinkedBlockingQueue<String> cancelJobList) {
++    public void setCancelJobList(List<MonitorID> cancelJobList) {
+         this.cancelJobList = cancelJobList;
+     }
+ }

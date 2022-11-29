@@ -1,0 +1,48 @@
+diff --git a/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java b/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java
+index acdbf3d091..78bcf208f6 100644
+--- a/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java
++++ b/hyracks/hyracks-client/src/main/java/edu/uci/ics/hyracks/client/dataset/HyracksDatasetReader.java
+@@ -106,13 +106,17 @@ public class HyracksDatasetReader implements IHyracksDatasetReader {
+                     lastMonitor = getMonitor(lastReadPartition);
+                     resultChannel.open(datasetClientCtx);
+                     resultChannel.registerMonitor(lastMonitor);
+-                } catch (Exception e) {
++                } catch (HyracksException e) {
++                    throw new HyracksDataException(e);
++                } catch (UnknownHostException e) {
+                     throw new HyracksDataException(e);
++                } catch (Exception e) {
++                    // Do nothing here.
+                 }
+             }
+         }
+ 
+-        while (readSize <= 0 && !(isLastPartitionReadComplete())) {
++        while (readSize <= 0 && !((lastReadPartition == knownRecords.length - 1) && (lastMonitor.eosReached()))) {
+             synchronized (lastMonitor) {
+                 while (lastMonitor.getNFramesAvailable() <= 0 && !lastMonitor.eosReached()) {
+                     try {
+@@ -123,7 +127,7 @@ public class HyracksDatasetReader implements IHyracksDatasetReader {
+                 }
+             }
+ 
+-            if (isPartitionReadComplete(lastMonitor)) {
++            if (lastMonitor.getNFramesAvailable() <= 0 && lastMonitor.eosReached()) {
+                 knownRecords[lastReadPartition].readEOS();
+                 if ((lastReadPartition == knownRecords.length - 1)) {
+                     break;
+@@ -178,14 +182,6 @@ public class HyracksDatasetReader implements IHyracksDatasetReader {
+         return false;
+     }
+ 
+-    private boolean isPartitionReadComplete(IDatasetInputChannelMonitor monitor) {
+-        return (monitor.getNFramesAvailable() <= 0) && (monitor.eosReached());
+-    }
+-
+-    private boolean isLastPartitionReadComplete() {
+-        return ((lastReadPartition == knownRecords.length - 1) && isPartitionReadComplete(lastMonitor));
+-    }
+-
+     private SocketAddress getSocketAddress(DatasetDirectoryRecord addr) throws UnknownHostException {
+         NetworkAddress netAddr = addr.getNetworkAddress();
+         return new InetSocketAddress(InetAddress.getByAddress(netAddr.getIpAddress()), netAddr.getPort());

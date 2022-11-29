@@ -1,0 +1,91 @@
+diff --git a/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/messages/DestAbstract.java b/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/messages/DestAbstract.java
+index ff6f71aa8f..63b5f17913 100644
+--- a/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/messages/DestAbstract.java
++++ b/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/messages/DestAbstract.java
+@@ -23,7 +23,6 @@ import java.nio.ByteBuffer;
+ 
+ import io.airlift.airline.Option;
+ import org.apache.activemq.artemis.api.core.ActiveMQException;
+-import org.apache.activemq.artemis.api.core.ActiveMQExceptionType;
+ import org.apache.activemq.artemis.api.core.client.ActiveMQClient;
+ import org.apache.activemq.artemis.api.core.client.ClientMessage;
+ import org.apache.activemq.artemis.api.core.client.ClientRequestor;
+@@ -44,7 +43,7 @@ public class DestAbstract extends ConnectionAbstract {
+ 
+    private static final String FQQN_SEPERATOR = "::";
+ 
+-   @Option(name = "--destination", description = "Destination to be used. It can be prefixed with queue:// or topic:// or fqqn:// (Default: queue://TEST)")
++   @Option(name = "--destination", description = "Destination to be used. It can be prefixed with queue:// or topic:// (Default: queue://TEST)")
+    String destination = "queue://TEST";
+ 
+    @Option(name = "--message-count", description = "Number of messages to act on (Default: 1000)")
+@@ -97,39 +96,40 @@ public class DestAbstract extends ConnectionAbstract {
+       return new XMLMessageSerializer();
+    }
+ 
+-   public byte[] getQueueIdFromName(String queueName) throws Exception {
+-      try {
+-         ClientMessage message = getQueueAttribute(queueName, "ID");
+-         Number idObject = (Number) ManagementHelper.getResult(message);
+-         ByteBuffer byteBuffer = ByteBuffer.allocate(8);
+-         byteBuffer.putLong(idObject.longValue());
+-         return byteBuffer.array();
+-      } catch (Exception e) {
+-         throw new ActiveMQException("Error occured when looking up FQQN.  Please ensure the FQQN exists.", e, ActiveMQExceptionType.ILLEGAL_STATE);
++   // FIXME We currently do not support producing to FQQN.  This is a work around.
++   private ClientSession getManagementSession() throws Exception {
++      ServerLocator serverLocator = ActiveMQClient.createServerLocator(brokerURL);
++      ClientSessionFactory sf = serverLocator.createSessionFactory();
++
++      ClientSession managementSession;
++      if (user != null || password != null) {
++         managementSession = sf.createSession(user, password, false, true, true, false, 0);
++      } else {
++         managementSession = sf.createSession(false, true, true);
+       }
++      return managementSession;
++   }
++
++   public byte[] getQueueIdFromName(String queueName) throws Exception {
++      ClientMessage message = getQueueAttribute(queueName, "ID");
++      Number idObject = (Number) ManagementHelper.getResult(message);
++      ByteBuffer byteBuffer = ByteBuffer.allocate(8);
++      byteBuffer.putLong(idObject.longValue());
++      return byteBuffer.array();
+    }
+ 
+    protected ClientMessage getQueueAttribute(String queueName, String attribute) throws Exception {
+-      try (ServerLocator serverLocator = ActiveMQClient.createServerLocator(brokerURL)) {
+-         try (ClientSessionFactory sf = serverLocator.createSessionFactory()) {
+-            ClientSession managementSession;
+-            if (user != null || password != null) {
+-               managementSession = sf.createSession(user, password, false, true, true, false, 0);
+-            } else {
+-               managementSession = sf.createSession(false, true, true);
+-            }
+-            managementSession.start();
+-
+-            try (ClientRequestor requestor = new ClientRequestor(managementSession, "activemq.management")) {
+-               ClientMessage managementMessage = managementSession.createMessage(false);
+-               ManagementHelper.putAttribute(managementMessage, ResourceNames.QUEUE + queueName, attribute);
+-               managementSession.start();
+-               ClientMessage reply = requestor.request(managementMessage);
+-               return reply;
+-            } finally {
+-               managementSession.stop();
+-            }
+-         }
++      ClientSession managementSession = getManagementSession();
++      managementSession.start();
++
++      try (ClientRequestor requestor = new ClientRequestor(managementSession, "activemq.management")) {
++         ClientMessage managementMessage = managementSession.createMessage(false);
++         ManagementHelper.putAttribute(managementMessage, ResourceNames.QUEUE + queueName, attribute);
++         managementSession.start();
++         ClientMessage reply = requestor.request(managementMessage);
++         return reply;
++      } finally {
++         managementSession.stop();
+       }
+    }
+ 

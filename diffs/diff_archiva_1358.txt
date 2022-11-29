@@ -1,0 +1,365 @@
+diff --git a/archiva-database/src/main/java/org/apache/maven/archiva/database/jdo/JdoAccess.java b/archiva-database/src/main/java/org/apache/maven/archiva/database/jdo/JdoAccess.java
+index 75e895360..7ab55087e 100644
+--- a/archiva-database/src/main/java/org/apache/maven/archiva/database/jdo/JdoAccess.java
++++ b/archiva-database/src/main/java/org/apache/maven/archiva/database/jdo/JdoAccess.java
+@@ -22,17 +22,12 @@
+ import org.apache.commons.lang.StringUtils;
+ import org.apache.maven.archiva.database.ArchivaDatabaseException;
+ import org.apache.maven.archiva.database.Constraint;
+-import org.apache.maven.archiva.database.DeclarativeConstraint;
+ import org.apache.maven.archiva.database.ObjectNotFoundException;
+-import org.apache.maven.archiva.database.SimpleConstraint;
+-import org.apache.maven.archiva.database.constraints.AbstractSimpleConstraint;
+-import org.apache.maven.archiva.model.CompoundKey;
+ import org.codehaus.plexus.jdo.JdoFactory;
+ import org.codehaus.plexus.personality.plexus.lifecycle.phase.Initializable;
+ import org.codehaus.plexus.personality.plexus.lifecycle.phase.InitializationException;
+ 
+ import java.io.PrintStream;
+-import java.util.ArrayList;
+ import java.util.List;
+ 
+ import javax.jdo.Extent;
+@@ -56,13 +51,12 @@
+  *
+  * @author <a href="mailto:joakim@erdfelt.com">Joakim Erdfelt</a>
+  * @version $Id$
+- * @plexus.component role="org.apache.maven.archiva.database.jdo.JdoAccess" role-hint="archiva"
+  */
+ public class JdoAccess
+     implements Initializable, InstanceLifecycleListener, StoreLifecycleListener
+ {
+     /**
+-     * @plexus.requirement role-hint="archiva"
++     * @plexus.requirement role-hint="users"
+      */
+     private JdoFactory jdoFactory;
+ 
+@@ -171,10 +165,10 @@ public Object saveObject( Object object, String[] fetchGroups )
+ 
+     public List getAllObjects( Class clazz )
+     {
+-        return queryObjects( clazz, null );
++        return getAllObjects( clazz, null );
+     }
+ 
+-    public List queryObjects( Class clazz, Constraint constraint )
++    public List getAllObjects( Class clazz, Constraint constraint )
+     {
+         PersistenceManager pm = getPersistenceManager();
+         Transaction tx = pm.currentTransaction();
+@@ -183,62 +177,38 @@ public List queryObjects( Class clazz, Constraint constraint )
+         {
+             tx.begin();
+ 
+-            List result = null;
++            Extent extent = pm.getExtent( clazz, true );
++
++            Query query = pm.newQuery( extent );
+ 
+             if ( constraint != null )
+             {
+-                if ( constraint instanceof DeclarativeConstraint )
++                if ( constraint.getSortColumn() != null )
+                 {
+-                    result = processConstraint( pm, clazz, (DeclarativeConstraint) constraint );
++                    String ordering = constraint.getSortColumn();
++
++                    if ( constraint.getSortDirection() != null )
++                    {
++                        ordering += " " + constraint.getSortDirection();
++                    }
++
++                    query.setOrdering( ordering );
+                 }
+-                else if ( constraint instanceof AbstractSimpleConstraint )
++
++                if ( constraint.getFetchLimits() != null )
+                 {
+-                    result = processConstraint( pm, (SimpleConstraint) constraint );
++                    pm.getFetchPlan().addGroup( constraint.getFetchLimits() );
+                 }
+-                else
++                
++                if ( constraint.getWhereCondition() != null )
+                 {
+-                    result = processUnconstrained( pm, clazz );
++                    query.setFilter( constraint.getWhereCondition() );
+                 }
+             }
+-            else
+-            {
+-                result = processUnconstrained( pm, clazz );
+-            }
+-
+-            result = (List) pm.detachCopyAll( result );
+-
+-            tx.commit();
+-
+-            return result;
+-        }
+-        finally
+-        {
+-            rollbackIfActive( tx );
+-        }
+-    }
+-
+-    public List queryObjects( SimpleConstraint constraint )
+-    {
+-        PersistenceManager pm = getPersistenceManager();
+-        Transaction tx = pm.currentTransaction();
+-
+-        try
+-        {
+-            tx.begin();
+ 
+-            List result = processConstraint( pm, constraint );
++            List result = (List) query.execute();
+ 
+-            // Only detach if results are known to be persistable.
+-            if ( constraint.isResultsPersistable() )
+-            {
+-                result = (List) pm.detachCopyAll( result );
+-            }
+-            else
+-            {
+-                List copiedResults = new ArrayList();
+-                copiedResults.addAll( result );
+-                result = copiedResults;
+-            }
++            result = (List) pm.detachCopyAll( result );
+ 
+             tx.commit();
+ 
+@@ -250,123 +220,63 @@ public List queryObjects( SimpleConstraint constraint )
+         }
+     }
+ 
+-    private List processUnconstrained( PersistenceManager pm, Class clazz )
+-    {
+-        Extent extent = pm.getExtent( clazz, true );
+-        Query query = pm.newQuery( extent );
+-        return (List) query.execute();
+-    }
+-
+-    private List processConstraint( PersistenceManager pm, SimpleConstraint constraint )
+-    {
+-        Query query = pm.newQuery( constraint.getSelectSql() );
+-
+-        if ( constraint.getResultClass() == null )
+-        {
+-            throw new IllegalStateException( "Unable to use a SimpleConstraint with a null result class." );
+-        }
+-
+-        query.setResultClass( constraint.getResultClass() );
+-
+-        if ( constraint.getFetchLimits() != null )
+-        {
+-            pm.getFetchPlan().addGroup( constraint.getFetchLimits() );
+-        }
+-
+-        if ( constraint.getParameters() != null )
+-        {
+-            return processParameterizedQuery( query, constraint.getParameters() );
+-        }
+-
+-        return (List) query.execute();
+-    }
+-
+-    private List processConstraint( PersistenceManager pm, Class clazz, DeclarativeConstraint constraint )
+-    {
+-        Extent extent = pm.getExtent( clazz, true );
+-        Query query = pm.newQuery( extent );
+-
+-        if ( constraint.getSortColumn() != null )
+-        {
+-            String ordering = constraint.getSortColumn();
+-
+-            if ( constraint.getSortDirection() != null )
+-            {
+-                ordering += " " + constraint.getSortDirection();
+-            }
+-
+-            query.setOrdering( ordering );
+-        }
+-
+-        if ( constraint.getFetchLimits() != null )
+-        {
+-            pm.getFetchPlan().addGroup( constraint.getFetchLimits() );
+-        }
+-
+-        if ( constraint.getWhereCondition() != null )
+-        {
+-            query.setFilter( constraint.getWhereCondition() );
+-        }
+-
+-        if ( constraint.getDeclaredImports() != null )
+-        {
+-            for ( int i = 0; i < constraint.getDeclaredImports().length; i++ )
+-            {
+-                String qimport = constraint.getDeclaredImports()[i];
+-                query.declareImports( qimport );
+-            }
+-        }
+-
+-        if ( constraint.getDeclaredParameters() != null )
+-        {
+-            if ( constraint.getParameters() == null )
+-            {
+-                throw new JDOException( "Unable to use query, there are declared parameters, "
+-                    + "but no parameter objects to use." );
+-            }
+-
+-            if ( constraint.getParameters().length != constraint.getDeclaredParameters().length )
+-            {
+-                throw new JDOException( "Unable to use query, there are <" + constraint.getDeclaredParameters().length
+-                    + "> declared parameters, yet there are <" + constraint.getParameters().length
+-                    + "> parameter objects to use.  This should be equal." );
+-            }
+-
+-            for ( int i = 0; i < constraint.getDeclaredParameters().length; i++ )
+-            {
+-                String declaredParam = constraint.getDeclaredParameters()[i];
+-                query.declareParameters( declaredParam );
+-            }
+-
+-            return processParameterizedQuery( query, constraint.getParameters() );
+-        }
+-        else
+-        {
+-            return (List) query.execute();
+-        }
+-    }
+-
+-    private List processParameterizedQuery( Query query, Object parameters[] )
+-    {
+-        switch ( parameters.length )
+-        {
+-            case 1:
+-                return (List) query.execute( parameters[0] );
+-            case 2:
+-                return (List) query.execute( parameters[0], parameters[1] );
+-            case 3:
+-                return (List) query.execute( parameters[0], parameters[1], parameters[2] );
+-            default:
+-                throw new JDOException( "Unable to use more than 3 parameters." );
+-        }
+-    }
++    //    public List getUserAssignmentsForRoles( Class clazz, String ordering, Collection roleNames )
++    //    {
++    //        PersistenceManager pm = getPersistenceManager();
++    //        Transaction tx = pm.currentTransaction();
++    //
++    //        try
++    //        {
++    //            tx.begin();
++    //
++    //            Extent extent = pm.getExtent( clazz, true );
++    //
++    //            Query query = pm.newQuery( extent );
++    //
++    //            if ( ordering != null )
++    //            {
++    //                query.setOrdering( ordering );
++    //            }
++    //
++    //            query.declareImports( "import java.lang.String" );
++    //
++    //            StringBuffer filter = new StringBuffer();
++    //
++    //            Iterator i = roleNames.iterator();
++    //
++    //            if ( roleNames.size() > 0 )
++    //            {
++    //                filter.append( "this.roleNames.contains(\"" ).append( i.next() ).append( "\")" );
++    //
++    //                while ( i.hasNext() )
++    //                {
++    //                    filter.append( " || this.roleNames.contains(\"" ).append( i.next() ).append( "\")" );
++    //                }
++    //
++    //                query.setFilter( filter.toString() );
++    //            }
++    //
++    //            List result = (List) query.execute();
++    //
++    //            result = (List) pm.detachCopyAll( result );
++    //
++    //            tx.commit();
++    //
++    //            return result;
++    //        }
++    //        finally
++    //        {
++    //            rollbackIfActive( tx );
++    //        }
++    //    }
+ 
+     public Object getObjectById( Class clazz, Object id, String fetchGroup )
+         throws ObjectNotFoundException, ArchivaDatabaseException
+     {
+         if ( id == null )
+         {
+-            throw new ObjectNotFoundException( "Unable to get object '" + clazz.getName() + "' from jdo using null id." );
++            throw new ObjectNotFoundException( "Unable to get object '" + clazz.getName()
++                + "' from jdo using null id." );
+         }
+ 
+         PersistenceManager pm = getPersistenceManager();
+@@ -381,16 +291,7 @@ public Object getObjectById( Class clazz, Object id, String fetchGroup )
+                 pm.getFetchPlan().addGroup( fetchGroup );
+             }
+ 
+-            Object objectId = null;
+-
+-            if ( id instanceof CompoundKey )
+-            {
+-                objectId = pm.newObjectIdInstance( clazz, id.toString() );
+-            }
+-            else
+-            {
+-                objectId = pm.newObjectIdInstance( clazz, id );
+-            }
++            Object objectId = pm.newObjectIdInstance( clazz, id );
+ 
+             Object object = pm.getObjectById( objectId );
+ 
+@@ -402,22 +303,20 @@ public Object getObjectById( Class clazz, Object id, String fetchGroup )
+         }
+         catch ( JDOObjectNotFoundException e )
+         {
+-            throw new ObjectNotFoundException( "Unable to find Database Object [" + id + "] of type " + clazz.getName()
+-                + " using " + ( ( fetchGroup == null ) ? "no fetch-group" : "a fetch-group of [" + fetchGroup + "]" ),
+-                                               e, id );
++            throw new ObjectNotFoundException( "Unable to find Database Object '" + id + "' of type " + clazz.getName()
++                + " using fetch-group '" + fetchGroup + "'", e, id );
+         }
+         catch ( JDOException e )
+         {
+-            throw new ArchivaDatabaseException( "Error in JDO during get of Database object id [" + id + "] of type "
+-                + clazz.getName() + " using "
+-                + ( ( fetchGroup == null ) ? "no fetch-group" : "a fetch-group of [" + fetchGroup + "]" ), e );
++            throw new ArchivaDatabaseException( "Error in JDO during get of Database object id '" + id + "' of type "
++                + clazz.getName() + " using fetch-group '" + fetchGroup + "'", e );
+         }
+         finally
+         {
+             rollbackIfActive( tx );
+         }
+     }
+-
++    
+     public Object getObjectById( Class clazz, String id, String fetchGroup )
+         throws ObjectNotFoundException, ArchivaDatabaseException
+     {
+@@ -426,8 +325,8 @@ public Object getObjectById( Class clazz, String id, String fetchGroup )
+             throw new ObjectNotFoundException( "Unable to get object '" + clazz.getName()
+                 + "' from jdo using null/empty id." );
+         }
+-
+-        return getObjectById( clazz, (Object) id, fetchGroup );
++        
++        return getObjectById( clazz, (Object) id, fetchGroup ); 
+     }
+ 
+     public boolean objectExists( Object object )

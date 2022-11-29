@@ -1,0 +1,63 @@
+diff --git a/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/DefaultMetadataResolver.java b/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/DefaultMetadataResolver.java
+index 7a2c5f268..d7837a8a3 100644
+--- a/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/DefaultMetadataResolver.java
++++ b/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/DefaultMetadataResolver.java
+@@ -21,8 +21,8 @@
+ 
+ import java.util.Collection;
+ 
++import org.apache.archiva.metadata.model.ProjectBuildMetadata;
+ import org.apache.archiva.metadata.model.ProjectMetadata;
+-import org.apache.archiva.metadata.model.ProjectVersionMetadata;
+ 
+ /**
+  * @plexus.component role="org.apache.archiva.metadata.repository.MetadataResolver"
+@@ -36,9 +36,8 @@
+     private MetadataRepository metadataRepository;
+ 
+     /**
+-     * FIXME: this needs to be configurable based on storage type, and availability of proxy module
+-     * ... could be a different type since we need methods to modify the storage metadata
+-     *
++     * TODO: this needs to be configurable based on storage type, and availability of proxy module
++     * TODO: could be a different type since we need methods to modify the storage metadata
+      * @plexus.requirement role-hint="maven2"
+      */
+     private MetadataResolver storageResolver;
+@@ -49,29 +48,22 @@ public ProjectMetadata getProject( String repoId, String namespace, String proje
+         return metadataRepository.getProject( repoId, namespace, projectId );
+     }
+ 
+-    public ProjectVersionMetadata getProjectVersion( String repoId, String namespace, String projectId,
+-                                                     String projectVersion )
+-        throws MetadataResolverException
++    public ProjectBuildMetadata getProjectBuild( String repoId, String namespace, String projectId, String buildId )
+     {
+-        ProjectVersionMetadata metadata =
+-            metadataRepository.getProjectVersion( repoId, namespace, projectId, projectVersion );
+-        // TODO: do we want to detect changes as well by comparing timestamps? isProjectVersionNewerThan(updated)
++        ProjectBuildMetadata metadata = metadataRepository.getProjectBuild( repoId, namespace, projectId, buildId );
++        // TODO: do we want to detect changes as well by comparing timestamps? isProjectBuildNewerThan(updated)
+         //       in such cases we might also remove/update stale metadata, including adjusting plugin-based facets
+         if ( metadata == null )
+         {
+-            metadata = storageResolver.getProjectVersion( repoId, namespace, projectId, projectVersion );
+-            if ( metadata != null )
+-            {
+-                metadataRepository.updateProjectVersion( repoId, namespace, projectId, metadata );
+-            }
++            metadata = storageResolver.getProjectBuild( repoId, namespace, projectId, buildId );
++            metadataRepository.updateBuild( repoId, namespace, projectId, metadata );
+         }
+         return metadata;
+     }
+ 
+-    public Collection<String> getArtifactVersions( String repoId, String namespace, String projectId,
+-                                                   String projectVersion )
++    public Collection<String> getArtifactVersions( String repoId, String namespace, String projectId, String buildId )
+     {
+         // TODO: intercept
+-        return metadataRepository.getArtifactVersions( repoId, namespace, projectId, projectVersion );
++        return metadataRepository.getArtifactVersions( repoId, namespace, projectId, buildId );
+     }
+ }

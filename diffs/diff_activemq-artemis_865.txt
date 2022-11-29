@@ -1,0 +1,107 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/ActiveMQJAASSecurityManager.java b/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/ActiveMQJAASSecurityManager.java
+index 1c22412ad0..bf8d97b3de 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/ActiveMQJAASSecurityManager.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/ActiveMQJAASSecurityManager.java
+@@ -30,7 +30,6 @@ import org.apache.activemq.artemis.core.config.impl.SecurityConfiguration;
+ import org.apache.activemq.artemis.core.security.CheckType;
+ import org.apache.activemq.artemis.core.security.Role;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+-import org.apache.activemq.artemis.logs.AuditLogger;
+ import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+ import org.apache.activemq.artemis.spi.core.security.jaas.JaasCallbackHandler;
+ import org.apache.activemq.artemis.spi.core.security.jaas.RolePrincipal;
+@@ -45,7 +44,7 @@ import static org.apache.activemq.artemis.core.remoting.CertificateUtil.getCerts
+  * The {@link Subject} returned by the login context is expecting to have a set of {@link RolePrincipal} for each
+  * role of the user.
+  */
+-public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager4 {
++public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager3 {
+ 
+    private static final Logger logger = Logger.getLogger(ActiveMQJAASSecurityManager.class);
+ 
+@@ -91,13 +90,13 @@ public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager4 {
+ 
+    @Override
+    public boolean validateUser(String user, String password) {
+-      throw new UnsupportedOperationException("Invoke validateUser(String, String, RemotingConnection, String) instead");
++      throw new UnsupportedOperationException("Invoke validateUser(String, String, X509Certificate[]) instead");
+    }
+ 
+    @Override
+-   public String validateUser(final String user, final String password, RemotingConnection remotingConnection, final String securityDomain) {
++   public String validateUser(final String user, final String password, RemotingConnection remotingConnection) {
+       try {
+-         return getUserFromSubject(getAuthenticatedSubject(user, password, remotingConnection, securityDomain));
++         return getUserFromSubject(getAuthenticatedSubject(user, password, remotingConnection));
+       } catch (LoginException e) {
+          if (logger.isDebugEnabled()) {
+             logger.debug("Couldn't validate user", e);
+@@ -119,7 +118,7 @@ public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager4 {
+ 
+    @Override
+    public boolean validateUserAndRole(String user, String password, Set<Role> roles, CheckType checkType) {
+-      throw new UnsupportedOperationException("Invoke validateUserAndRole(String, String, Set<Role>, CheckType, String, RemotingConnection, String) instead");
++      throw new UnsupportedOperationException("Invoke validateUserAndRole(String, String, Set<Role>, CheckType, String, RemotingConnection) instead");
+    }
+ 
+    @Override
+@@ -128,11 +127,10 @@ public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager4 {
+                                      final Set<Role> roles,
+                                      final CheckType checkType,
+                                      final String address,
+-                                     final RemotingConnection remotingConnection,
+-                                     final String securityDomain) {
++                                     final RemotingConnection remotingConnection) {
+       Subject localSubject;
+       try {
+-         localSubject = getAuthenticatedSubject(user, password, remotingConnection, securityDomain);
++         localSubject = getAuthenticatedSubject(user, password, remotingConnection);
+       } catch (LoginException e) {
+          if (logger.isDebugEnabled()) {
+             logger.debug("Couldn't validate user", e);
+@@ -178,8 +176,7 @@ public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager4 {
+ 
+    private Subject getAuthenticatedSubject(final String user,
+                                            final String password,
+-                                           final RemotingConnection remotingConnection,
+-                                           final String securityDomain) throws LoginException {
++                                           final RemotingConnection remotingConnection) throws LoginException {
+       LoginContext lc;
+       ClassLoader currentLoader = Thread.currentThread().getContextClassLoader();
+       ClassLoader thisLoader = this.getClass().getClassLoader();
+@@ -187,27 +184,12 @@ public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager4 {
+          if (thisLoader != currentLoader) {
+             Thread.currentThread().setContextClassLoader(thisLoader);
+          }
+-         if (securityDomain != null) {
+-            lc = new LoginContext(securityDomain, null, new JaasCallbackHandler(user, password, remotingConnection), null);
+-         } else if (certificateConfigurationName != null && certificateConfigurationName.length() > 0 && getCertsFromConnection(remotingConnection) != null) {
++         if (certificateConfigurationName != null && certificateConfigurationName.length() > 0 && getCertsFromConnection(remotingConnection) != null) {
+             lc = new LoginContext(certificateConfigurationName, null, new JaasCallbackHandler(user, password, remotingConnection), certificateConfiguration);
+          } else {
+             lc = new LoginContext(configurationName, null, new JaasCallbackHandler(user, password, remotingConnection), configuration);
+          }
+-         try {
+-            lc.login();
+-            if (AuditLogger.isAnyLoggingEnabled() && remotingConnection != null) {
+-               remotingConnection.setAuditSubject(lc.getSubject());
+-            }
+-            if (AuditLogger.isResourceLoggingEnabled()) {
+-               AuditLogger.userSuccesfullyLoggedInAudit(lc.getSubject());
+-            }
+-         } catch (LoginException e) {
+-            if (AuditLogger.isResourceLoggingEnabled()) {
+-               AuditLogger.userFailedLoggedInAudit(lc.getSubject(), e.getMessage());
+-            }
+-            throw e;
+-         }
++         lc.login();
+          return lc.getSubject();
+       } finally {
+          if (thisLoader != currentLoader) {
+@@ -325,4 +307,5 @@ public class ActiveMQJAASSecurityManager implements ActiveMQSecurityManager4 {
+ 
+       return instance;
+    }
++
+ }

@@ -1,0 +1,232 @@
+diff --git a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionHostAdvancedOptionDialog.java b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionHostAdvancedOptionDialog.java
+index fe34497de..754e6b18e 100644
+--- a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionHostAdvancedOptionDialog.java
++++ b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionHostAdvancedOptionDialog.java
+@@ -21,9 +21,21 @@
+ 
+ package org.apache.airavata.xbaya.appwrapper;
+ 
++import java.awt.event.ActionEvent;
++import java.awt.event.ActionListener;
++import java.awt.event.WindowAdapter;
++import java.awt.event.WindowEvent;
++import java.util.ArrayList;
++import java.util.List;
++
++import javax.swing.BorderFactory;
++import javax.swing.DefaultComboBoxModel;
++import javax.swing.JButton;
++import javax.swing.JDialog;
++
+ import org.apache.airavata.common.utils.SwingUtil;
+ import org.apache.airavata.commons.gfac.type.ApplicationDeploymentDescription;
+-import org.apache.airavata.registry.api.AiravataRegistry;
++import org.apache.airavata.registry.api.Registry;
+ import org.apache.airavata.schemas.gfac.GramApplicationDeploymentType;
+ import org.apache.airavata.schemas.gfac.JobTypeType;
+ import org.apache.airavata.schemas.gfac.JobTypeType.Enum;
+@@ -34,32 +46,23 @@ import org.apache.airavata.xbaya.gui.XBayaComboBox;
+ import org.apache.airavata.xbaya.gui.XBayaLabel;
+ import org.apache.airavata.xbaya.gui.XBayaTextField;
+ 
+-import javax.swing.*;
+-import java.awt.event.ActionEvent;
+-import java.awt.event.ActionListener;
+-import java.awt.event.WindowAdapter;
+-import java.awt.event.WindowEvent;
+-import java.util.ArrayList;
+-import java.util.List;
+-
+ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+     private static final long serialVersionUID = 3920479739097405014L;
+     private XBayaComboBox cmbJobType;
+     private XBayaTextField txtProjectAccountNumber;
+     private XBayaTextField txtProjectAccountDescription;
+     private XBayaTextField txtQueueType;
+-    private XBayaTextField txtMaxWallTime = new XBayaTextField();
+-    private XBayaTextField txtMinMemory = new XBayaTextField();
+-    private XBayaTextField txtCpuCount = new XBayaTextField();
+-    private XBayaTextField txtProcessorsPerNode = new XBayaTextField();
++    private XBayaTextField txtQueueName;
++    private XBayaTextField txtRslParameterName;
++    private XBayaTextField txtRslParameterValue;
+     private JButton okButton;
+-    private AiravataRegistry registry;
++    private Registry registry;
+     private ApplicationDeploymentDescription descriptor;
+ 
+     /**
+      * Create the dialog.
+      */
+-    public ApplicationDescriptionHostAdvancedOptionDialog(AiravataRegistry registry, ApplicationDeploymentDescription descriptor) {
++    public ApplicationDescriptionHostAdvancedOptionDialog(Registry registry, ApplicationDeploymentDescription descriptor) {
+         addWindowListener(new WindowAdapter() {
+             @Override
+             public void windowOpened(WindowEvent arg0) {
+@@ -87,7 +90,7 @@ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+     private void initGUI() {
+         setTitle("Host Description Advance Options");
+         setModal(true);
+-        setBounds(100, 100, 400, 300);
++        setBounds(100, 100, 400, 250);
+         setLocationRelativeTo(null);
+         GridPanel buttonPane = new GridPanel();
+         okButton = new JButton("Update");
+@@ -114,30 +117,24 @@ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+ 		
+ 		txtProjectAccountDescription = new XBayaTextField();
+ 		
++		txtQueueName = new XBayaTextField();
++		
+ 		txtQueueType = new XBayaTextField();
+-        txtMaxWallTime = new XBayaTextField();
+-        txtMinMemory = new XBayaTextField();
+-        txtCpuCount = new XBayaTextField();
+-        txtProcessorsPerNode = new XBayaTextField();
+-
+-        cmbJobType = new XBayaComboBox(new DefaultComboBoxModel(getJobTypesAsStrings()));
+-        cmbJobType.setEditable(false);
+-
+-
+-        XBayaTextField txtCPUTime = new XBayaTextField();
+-        XBayaTextField txtNodeCount = new XBayaTextField();
+-        //XBayaTextField txtProcessorsPerNode = new XBayaTextField();
+-
++		
++		txtRslParameterName = new XBayaTextField();
++		txtRslParameterValue = new XBayaTextField();
++		
++		cmbJobType = new XBayaComboBox(new DefaultComboBoxModel(getJobTypesAsStrings()));
++		cmbJobType.setEditable(false);
+ 		
+ 		XBayaLabel lbljobType = new XBayaLabel("Job Type",cmbJobType);
+ 		XBayaLabel lblProjectAccountNumber = new XBayaLabel("Project Account Number",txtProjectAccountNumber);
+ 		XBayaLabel lblProjectAccountDescription = new XBayaLabel("Project Account Description",txtProjectAccountDescription);
+ 		XBayaLabel lblQueueType = new XBayaLabel("Queue Type",txtQueueType);
+-		XBayaLabel lblMaxWallTime = new XBayaLabel("Max Wall Time",txtMaxWallTime);
+-		XBayaLabel lblCpuCount = new XBayaLabel("CPU Count",txtCpuCount);
+-		XBayaLabel lblProcessorPerNode = new XBayaLabel("Processor Per Node", txtProcessorsPerNode);
+-		XBayaLabel lblMinMemory = new XBayaLabel("Min Memory",txtMinMemory);
+-
++		XBayaLabel lblQueueName = new XBayaLabel("Queue Name",txtQueueName);
++		XBayaLabel lblRSLParameterName = new XBayaLabel("RSL Parameter Name",txtRslParameterName);
++		XBayaLabel lslRSLParameterValue = new XBayaLabel("RSL Parameter Value",txtRslParameterValue);
++    	
+ 		panel.add(lbljobType);
+ 		panel.add(cmbJobType);
+ 		panel.add(lblProjectAccountNumber);
+@@ -146,18 +143,14 @@ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+ 		panel.add(txtProjectAccountDescription);
+ 		panel.add(lblQueueType);
+ 		panel.add(txtQueueType);
+-        panel.add(lblMaxWallTime);
+-		panel.add(txtMaxWallTime);
+-        panel.add(lblCpuCount);
+-		panel.add(txtCpuCount);
+-        panel.add(lblProcessorPerNode);
+-		panel.add(txtProcessorsPerNode);
+-        panel.add(lblMinMemory);
+-		panel.add(txtMinMemory);
++		panel.add(lblQueueName);
++		panel.add(txtQueueName);
++//		panel.add(lblRSLParameterName);
++//		panel.add(lslRSLParameterValue);
+ 		panel.getSwingComponent().setBorder(BorderFactory.createEtchedBorder());
+         buttonPane.getSwingComponent().setBorder(BorderFactory.createEtchedBorder());
+ 
+-        SwingUtil.layoutToGrid(panel.getSwingComponent(), 8, 2, SwingUtil.WEIGHT_NONE, 1);
++        SwingUtil.layoutToGrid(panel.getSwingComponent(), 5, 2, SwingUtil.WEIGHT_NONE, 1);
+         
+         buttonPane.add(okButton);
+         buttonPane.add(cancelButton);
+@@ -165,7 +158,7 @@ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+         getContentPane().add(panel.getSwingComponent());
+         getContentPane().add(buttonPane.getSwingComponent());
+         SwingUtil.layoutToGrid(getContentPane(), 2, 1, 0, 0);
+-        setResizable(true);
++        setResizable(false);
+         getRootPane().setDefaultButton(okButton);
+     }
+     
+@@ -177,7 +170,6 @@ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+ 			jobTypes.add(JobTypeType.OPEN_MP);
+ 			jobTypes.add(JobTypeType.MPI);
+ 			jobTypes.add(JobTypeType.SERIAL);
+-            jobTypes.add(JobTypeType.SINGLE);
+ 		}
+ 		return jobTypes;
+ 	}
+@@ -213,16 +205,16 @@ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+ 
+     private void saveApplicationDescriptionAdvancedOptions() {
+ 		getGramApplicationDescriptionType().setJobType(getJobTypeEnum(cmbJobType.getText()));
+-        getGramApplicationDescriptionType().setMaxWallTime(Integer.parseInt(txtMaxWallTime.getText()));
+-        getGramApplicationDescriptionType().setCpuCount(Integer.parseInt(txtCpuCount.getText()));
+-        getGramApplicationDescriptionType().setProcessorsPerNode(Integer.parseInt(txtProcessorsPerNode.getText()));
+-        getGramApplicationDescriptionType().setMinMemory(Integer.parseInt(txtMinMemory.getText()));
+ 		ProjectAccountType projectAccount = getProjectAccountType();
+ 		projectAccount.setProjectAccountNumber(txtProjectAccountNumber.getText());
+ 		projectAccount.setProjectAccountDescription(txtProjectAccountDescription.getText());
+ 		
++		projectAccount.setProjectAccountNumber(txtProjectAccountNumber.getText());
++		projectAccount.setProjectAccountNumber(txtProjectAccountNumber.getText());
++		
+ 		QueueType queueName = getQueueName();
+ 		queueName.setQueueName(txtQueueType.getText());
++		queueName.setQueueDescription(txtQueueName.getText());
+     }
+ 
+ 	private QueueType getQueueName() {
+@@ -244,25 +236,44 @@ public class ApplicationDescriptionHostAdvancedOptionDialog extends JDialog {
+     	if (getGramApplicationDescriptionType().getJobType()!=null) {
+ 			cmbJobType.setSelectedItem(getGramApplicationDescriptionType()
+ 					.getJobType().toString());
+-            txtMinMemory.setText(String.valueOf(getGramApplicationDescriptionType().getMaxWallTime()));
+-            txtCpuCount.setText(String.valueOf(getGramApplicationDescriptionType().getCpuCount()));
+-            txtProcessorsPerNode.setText(String.valueOf(getGramApplicationDescriptionType().getProcessorsPerNode()));
+-            txtMinMemory.setText(String.valueOf(getGramApplicationDescriptionType().getMinMemory()));
+ 		}
+ 		ProjectAccountType projectAccount = getProjectAccountType();
+ 
+ 		txtProjectAccountNumber.setText(projectAccount.getProjectAccountNumber()==null? "":projectAccount.getProjectAccountNumber());
+ 		txtProjectAccountDescription.setText(projectAccount.getProjectAccountDescription()==null? "":projectAccount.getProjectAccountDescription());
++		
++//        txtWorkingDir.setText(getGramApplicationDescriptionType().getScratchWorkingDirectory());
++//        txtInputDir.setText(getGramApplicationDescriptionType().getInputDataDirectory());
++//        txtOutputDir.setText(getGramApplicationDescriptionType().getOutputDataDirectory());
++//        txtSTDIN.setText(getGramApplicationDescriptionType().getStandardInput());
++//        txtSTDOUT.setText(getGramApplicationDescriptionType().getStandardOutput());
++//        txtSTDERR.setText(getGramApplicationDescriptionType().getStandardError());
++//        tableModelChanging = true;
++//      todo handle other parameters previous sent in the Entry Now they are defined
++//        ShellApplicationDeploymentType.Env.Entry[] entry = getShellApplicationDescriptionType().getEnv().getEntryArray();
++//
++//        Map<String, String> env = null;
++//        for (int i = 0; i < entry.length; i++) {
++//            String key = getShellApplicationDescriptionType().getEnv().getEntryArray(i).getKey();
++//            String value = getShellApplicationDescriptionType().getEnv().getEntryArray(i).getValue();
++//            env.put(key, value);
++//        }
+ 
+-		QueueType queueName = getQueueName();
+-		txtQueueType.setText(queueName.getQueueName()==null?"":queueName.getQueueName());
++//        while (defaultTableModel.getRowCount() > 0) {
++//            defaultTableModel.removeRow(0);
++//        }
++//        if (env != null) {
++//            for (String varName : env.keySet()) {
++//                defaultTableModel.addRow(new String[] { varName, env.get(varName) });
++//            }
++//        }
+     }
+ 
+-    public AiravataRegistry getRegistry() {
++    public Registry getRegistry() {
+         return registry;
+     }
+ 
+-    public void setRegistry(AiravataRegistry registry) {
++    public void setRegistry(Registry registry) {
+         this.registry = registry;
+     }
+ 

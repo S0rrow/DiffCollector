@@ -1,0 +1,33 @@
+diff --git a/asterixdb/asterix-om/src/main/java/org/apache/asterix/om/typecomputer/impl/ScalarVersionOfAggregateResultType.java b/asterixdb/asterix-om/src/main/java/org/apache/asterix/om/typecomputer/impl/ScalarVersionOfAggregateResultType.java
+index ebee611c6c..3fecfd97a2 100644
+--- a/asterixdb/asterix-om/src/main/java/org/apache/asterix/om/typecomputer/impl/ScalarVersionOfAggregateResultType.java
++++ b/asterixdb/asterix-om/src/main/java/org/apache/asterix/om/typecomputer/impl/ScalarVersionOfAggregateResultType.java
+@@ -25,7 +25,6 @@ import org.apache.asterix.om.types.AbstractCollectionType;
+ import org.apache.asterix.om.types.BuiltinType;
+ import org.apache.asterix.om.types.IAType;
+ import org.apache.hyracks.algebricks.common.exceptions.AlgebricksException;
+-import org.apache.hyracks.algebricks.core.algebra.base.ILogicalExpression;
+ 
+ public class ScalarVersionOfAggregateResultType extends AbstractResultTypeComputer {
+ 
+@@ -44,16 +43,13 @@ public class ScalarVersionOfAggregateResultType extends AbstractResultTypeComput
+     }
+ 
+     @Override
+-    protected IAType getResultType(ILogicalExpression expr, IAType... strippedInputTypes) throws AlgebricksException {
+-        ATypeTag tag = strippedInputTypes[0].getTypeTag();
++    protected IAType getResultType(IAType... strippedInputTypes) {
++        AbstractCollectionType act = (AbstractCollectionType) strippedInputTypes[0];
++        ATypeTag tag = act.getTypeTag();
+         if (tag == ATypeTag.ANY) {
+             return BuiltinType.ANY;
+         }
+-        if (tag != ATypeTag.ORDEREDLIST && tag != ATypeTag.UNORDEREDLIST) {
+-            return strippedInputTypes[0];
+-        }
+-        AbstractCollectionType act = (AbstractCollectionType) strippedInputTypes[0];
+         IAType t = act.getItemType();
+-        return AUnionType.createUnknownableType(t);
++        return AUnionType.createNullableType(t);
+     }
+ }

@@ -1,0 +1,15 @@
+diff --git a/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java b/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java
+index fcd197d143..07ed9e943c 100644
+--- a/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java
++++ b/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/actors/ProcessorBase.java
+@@ -100,10 +100,6 @@ public abstract class ProcessorBase<T> {
+       return stateUpdater.get(this) == STATE_NOT_RUNNING;
+    }
+ 
+-   public final boolean isFlushed() {
+-      return stateUpdater.get(this) == STATE_NOT_RUNNING;
+-   }
+-
+    protected void task(T command) {
+       tasks.add(command);
+       startPoller();

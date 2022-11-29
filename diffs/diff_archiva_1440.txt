@@ -1,0 +1,201 @@
+diff --git a/archiva-base/archiva-configuration/src/main/java/org/apache/maven/archiva/configuration/DefaultArchivaConfiguration.java b/archiva-base/archiva-configuration/src/main/java/org/apache/maven/archiva/configuration/DefaultArchivaConfiguration.java
+index a80015c37..52701830c 100644
+--- a/archiva-base/archiva-configuration/src/main/java/org/apache/maven/archiva/configuration/DefaultArchivaConfiguration.java
++++ b/archiva-base/archiva-configuration/src/main/java/org/apache/maven/archiva/configuration/DefaultArchivaConfiguration.java
+@@ -19,23 +19,9 @@
+  * under the License.
+  */
+ 
+-import java.io.File;
+-import java.io.IOException;
+-import java.util.ArrayList;
+-import java.util.Collection;
+-import java.util.Collections;
+-import java.util.HashMap;
+-import java.util.HashSet;
+-import java.util.Iterator;
+-import java.util.List;
+-import java.util.Map;
+-import java.util.Set;
+-import java.util.Map.Entry;
+-
+ import org.apache.commons.collections.CollectionUtils;
+ import org.apache.commons.collections.MapUtils;
+ import org.apache.commons.io.FileUtils;
+-import org.apache.commons.lang.StringUtils;
+ import org.apache.maven.archiva.configuration.functors.ProxyConnectorConfigurationOrderComparator;
+ import org.apache.maven.archiva.configuration.io.registry.ConfigurationRegistryReader;
+ import org.apache.maven.archiva.configuration.io.registry.ConfigurationRegistryWriter;
+@@ -49,13 +35,26 @@
+ import org.codehaus.plexus.evaluator.EvaluatorException;
+ import org.codehaus.plexus.evaluator.ExpressionEvaluator;
+ import org.codehaus.plexus.evaluator.sources.SystemPropertyExpressionSource;
++import org.codehaus.plexus.logging.AbstractLogEnabled;
+ import org.codehaus.plexus.personality.plexus.lifecycle.phase.Initializable;
+ import org.codehaus.plexus.personality.plexus.lifecycle.phase.InitializationException;
+ import org.codehaus.plexus.registry.Registry;
+ import org.codehaus.plexus.registry.RegistryException;
+ import org.codehaus.plexus.registry.RegistryListener;
+-import org.slf4j.Logger;
+-import org.slf4j.LoggerFactory;
++import org.codehaus.plexus.util.StringUtils;
++
++import java.io.File;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.Collection;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.HashSet;
++import java.util.Iterator;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++import java.util.Map.Entry;
+ 
+ /**
+  * <p>
+@@ -84,10 +83,9 @@
+  * @plexus.component role="org.apache.maven.archiva.configuration.ArchivaConfiguration"
+  */
+ public class DefaultArchivaConfiguration
++    extends AbstractLogEnabled
+     implements ArchivaConfiguration, RegistryListener, Initializable
+ {
+-    private Logger log = LoggerFactory.getLogger( DefaultArchivaConfiguration.class );
+-
+     /**
+      * Plexus registry to read the configuration from.
+      *
+@@ -109,7 +107,7 @@
+      * @plexus.requirement role="org.apache.maven.archiva.policies.PostDownloadPolicy"
+      */
+     private Map<String, PostDownloadPolicy> postPolicies;
+-
++    
+     /**
+      * @plexus.configuration default-value="${user.home}/.m2/archiva.xml"
+      */
+@@ -129,7 +127,7 @@
+      * Registry Listeners we've registered.
+      */
+     private Set<RegistryListener> registryListeners = new HashSet<RegistryListener>();
+-
++    
+     /**
+      * Boolean to help determine if the configuration exists as a result of pulling in
+      * the default-archiva.xml
+@@ -199,24 +197,6 @@ else if ( r.getUrl().startsWith( "file:" ) )
+             registry.removeSubset( KEY + ".repositories" );
+         }
+ 
+-        if ( !CollectionUtils.isEmpty( config.getRemoteRepositories() ) )
+-        {
+-            List<RemoteRepositoryConfiguration> remoteRepos = config.getRemoteRepositories();
+-            for ( RemoteRepositoryConfiguration repo : remoteRepos )
+-            {
+-                // [MRM-582] Remote Repositories with empty <username> and <password> fields shouldn't be created in configuration.
+-                if ( StringUtils.isBlank( repo.getUsername() ) )
+-                {
+-                    repo.setUsername( null );
+-                }
+-
+-                if ( StringUtils.isBlank( repo.getPassword() ) )
+-                {
+-                    repo.setPassword( null );
+-                }
+-            }
+-        }
+-
+         if ( !config.getProxyConnectors().isEmpty() )
+         {
+             // Fix Proxy Connector Settings.
+@@ -289,7 +269,7 @@ else if ( "checksum".equals( policyId ) )
+                     else
+                     {
+                         // Policy key doesn't exist. Don't add it to golden version.
+-                        log.warn( "Policy [" + policyId + "] does not exist." );
++                        getLogger().warn( "Policy [" + policyId + "] does not exist." );
+                     }
+                 }
+ 
+@@ -325,13 +305,13 @@ private DownloadPolicy findPolicy( String policyId )
+     {
+         if ( MapUtils.isEmpty( prePolicies ) )
+         {
+-            log.error( "No PreDownloadPolicies found!" );
++            getLogger().error( "No PreDownloadPolicies found!" );
+             return null;
+         }
+ 
+         if ( MapUtils.isEmpty( postPolicies ) )
+         {
+-            log.error( "No PostDownloadPolicies found!" );
++            getLogger().error( "No PostDownloadPolicies found!" );
+             return null;
+         }
+ 
+@@ -356,16 +336,16 @@ private boolean policyExists( String policyId )
+     {
+         if ( MapUtils.isEmpty( prePolicies ) )
+         {
+-            log.error( "No PreDownloadPolicies found!" );
++            getLogger().error( "No PreDownloadPolicies found!" );
+             return false;
+         }
+-
++        
+         if ( MapUtils.isEmpty( postPolicies ) )
+         {
+-            log.error( "No PostDownloadPolicies found!" );
++            getLogger().error( "No PostDownloadPolicies found!" );
+             return false;
+         }
+-
++        
+         return ( prePolicies.containsKey( policyId ) || postPolicies.containsKey( policyId ) );
+     }
+ 
+@@ -491,8 +471,6 @@ private Registry createDefaultConfigurationFile()
+     /**
+      * Attempts to write the contents to a file, if an IOException occurs, return false.
+      * 
+-     * The file will be created if the directory to the file exists, otherwise this will return false.
+-     * 
+      * @param filetype the filetype (freeform text) to use in logging messages when failure to write.
+      * @param path the path to write to.
+      * @param contents the contents to write.
+@@ -504,23 +482,12 @@ private boolean writeFile( String filetype, String path, String contents )
+ 
+         try
+         {
+-            // Check parent directory (if it is declared)
+-            if ( file.getParentFile() != null )
+-            {
+-                // Check that directory exists
+-                if ( ( file.getParentFile().exists() == false ) || ( file.getParentFile().isDirectory() == false ) )
+-                {
+-                    // Directory to file must exist for file to be created
+-                    return false;
+-                }
+-            }
+-
+             FileUtils.writeStringToFile( file, contents, "UTF-8" );
+             return true;
+         }
+         catch ( IOException e )
+         {
+-            log.error( "Unable to create " + filetype + " file: " + e.getMessage(), e );
++            getLogger().error( "Unable to create " + filetype + " file: " + e.getMessage(), e );
+             return false;
+         }
+     }
+@@ -536,7 +503,7 @@ private void triggerEvent( int type )
+             }
+             catch ( Throwable t )
+             {
+-                log.warn( "Unable to notify of saved configuration event.", t );
++                getLogger().warn( "Unable to notify of saved configuration event.", t );
+             }
+         }
+     }

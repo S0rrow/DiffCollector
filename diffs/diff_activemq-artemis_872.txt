@@ -1,0 +1,106 @@
+diff --git a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
+index cb9c74b121..6f64379aa6 100644
+--- a/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
++++ b/artemis-protocols/artemis-openwire-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/openwire/amq/AMQConsumer.java
+@@ -33,7 +33,6 @@ import org.apache.activemq.advisory.AdvisorySupport;
+ import org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException;
+ import org.apache.activemq.artemis.api.core.ICoreMessage;
+ import org.apache.activemq.artemis.api.core.Message;
+-import org.apache.activemq.artemis.api.core.QueueConfiguration;
+ import org.apache.activemq.artemis.api.core.RoutingType;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.client.impl.ClientConsumerImpl;
+@@ -43,6 +42,7 @@ import org.apache.activemq.artemis.core.server.MessageReference;
+ import org.apache.activemq.artemis.core.server.QueueQueryResult;
+ import org.apache.activemq.artemis.core.server.ServerConsumer;
+ import org.apache.activemq.artemis.core.server.SlowConsumerDetectionListener;
++import org.apache.activemq.artemis.core.server.impl.AddressInfo;
+ import org.apache.activemq.artemis.core.server.impl.ServerConsumerImpl;
+ import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+ import org.apache.activemq.artemis.core.transaction.Transaction;
+@@ -68,7 +68,7 @@ public class AMQConsumer {
+ 
+    private int prefetchSize;
+    private final AtomicInteger currentWindow;
+-   private int deliveredAcks;
++   private final AtomicInteger deliveredAcks;
+    private long messagePullSequence = 0;
+    private final AtomicReference<MessagePullHandler> messagePullHandler = new AtomicReference<>(null);
+    //internal means we don't expose
+@@ -88,7 +88,7 @@ public class AMQConsumer {
+       this.scheduledPool = scheduledPool;
+       this.prefetchSize = info.getPrefetchSize();
+       this.currentWindow = new AtomicInteger(prefetchSize);
+-      this.deliveredAcks = 0;
++      this.deliveredAcks = new AtomicInteger(0);
+       if (prefetchSize == 0) {
+          messagePullHandler.set(new MessagePullHandler());
+       }
+@@ -149,8 +149,7 @@ public class AMQConsumer {
+          ((ServerConsumerImpl)serverConsumer).setPreAcknowledge(preAck);
+       } else {
+          try {
+-            session.getCoreServer().createQueue(new QueueConfiguration(destinationName)
+-                                                   .setRoutingType(RoutingType.ANYCAST));
++            session.getCoreServer().createQueue(destinationName, RoutingType.ANYCAST, destinationName, null, true, false);
+          } catch (ActiveMQQueueExistsException e) {
+             // ignore
+          }
+@@ -181,6 +180,13 @@ public class AMQConsumer {
+ 
+       SimpleString queueName;
+ 
++      AddressInfo addressInfo = session.getCoreServer().getAddressInfo(address);
++      if (addressInfo != null) {
++         addressInfo.addRoutingType(RoutingType.MULTICAST);
++      } else {
++         addressInfo = new AddressInfo(address, RoutingType.MULTICAST);
++      }
++      addressInfo.setInternal(internalAddress);
+       if (isDurable) {
+          queueName = org.apache.activemq.artemis.jms.client.ActiveMQDestination.createQueueNameForSubscription(true, clientID, subscriptionName);
+          if (info.getDestination().isComposite()) {
+@@ -206,15 +212,15 @@ public class AMQConsumer {
+                session.getCoreSession().deleteQueue(queueName);
+ 
+                // Create the new one
+-               session.getCoreSession().createQueue(new QueueConfiguration(queueName).setAddress(address).setFilterString(selector).setInternal(internalAddress));
++               session.getCoreSession().createQueue(addressInfo, queueName, selector, false, true);
+             }
+          } else {
+-            session.getCoreSession().createQueue(new QueueConfiguration(queueName).setAddress(address).setFilterString(selector).setInternal(internalAddress));
++            session.getCoreSession().createQueue(addressInfo, queueName, selector, false, true);
+          }
+       } else {
+          queueName = new SimpleString(UUID.randomUUID().toString());
+ 
+-         session.getCoreSession().createQueue(new QueueConfiguration(queueName).setAddress(address).setFilterString(selector).setDurable(false).setTemporary(true).setInternal(internalAddress));
++         session.getCoreSession().createQueue(addressInfo, queueName, selector, true, false);
+       }
+ 
+       return queueName;
+@@ -300,15 +306,18 @@ public class AMQConsumer {
+       List<MessageReference> ackList = serverConsumer.getDeliveringReferencesBasedOnProtocol(removeReferences, first, last);
+ 
+       if (removeReferences && (ack.isIndividualAck() || ack.isStandardAck() || ack.isPoisonAck())) {
+-         if (deliveredAcks < ackList.size()) {
++         this.deliveredAcks.getAndUpdate(deliveredAcks -> {
++            if (deliveredAcks >= ackList.size()) {
++               return deliveredAcks - ackList.size();
++            }
++
+             acquireCredit(ackList.size() - deliveredAcks);
+-            deliveredAcks = 0;
+-         } else {
+-            deliveredAcks -= ackList.size();
+-         }
++
++            return 0;
++         });
+       } else {
+          if (ack.isDeliveredAck()) {
+-            this.deliveredAcks += ack.getMessageCount();
++            this.deliveredAcks.addAndGet(ack.getMessageCount());
+          }
+ 
+          acquireCredit(ack.getMessageCount());

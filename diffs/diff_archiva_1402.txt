@@ -1,0 +1,173 @@
+diff --git a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
+index abd92ebc4..b25daef6a 100644
+--- a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
++++ b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
+@@ -32,19 +32,18 @@
+ import org.apache.maven.archiva.repository.layout.BidirectionalRepositoryLayout;
+ import org.apache.maven.archiva.repository.layout.BidirectionalRepositoryLayoutFactory;
+ import org.apache.maven.archiva.repository.layout.LayoutException;
+-import org.apache.maven.archiva.repository.metadata.MetadataTools;
+-import org.apache.maven.archiva.repository.metadata.RepositoryMetadataException;
+ import org.codehaus.plexus.webdav.AbstractDavServerComponent;
+ import org.codehaus.plexus.webdav.DavServerComponent;
+ import org.codehaus.plexus.webdav.DavServerException;
+ import org.codehaus.plexus.webdav.servlet.DavServerRequest;
+ import org.codehaus.plexus.webdav.util.WebdavMethodUtil;
+ 
++import java.io.File;
++import java.io.IOException;
++
+ import javax.servlet.ServletConfig;
+ import javax.servlet.ServletException;
+ import javax.servlet.http.HttpServletResponse;
+-import java.io.File;
+-import java.io.IOException;
+ 
+ /**
+  * ProxiedDavServer
+@@ -52,8 +51,8 @@
+  * @author <a href="mailto:joakime@apache.org">Joakim Erdfelt</a>
+  * @version $Id$
+  * @plexus.component role="org.codehaus.plexus.webdav.DavServerComponent"
+- * role-hint="proxied"
+- * instantiation-strategy="per-lookup"
++ *                   role-hint="proxied"
++ *                   instantiation-strategy="per-lookup"
+  */
+ public class ProxiedDavServer
+     extends AbstractDavServerComponent
+@@ -73,11 +72,6 @@
+      */
+     private RepositoryProxyConnectors connectors;
+ 
+-    /**
+-     * @plexus.requirement
+-     */
+-    private MetadataTools metadataTools;
+-
+     /**
+      * @plexus.requirement
+      */
+@@ -140,18 +134,6 @@ public void process( DavServerRequest request, HttpServletResponse response )
+                 fetchContentFromProxies( request );
+             }
+         }
+-        else
+-        {
+-            // Create parent directories that don't exist when writing a file
+-            // This actually makes this implementation not compliant to the WebDAV RFC - but we have enough knowledge
+-            // about how the collection is being used to do this reasonably and some versions of Maven's WebDAV don't
+-            // correctly create the collections themselves.
+-            File rootDirectory = getRootDirectory();
+-            if ( rootDirectory != null )
+-            {
+-                new File( rootDirectory, request.getLogicalResource() ).getParentFile().mkdirs();
+-            }
+-        }
+ 
+         davServer.process( request, response );
+     }
+@@ -167,83 +149,57 @@ private void fetchContentFromProxies( DavServerRequest request )
+             return;
+         }
+ 
+-        // Is it a Metadata resource?
+-        if ( resource.endsWith( "/" + MetadataTools.MAVEN_METADATA ) )
++        try
+         {
+             ProjectReference project;
+             VersionedReference versioned;
++            ArtifactReference artifact;
+ 
+             try
+             {
++                artifact = layout.toArtifactReference( resource );
++                if ( artifact != null )
++                {
++                    connectors.fetchFromProxies( managedRepository, artifact );
++                    return;
++                }
++            }
++            catch ( LayoutException e )
++            {
++                /* eat it */
++            }
+ 
+-                versioned = metadataTools.toVersionedReference( resource );
++            try
++            {
++                versioned = layout.toVersionedReference( resource );
+                 if ( versioned != null )
+                 {
+                     connectors.fetchFromProxies( managedRepository, versioned );
+-                    request.getRequest().setPathInfo( metadataTools.toPath( versioned ) );
+                     return;
+                 }
+             }
+-            catch ( RepositoryMetadataException e )
++            catch ( LayoutException e )
+             {
+                 /* eat it */
+             }
+-            catch ( ProxyException e )
+-            {
+-                throw new ServletException( "Unable to fetch versioned metadata resource.", e );
+-            }
+ 
+             try
+             {
+-                project = metadataTools.toProjectReference( resource );
++                project = layout.toProjectReference( resource );
+                 if ( project != null )
+                 {
+                     connectors.fetchFromProxies( managedRepository, project );
+-                    request.getRequest().setPathInfo( metadataTools.toPath( project ) );
+                     return;
+                 }
+             }
+-            catch ( RepositoryMetadataException e )
++            catch ( LayoutException e )
+             {
+                 /* eat it */
+             }
+-            catch ( ProxyException e )
+-            {
+-                throw new ServletException( "Unable to fetch project metadata resource.", e );
+-            }
+-        }
+-
+-        // Not any of the above? Then it's gotta be an artifact reference.
+-        ArtifactReference artifact;
+-        BidirectionalRepositoryLayout resourceLayout;
+-
+-        try
+-        {
+-            resourceLayout = layoutFactory.getLayoutForPath( resource );
+-        }
+-        catch ( LayoutException e )
+-        {
+-            /* invalid request - eat it */
+-            return;
+-        }
+-
+-        try
+-        {
+-            artifact = resourceLayout.toArtifactReference( resource );
+-            if ( artifact != null )
+-            {
+-                connectors.fetchFromProxies( managedRepository, artifact );
+-                request.getRequest().setPathInfo( layout.toPath( artifact ) );
+-                return;
+-            }
+-        }
+-        catch ( LayoutException e )
+-        {
+-            /* eat it */
+         }
+         catch ( ProxyException e )
+         {
+-            throw new ServletException( "Unable to fetch artifact resource.", e );
++            throw new ServletException( "Unable to fetch resource.", e );
+         }
+     }
+ 

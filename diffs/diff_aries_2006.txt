@@ -1,0 +1,165 @@
+diff --git a/spi-fly-core/src/main/java/org/apache/aries/spifly/ConsumerHeaderProcessor.java b/spi-fly-core/src/main/java/org/apache/aries/spifly/ConsumerHeaderProcessor.java
+index 87928bb81..057957b3b 100644
+--- a/spi-fly-core/src/main/java/org/apache/aries/spifly/ConsumerHeaderProcessor.java
++++ b/spi-fly-core/src/main/java/org/apache/aries/spifly/ConsumerHeaderProcessor.java
+@@ -19,30 +19,19 @@
+ package org.apache.aries.spifly;
+ 
+ import java.util.ArrayList;
+-import java.util.Collection;
+-import java.util.Dictionary;
++import java.util.Collections;
+ import java.util.HashSet;
+-import java.util.Hashtable;
+ import java.util.List;
+ import java.util.ServiceLoader;
+ import java.util.Set;
+ 
+ import org.apache.aries.spifly.HeaderParser.PathElement;
++import org.apache.aries.spifly.api.SpiFlyConstants;
+ import org.apache.aries.util.manifest.ManifestHeaderProcessor;
+ import org.apache.aries.util.manifest.ManifestHeaderProcessor.GenericMetadata;
+-import org.osgi.framework.Filter;
+-import org.osgi.framework.FrameworkUtil;
+-import org.osgi.framework.InvalidSyntaxException;
+ import org.osgi.framework.Version;
+ 
+ public class ConsumerHeaderProcessor {
+-    private static final Dictionary<String, String> PROCESSOR_FILTER_MATCH;
+-
+-    static {
+-        PROCESSOR_FILTER_MATCH = new Hashtable<String, String>();
+-        PROCESSOR_FILTER_MATCH.put(SpiFlyConstants.EXTENDER_CAPABILITY_NAMESPACE, SpiFlyConstants.PROCESSOR_EXTENDER_NAME);
+-    }
+-
+     /**
+      * Parses headers of the following syntax:
+      * <ul>
+@@ -55,7 +44,7 @@ public class ConsumerHeaderProcessor {
+      * <li><b>true</b> - equivalent to <tt>java.util.ServiceLoader#load(java.lang.Class)</tt>
+      * </ul>
+      * Additionally, it registers the consumer's constraints with the consumer registry in the activator, if the
+-     * consumer is only constrained to a certain set of bundles.<p>
++     * consumer is only constrained to a certain set of bundles.<p/>
+      *
+      * The following attributes are supported:
+      * <ul>
+@@ -70,9 +59,8 @@ public class ConsumerHeaderProcessor {
+      * @param consumerHeaderName the name of the header (either Require-Capability or SPI-Consumer)
+      * @param consumerHeader the <tt>SPI-Consumer</tt> header.
+      * @return an instance of the {@link WeavingData} class.
+-     * @throws Exception when a header cannot be parsed.
+      */
+-    public static Set<WeavingData> processHeader(String consumerHeaderName, String consumerHeader) throws Exception {
++    public static Set<WeavingData> processHeader(String consumerHeaderName, String consumerHeader) {
+         if (SpiFlyConstants.REQUIRE_CAPABILITY.equals(consumerHeaderName)) {
+             return processRequireCapabilityHeader(consumerHeader);
+         }
+@@ -86,7 +74,6 @@ public class ConsumerHeaderProcessor {
+             String className;
+             String methodName;
+             MethodRestriction methodRestriction;
+-            boolean serviceLoader = false;
+ 
+             int hashIdx = name.indexOf('#');
+             if (hashIdx > 0) {
+@@ -128,7 +115,6 @@ public class ConsumerHeaderProcessor {
+                 }
+             } else {
+                 if ("*".equalsIgnoreCase(name)) {
+-                    serviceLoader = true;
+                     className = ServiceLoader.class.getName();
+                     methodName = "load";
+                     ArgRestrictions argRestrictions = new ArgRestrictions();
+@@ -173,51 +159,26 @@ public class ConsumerHeaderProcessor {
+             }
+ 
+             weavingData.add(createWeavingData(className, methodName, methodRestriction, allowedBundles));
+-
+-            if (serviceLoader) {
+-                className = ServiceLoader.class.getName();
+-                methodName = "load";
+-                ArgRestrictions argRestrictions = new ArgRestrictions();
+-                argRestrictions.addRestriction(0, Class.class.getName());
+-                argRestrictions.addRestriction(1, ClassLoader.class.getName());
+-                methodRestriction = new MethodRestriction(methodName, argRestrictions);
+-                weavingData.add(createWeavingData(className, methodName, methodRestriction, allowedBundles));
+-            }
+         }
+         return weavingData;
+     }
+ 
+-    private static Set<WeavingData> processRequireCapabilityHeader(String consumerHeader) throws InvalidSyntaxException {
++    private static Set<WeavingData> processRequireCapabilityHeader(String consumerHeader) {
+         Set<WeavingData> weavingData = new HashSet<WeavingData>();
+ 
+         List<GenericMetadata> requirements = ManifestHeaderProcessor.parseRequirementString(consumerHeader);
+-        GenericMetadata extenderRequirement = findRequirement(requirements, SpiFlyConstants.EXTENDER_CAPABILITY_NAMESPACE, SpiFlyConstants.PROCESSOR_EXTENDER_NAME);
+-        Collection<GenericMetadata> serviceLoaderRequirements = findAllMetadata(requirements, SpiFlyConstants.SERVICELOADER_CAPABILITY_NAMESPACE);
+-
+-        if (extenderRequirement != null) {
+-            List<BundleDescriptor> allowedBundles = new ArrayList<BundleDescriptor>();
+-            for (GenericMetadata req : serviceLoaderRequirements) {
+-                String slFilterString = req.getDirectives().get(SpiFlyConstants.FILTER_DIRECTIVE);
+-                if (slFilterString != null) {
+-                    Filter slFilter = FrameworkUtil.createFilter(slFilterString);
+-                    allowedBundles.add(new BundleDescriptor(slFilter));
++        for (GenericMetadata req : requirements) {
++            if (SpiFlyConstants.SPI_CAPABILITY_NAMESPACE.equals(req.getNamespace())) {
++                if (!"active".equals(req.getDirectives().get("effective"))) {
++                    continue;
+                 }
+-            }
+ 
+-            // ServiceLoader.load(Class)
+-            {
+                 ArgRestrictions ar = new ArgRestrictions();
+                 ar.addRestriction(0, Class.class.getName());
+                 MethodRestriction mr = new MethodRestriction("load", ar);
+-                weavingData.add(createWeavingData(ServiceLoader.class.getName(), "load", mr, allowedBundles));
+-            }
+ 
+-            // ServiceLoader.load(Class, ClassLoader)
+-            {
+-                ArgRestrictions ar = new ArgRestrictions();
+-                ar.addRestriction(0, Class.class.getName());
+-                ar.addRestriction(1, ClassLoader.class.getName());
+-                MethodRestriction mr = new MethodRestriction("load", ar);
++                List<BundleDescriptor> allowedBundles = Collections.emptyList();
++
+                 weavingData.add(createWeavingData(ServiceLoader.class.getName(), "load", mr, allowedBundles));
+             }
+         }
+@@ -239,32 +200,4 @@ public class ConsumerHeaderProcessor {
+         return new WeavingData(className, methodName, argClasses, restrictions,
+                 allowedBundles.size() == 0 ? null : allowedBundles);
+     }
+-
+-    private static GenericMetadata findRequirement(List<GenericMetadata> requirements, String namespace, String type) throws InvalidSyntaxException {
+-        Dictionary<String, String> nsAttr = new Hashtable<String, String>();
+-        nsAttr.put(namespace, type);
+-
+-        for (GenericMetadata req : requirements) {
+-            if (namespace.equals(req.getNamespace())) {
+-                String filterString = req.getDirectives().get(SpiFlyConstants.FILTER_DIRECTIVE);
+-                if (filterString != null) {
+-                    Filter filter = FrameworkUtil.createFilter(filterString);
+-                    if (filter.match(nsAttr)) {
+-                        return req;
+-                    }
+-                }
+-            }
+-        }
+-        return null;
+-    }
+-
+-    private static Collection<GenericMetadata> findAllMetadata(List<GenericMetadata> metadata, String namespace) {
+-        List<GenericMetadata> matching = new ArrayList<ManifestHeaderProcessor.GenericMetadata>();
+-        for (GenericMetadata md : metadata) {
+-            if (namespace.equals(md.getNamespace())) {
+-                matching.add(md);
+-            }
+-        }
+-        return matching;
+-    }
+ }

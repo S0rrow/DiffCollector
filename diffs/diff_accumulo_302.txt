@@ -1,0 +1,43 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/RestartStressIT.java b/test/src/main/java/org/apache/accumulo/test/functional/RestartStressIT.java
+index 1fb56ef2a4..f607d16f4e 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/RestartStressIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/RestartStressIT.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-import static java.nio.charset.StandardCharsets.UTF_8;
+ import static org.junit.Assert.assertEquals;
+ 
+ import java.util.Map;
+@@ -48,6 +46,9 @@ import org.junit.Test;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import com.google.common.base.Charsets;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class RestartStressIT extends AccumuloClusterHarness {
+   private static final Logger log = LoggerFactory.getLogger(RestartStressIT.class);
+ 
+@@ -57,7 +58,7 @@ public class RestartStressIT extends AccumuloClusterHarness {
+     opts.put(Property.TSERV_MAXMEM.getKey(), "100K");
+     opts.put(Property.TSERV_MAJC_DELAY.getKey(), "100ms");
+     opts.put(Property.TSERV_WALOG_MAX_SIZE.getKey(), "1M");
+-    opts.put(Property.INSTANCE_ZK_TIMEOUT.getKey(), "15s");
++    opts.put(Property.INSTANCE_ZK_TIMEOUT.getKey(), "5s");
+     opts.put(Property.MASTER_RECOVERY_DELAY.getKey(), "1s");
+     cfg.setSiteConfig(opts);
+     hadoopCoreSite.set("fs.file.impl", RawLocalFileSystem.class.getName());
+@@ -108,8 +109,8 @@ public class RestartStressIT extends AccumuloClusterHarness {
+     final String[] args;
+     if (token instanceof PasswordToken) {
+       byte[] password = ((PasswordToken) token).getPassword();
+-      args = new String[] {"-u", getAdminPrincipal(), "-p", new String(password, UTF_8), "-i", cluster.getInstanceName(), "-z", cluster.getZooKeepers(),
+-          "--rows", "" + VOPTS.rows, "--table", tableName};
++      args = new String[] {"-u", getAdminPrincipal(), "-p", new String(password, Charsets.UTF_8), "-i", cluster.getInstanceName(), "-z",
++          cluster.getZooKeepers(), "--rows", "" + VOPTS.rows, "--table", tableName};
+     } else if (token instanceof KerberosToken) {
+       ClusterUser rootUser = getAdminUser();
+       args = new String[] {"-u", getAdminPrincipal(), "--keytab", rootUser.getKeytab().getAbsolutePath(), "-i", cluster.getInstanceName(), "-z",

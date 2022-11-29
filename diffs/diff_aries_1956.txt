@@ -1,0 +1,128 @@
+diff --git a/src/main/java/org/apache/aries/transaction/TxInterceptorImpl.java b/src/main/java/org/apache/aries/transaction/TxInterceptorImpl.java
+index 8e7492edd..1f8015a63 100644
+--- a/src/main/java/org/apache/aries/transaction/TxInterceptorImpl.java
++++ b/src/main/java/org/apache/aries/transaction/TxInterceptorImpl.java
+@@ -24,7 +24,6 @@ import javax.transaction.Transaction;
+ import javax.transaction.TransactionManager;
+ 
+ import org.apache.aries.blueprint.Interceptor;
+-import org.apache.aries.transaction.annotations.TransactionPropagationType;
+ import org.apache.aries.transaction.exception.TransactionRollbackException;
+ import org.osgi.service.blueprint.reflect.ComponentMetadata;
+ import org.slf4j.Logger;
+@@ -39,27 +38,12 @@ public class TxInterceptorImpl implements Interceptor {
+ 
+     public int getRank()
+     {
++      // TODO Auto-generated method stub
+       return 0;
+     }
+ 
+-    public Object preCall(ComponentMetadata cm, Method m,
+-        Object... parameters) throws Throwable  {
+-      final String methodName = m.getName();
+-      final TransactionPropagationType type = metaDataHelper.getComponentMethodTxAttribute(cm, methodName);
+-      
+-      // attribute could be null here which means no transaction
+-      if (type == null) {
+-          return null;
+-      }
+-      TransactionAttribute txAttribute = TransactionAttribute.fromValue(type);
+-      
+-      if (LOGGER.isDebugEnabled())
+-          LOGGER.debug("Method: " + m + ", has transaction strategy: " + txAttribute);
+-      return txAttribute.begin(tm);
+-    }
+-    
+     public void postCallWithException(ComponentMetadata cm, Method m,
+-        Throwable ex, Object preCallToken)
++        Exception ex, Object preCallToken)
+      {
+        if (preCallToken instanceof TransactionToken)
+        {
+@@ -67,19 +51,26 @@ public class TxInterceptorImpl implements Interceptor {
+          try { 
+              Transaction tran = token.getActiveTransaction();
+              if (tran != null) {
+-                 if (ex instanceof RuntimeException || ex instanceof Error) {
+-                     tran.setRollbackOnly();
+-                 } else {
+-                     //declared exception, we don't set rollback
++                 Class<?> exceptionClass = ex.getClass();
++                 boolean isAppException = false;
++
++                 for (Class<?> cls : m.getExceptionTypes()) {
++                     isAppException = cls.isAssignableFrom(exceptionClass);
++                     
++                     if (isAppException)
++                         break;
+                  }
++
++                 if (!isAppException)
++                     tran.setRollbackOnly();
+              }
+ 
+-             token.getTransactionAttribute().finish(tm, token);
++             token.getTransactionStrategy().finish(tm, token);
+          }
+          catch (Exception e)
+          {
+            // we do not throw the exception since there already is one, but we need to log it
+-           LOGGER.warn(Constants.MESSAGES.getMessage("exception.during.tx.cleanup"), e);
++           LOGGER.error("An exception has occured.", e);
+          }
+        } else {
+          // TODO: what now?
+@@ -89,21 +80,15 @@ public class TxInterceptorImpl implements Interceptor {
+     public void postCallWithReturn(ComponentMetadata cm, Method m,
+         Object returnType, Object preCallToken) throws Exception
+     {
+-        // it is possible transaction is not involved at all
+-        if (preCallToken == null) {
+-            return;          
+-        }
+-        
+       if (preCallToken instanceof TransactionToken)
+       {
+         final TransactionToken token = (TransactionToken)preCallToken;
+         try { 
+-           token.getTransactionAttribute().finish(tm, token);
++           token.getTransactionStrategy().finish(tm, token);
+         }
+         catch (Exception e)
+         {
+-          // We are throwing an exception, so we don't error it out
+-          LOGGER.debug(Constants.MESSAGES.getMessage("exception.during.tx.finish"), e);
++          LOGGER.error("An exception has occured.", e);
+           throw new TransactionRollbackException(e);
+         }
+       }
+@@ -112,6 +97,28 @@ public class TxInterceptorImpl implements Interceptor {
+       }
+     }
+ 
++    public Object preCall(ComponentMetadata cm, Method m,
++        Object... parameters) throws Throwable  {
++      // extract bundleId, componentName and method name
++      // then lookup using metadatahelper
++      // build transtrategy and call begin
++      // store resulting tx and strategy in return object
++      // which will be passed to postInvoke call
++      final String methodName = m.getName();
++        
++      final String strategy = metaDataHelper.getComponentMethodTxStrategy(cm, methodName);
++
++      TransactionStrategy txStrategy = TransactionStrategy.REQUIRED;
++      if (strategy != null)
++      {
++        txStrategy = TransactionStrategy.fromValue(strategy);
++      }
++      
++      if (LOGGER.isDebugEnabled())
++          LOGGER.debug("Method: " + m + ", has transaction strategy: " + txStrategy);
++
++      return txStrategy.begin(tm);
++    }
+ 
+     public final void setTransactionManager(TransactionManager manager)
+     {

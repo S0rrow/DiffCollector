@@ -1,0 +1,36 @@
+diff --git a/algebricks/algebricks-core/src/main/java/edu/uci/ics/hyracks/algebricks/core/algebra/operators/logical/visitors/FDsAndEquivClassesVisitor.java b/algebricks/algebricks-core/src/main/java/edu/uci/ics/hyracks/algebricks/core/algebra/operators/logical/visitors/FDsAndEquivClassesVisitor.java
+index ae0346e5d8..cebddee602 100644
+--- a/algebricks/algebricks-core/src/main/java/edu/uci/ics/hyracks/algebricks/core/algebra/operators/logical/visitors/FDsAndEquivClassesVisitor.java
++++ b/algebricks/algebricks-core/src/main/java/edu/uci/ics/hyracks/algebricks/core/algebra/operators/logical/visitors/FDsAndEquivClassesVisitor.java
+@@ -50,7 +50,6 @@ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.DistributeR
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.EmptyTupleSourceOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.ExchangeOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.ExtensionOperator;
+-import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.ExternalDataLookupOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.GroupByOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.IndexInsertDeleteOperator;
+ import edu.uci.ics.hyracks.algebricks.core.algebra.operators.logical.InnerJoinOperator;
+@@ -405,8 +404,7 @@ public class FDsAndEquivClassesVisitor implements ILogicalOperatorVisitor<Void,
+     @Override
+     public Void visitRunningAggregateOperator(RunningAggregateOperator op, IOptimizationContext ctx)
+             throws AlgebricksException {
+-        ctx.putEquivalenceClassMap(op, new HashMap<LogicalVariable, EquivalenceClass>());
+-        ctx.putFDList(op, new ArrayList<FunctionalDependency>());
++        propagateFDsAndEquivClasses(op, ctx);
+         return null;
+     }
+ 
+@@ -648,11 +646,4 @@ public class FDsAndEquivClassesVisitor implements ILogicalOperatorVisitor<Void,
+         return null;
+     }
+ 
+-    @Override
+-    public Void visitExternalDataLookupOperator(ExternalDataLookupOperator op, IOptimizationContext ctx)
+-            throws AlgebricksException {
+-        propagateFDsAndEquivClasses(op, ctx);
+-        return null;
+-    }
+-
+-}
+\ No newline at end of file
++}

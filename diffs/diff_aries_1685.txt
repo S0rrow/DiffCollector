@@ -1,0 +1,41 @@
+diff --git a/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java b/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java
+index 754b29e27..3480cfffb 100644
+--- a/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java
++++ b/application/application-utils/src/main/java/org/apache/aries/application/utils/manifest/ManifestProcessor.java
+@@ -26,14 +26,13 @@ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+-import java.util.Map.Entry;
+ import java.util.Set;
++import java.util.Map.Entry;
+ import java.util.jar.Attributes;
+ import java.util.jar.Manifest;
+ 
+ import org.apache.aries.application.filesystem.IDirectory;
+ import org.apache.aries.application.filesystem.IFile;
+-import org.apache.aries.application.utils.AppConstants;
+ 
+ /**
+  * This class contains utilities for parsing manifests. It provides methods to
+@@ -70,20 +69,6 @@ public class ManifestProcessor
+     return props;
+   }
+   
+-  /**
+-   * mapToManifest
+-   */
+-  public static Manifest mapToManifest (Map<String,String> attributes)
+-  {
+-    Manifest man = new Manifest();
+-    Attributes att = man.getMainAttributes();
+-    att.putValue(Attributes.Name.MANIFEST_VERSION.toString(), AppConstants.MANIFEST_VERSION);
+-    for (Map.Entry<String, String> entry : attributes.entrySet()) {
+-      att.putValue(entry.getKey(),  entry.getValue());
+-    }
+-    return man;
+-  }
+-  
+   /**
+    * This method parses the manifest using a custom manifest parsing routine.
+    * This means that we can avoid the 76 byte line length in a manifest providing

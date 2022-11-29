@@ -1,0 +1,55 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/MetadataIT.java b/test/src/main/java/org/apache/accumulo/test/functional/MetadataIT.java
+index 42ef7b479f..aba0a24a9e 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/MetadataIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/MetadataIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertTrue;
+ 
+@@ -46,6 +45,7 @@ import org.junit.Assert;
+ import org.junit.Test;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class MetadataIT extends AccumuloClusterHarness {
+ 
+@@ -71,14 +71,14 @@ public class MetadataIT extends AccumuloClusterHarness {
+     rootScanner.setRange(MetadataSchema.TabletsSection.getRange());
+     rootScanner.fetchColumnFamily(MetadataSchema.TabletsSection.DataFileColumnFamily.NAME);
+ 
+-    Set<String> files1 = new HashSet<>();
++    Set<String> files1 = new HashSet<String>();
+     for (Entry<Key,Value> entry : rootScanner)
+       files1.add(entry.getKey().getColumnQualifier().toString());
+ 
+     c.tableOperations().create(tableNames[1]);
+     c.tableOperations().flush(MetadataTable.NAME, null, null, true);
+ 
+-    Set<String> files2 = new HashSet<>();
++    Set<String> files2 = new HashSet<String>();
+     for (Entry<Key,Value> entry : rootScanner)
+       files2.add(entry.getKey().getColumnQualifier().toString());
+ 
+@@ -88,7 +88,7 @@ public class MetadataIT extends AccumuloClusterHarness {
+ 
+     c.tableOperations().compact(MetadataTable.NAME, null, null, false, true);
+ 
+-    Set<String> files3 = new HashSet<>();
++    Set<String> files3 = new HashSet<String>();
+     for (Entry<Key,Value> entry : rootScanner)
+       files3.add(entry.getKey().getColumnQualifier().toString());
+ 
+@@ -100,7 +100,7 @@ public class MetadataIT extends AccumuloClusterHarness {
+   public void mergeMeta() throws Exception {
+     Connector c = getConnector();
+     String[] names = getUniqueNames(5);
+-    SortedSet<Text> splits = new TreeSet<>();
++    SortedSet<Text> splits = new TreeSet<Text>();
+     for (String id : "1 2 3 4 5".split(" ")) {
+       splits.add(new Text(id));
+     }

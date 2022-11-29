@@ -1,0 +1,205 @@
+diff --git a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionDialog.java b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionDialog.java
+index ab12d1bdf..ffb654bdb 100644
+--- a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionDialog.java
++++ b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/appwrapper/ApplicationDescriptionDialog.java
+@@ -6,6 +6,10 @@ import java.awt.FlowLayout;
+ import java.awt.Font;
+ import java.awt.event.ActionEvent;
+ import java.awt.event.ActionListener;
++import java.awt.event.KeyAdapter;
++import java.awt.event.KeyEvent;
++import java.awt.event.MouseAdapter;
++import java.awt.event.MouseEvent;
+ import java.awt.event.WindowAdapter;
+ import java.awt.event.WindowEvent;
+ import java.util.List;
+@@ -31,10 +35,8 @@ import org.apache.airavata.commons.gfac.type.app.ShellApplicationDeployment;
+ import org.apache.airavata.xbaya.XBayaEngine;
+ import org.apache.airavata.xbaya.component.registry.JCRComponentRegistry;
+ import org.apache.airavata.xbaya.gui.XBayaLinkButton;
+-import java.awt.event.KeyAdapter;
+-import java.awt.event.KeyEvent;
+ 
+-public class ApplicationDescriptionDialog extends JDialog implements ActionListener{
++public class ApplicationDescriptionDialog extends JDialog {
+ 	/**
+ 	 * 
+ 	 */
+@@ -82,7 +84,7 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 					while(true){
+ 						boolean notFound=true;
+ 						for (ApplicationDeploymentDescription deploymentDescription : applicationDescriptions) {
+-							if (deploymentDescription.getId().equals(defaultName)){
++							if (deploymentDescription.getName().equals(defaultName)){
+ 								notFound=false;
+ 								break;
+ 							}
+@@ -114,7 +116,6 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 		setTitle("New Deployment Description");
+ 		setBounds(100, 100, 455, 349);
+ 		setModal(true);
+-		setLocationRelativeTo(null);
+ 		getContentPane().setLayout(new BorderLayout());
+ 		{
+ 			JPanel buttonPane = new JPanel();
+@@ -165,7 +166,7 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 			txtAppName = new JTextField();
+ 			txtAppName.addKeyListener(new KeyAdapter() {
+ 				@Override
+-				public void keyReleased(KeyEvent arg0) {
++				public void keyReleased(KeyEvent e) {
+ 					setApplicationName(txtAppName.getText());
+ 				}
+ 			});
+@@ -181,16 +182,6 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 			});
+ 			txtTempDir.setColumns(10);
+ 			JButton btnAdvance = new JButton("Advanced options...");
+-			btnAdvance.addActionListener(new ActionListener() {
+-				public void actionPerformed(ActionEvent e) {
+-					try {
+-						ApplicationDescriptionAdvancedOptionDialog serviceDescriptionDialog = new ApplicationDescriptionAdvancedOptionDialog(getEngine(),getShellApplicationDescription());
+-	                	serviceDescriptionDialog.open();
+-	                } catch (Exception e1) {
+-	                    getEngine().getErrorWindow().error(e1);
+-	                }
+-				}
+-			});
+ 			
+ 			JSeparator separator = new JSeparator();
+ 			
+@@ -213,10 +204,32 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 			blnkbtnCreateNewService.setHorizontalAlignment(SwingConstants.TRAILING);
+ 			
+ 			cmbServiceName = new JComboBox();
+-			cmbServiceName.addActionListener(this);
+-
++			cmbServiceName.addKeyListener(new KeyAdapter() {
++				@Override
++				public void keyReleased(KeyEvent arg0) {
++					updateServiceName();
++				}
++			});
++			cmbServiceName.addMouseListener(new MouseAdapter() {
++				@Override
++				public void mouseReleased(MouseEvent e) {
++					updateServiceName();
++				}
++			});
++			
+ 			cmbHostName = new JComboBox();
+-			cmbHostName.addActionListener(this);
++			cmbHostName.addMouseListener(new MouseAdapter() {
++				@Override
++				public void mouseReleased(MouseEvent e) {
++					updateHostName();
++				}
++			});
++			cmbHostName.addKeyListener(new KeyAdapter() {
++				@Override
++				public void keyReleased(KeyEvent e) {
++					updateHostName();
++				}
++			});
+ 			
+ 			JLabel label_1 = new JLabel("Host");
+ 			
+@@ -341,7 +354,7 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 		try {
+ 			List<ServiceDescription> serviceDescriptions = getJCRComponentRegistry().searchServiceDescription("");
+ 			for (ServiceDescription serviceDescription : serviceDescriptions) {
+-				cmbServiceName.addItem(serviceDescription.getId());
++				cmbServiceName.addItem(serviceDescription.getName());
+ 			}
+ 		} catch (Exception e) {
+ 			setError(e.getLocalizedMessage());
+@@ -355,11 +368,7 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 		try {
+ 			List<HostDescription> hostDescriptions = getJCRComponentRegistry().searchHostDescription(".*");
+ 			for (HostDescription hostDescription : hostDescriptions) {
+-				if (hostDescription.getId()==null){
+-					cmbHostName.addItem(hostDescription.getAddress());
+-				}else{
+-					cmbHostName.addItem(hostDescription.getId());
+-				}
++				cmbHostName.addItem(hostDescription.getName());
+ 			}
+ 		} catch (Exception e) {
+ 			setError(e.getLocalizedMessage());
+@@ -383,11 +392,11 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 	}
+ 
+ 	public String getApplicationName() {
+-		return getShellApplicationDescription().getId();
++		return getShellApplicationDescription().getName();
+ 	}
+ 
+ 	public void setApplicationName(String applicationName) {
+-		getShellApplicationDescription().setId(applicationName);
++		getShellApplicationDescription().setName(applicationName);
+ 		updateDialogStatus();
+ 	}
+ 
+@@ -454,18 +463,6 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 			throw new Exception("Name of the application cannot be empty!!!");
+ 		}
+ 		
+-		List<ApplicationDeploymentDescription> deploymentDescriptions=null;
+-		try {
+-			deploymentDescriptions = getJCRComponentRegistry().getRegistry().searchDeploymentDescription(getServiceName(), getHostName(), Pattern.quote(getApplicationName()));
+-		} catch (PathNotFoundException e) {
+-			//what we want
+-		} catch (Exception e){
+-			throw e;
+-		}
+-		if (deploymentDescriptions.size()>0){
+-			throw new Exception("Application descriptor with the given name already exists!!!");
+-		}
+-		
+ 		if (getExecutablePath()==null || getExecutablePath().trim().equals("")){
+ 			throw new Exception("Executable path cannot be empty!!!");
+ 		}
+@@ -481,7 +478,18 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 		if (getHostName()==null || getHostName().trim().equals("")){
+ 			throw new Exception("Please select/create host to bind to this deployment description");
+ 		}
+-
++		
++		List<ApplicationDeploymentDescription> deploymentDescriptions=null;
++		try {
++			deploymentDescriptions = getJCRComponentRegistry().getRegistry().searchDeploymentDescription(getServiceName(), getHostName(), Pattern.quote(getApplicationName()));
++		} catch (PathNotFoundException e) {
++			//what we want
++		} catch (Exception e){
++			throw e;
++		}
++		if (deploymentDescriptions.size()>0){
++			throw new Exception("Application descriptor with the given name already exists!!!");
++		}
+ 	}
+ 
+ 	public String getServiceName() {
+@@ -513,23 +521,4 @@ public class ApplicationDescriptionDialog extends JDialog implements ActionListe
+ 			setHostName(cmbHostName.getSelectedItem().toString());
+ 		}
+ 	}
+-
+-	@Override
+-	public void actionPerformed(ActionEvent e) {
+-		if (e.getSource()==cmbServiceName){
+-			updateServiceName();
+-		}
+-		if (e.getSource()==cmbHostName){
+-			updateHostName();
+-		}
+-		if (e.getSource()==txtAppName){
+-			setApplicationName(txtAppName.getText());
+-		}
+-		if(e.getSource()==txtExecPath){
+-			setExecutablePath(txtExecPath.getText());
+-		}
+-		if(e.getSource()==txtTempDir){
+-			setTempDir(txtTempDir.getText());
+-		}
+-	}
+ }

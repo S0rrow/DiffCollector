@@ -1,0 +1,36 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/LastValueQueue.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/LastValueQueue.java
+index a93d27ceb3..3cb3d09d0e 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/LastValueQueue.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/server/impl/LastValueQueue.java
+@@ -285,19 +285,6 @@ public class LastValueQueue extends QueueImpl {
+       super.acknowledge(tx, ref, reason, consumer);
+    }
+ 
+-   @Override
+-   public synchronized void reload(final MessageReference ref) {
+-      // repopulate LVQ map & reload proper HolderReferences
+-      SimpleString lastValueProp = ref.getLastValueProperty();
+-      if (lastValueProp != null) {
+-         HolderReference hr = new HolderReference(lastValueProp, ref);
+-         map.put(lastValueProp, hr);
+-         super.reload(hr);
+-      } else {
+-         super.reload(ref);
+-      }
+-   }
+-
+    private synchronized void removeIfCurrent(MessageReference ref) {
+       SimpleString lastValueProp = ref.getLastValueProperty();
+       if (lastValueProp != null) {
+@@ -552,11 +539,6 @@ public class LastValueQueue extends QueueImpl {
+          return ref.getPersistentSize();
+       }
+ 
+-      @Override
+-      public String toString() {
+-         return new StringBuilder().append("HolderReference").append("@").append(Integer.toHexString(System.identityHashCode(this))).append("[ref=").append(ref).append("]").toString();
+-      }
+-
+       @Override
+       public PagingStore getOwner() {
+          return ref.getOwner();

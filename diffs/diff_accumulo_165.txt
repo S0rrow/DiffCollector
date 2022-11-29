@@ -1,0 +1,100 @@
+diff --git a/server/src/main/java/org/apache/accumulo/server/gc/GarbageCollectionAlgorithm.java b/server/src/main/java/org/apache/accumulo/server/gc/GarbageCollectionAlgorithm.java
+index 325f1d9fef..04d4c5d207 100644
+--- a/server/src/main/java/org/apache/accumulo/server/gc/GarbageCollectionAlgorithm.java
++++ b/server/src/main/java/org/apache/accumulo/server/gc/GarbageCollectionAlgorithm.java
+@@ -119,12 +119,11 @@ public class GarbageCollectionAlgorithm {
+     return ret;
+   }
+ 
+-  private void confirmDeletes(GarbageCollectionEnvironment gce, SortedMap<String,String> candidateMap) throws TableNotFoundException, AccumuloException,
++  protected void confirmDeletes(GarbageCollectionEnvironment gce, SortedMap<String,String> candidateMap) throws TableNotFoundException, AccumuloException,
+       AccumuloSecurityException {
+     boolean checkForBulkProcessingFiles = false;
+-    Iterator<String> relativePaths = candidateMap.keySet().iterator();
+-    while (!checkForBulkProcessingFiles && relativePaths.hasNext())
+-      checkForBulkProcessingFiles |= relativePaths.next().toLowerCase(Locale.ENGLISH).contains(Constants.BULK_PREFIX);
++    for (String candidate : candidateMap.keySet())
++      checkForBulkProcessingFiles |= candidate.toLowerCase(Locale.ENGLISH).contains(Constants.BULK_PREFIX);
+ 
+     if (checkForBulkProcessingFiles) {
+       Iterator<String> blipiter = gce.getBlipIterator();
+@@ -227,46 +226,18 @@ public class GarbageCollectionAlgorithm {
+ 
+   }
+ 
+-  private List<String> getCandidates(GarbageCollectionEnvironment gce, String lastCandidate) throws TableNotFoundException, AccumuloException,
+-      AccumuloSecurityException {
+-    Span candidatesSpan = Trace.start("getCandidates");
+-    List<String> candidates;
+-    try {
+-      candidates = gce.getCandidates(lastCandidate);
+-    } finally {
+-      candidatesSpan.stop();
+-    }
+-    return candidates;
+-  }
+-
+-  private void confirmDeletesTrace(GarbageCollectionEnvironment gce, SortedMap<String,String> candidateMap) throws TableNotFoundException, AccumuloException,
+-      AccumuloSecurityException {
+-    Span confirmDeletesSpan = Trace.start("confirmDeletes");
+-    try {
+-      confirmDeletes(gce, candidateMap);
+-    } finally {
+-      confirmDeletesSpan.stop();
+-    }
+-  }
+-
+-  private void deleteConfirmed(GarbageCollectionEnvironment gce, SortedMap<String,String> candidateMap) throws IOException, AccumuloException,
+-      AccumuloSecurityException, TableNotFoundException {
+-    Span deleteSpan = Trace.start("deleteFiles");
+-    try {
+-      gce.delete(candidateMap);
+-    } finally {
+-      deleteSpan.stop();
+-    }
+-
+-    cleanUpDeletedTableDirs(gce, candidateMap);
+-  }
+-
+   public void collect(GarbageCollectionEnvironment gce) throws TableNotFoundException, AccumuloException, AccumuloSecurityException, IOException {
+ 
+     String lastCandidate = "";
+ 
+     while (true) {
+-      List<String> candidates = getCandidates(gce, lastCandidate);
++      Span candidatesSpan = Trace.start("getCandidates");
++      List<String> candidates;
++      try {
++        candidates = gce.getCandidates(lastCandidate);
++      } finally {
++        candidatesSpan.stop();
++      }
+ 
+       if (candidates.size() == 0)
+         break;
+@@ -278,10 +249,23 @@ public class GarbageCollectionAlgorithm {
+ 
+       SortedMap<String,String> candidateMap = makeRelative(candidates);
+ 
+-      confirmDeletesTrace(gce, candidateMap);
++      Span confirmDeletesSpan = Trace.start("confirmDeletes");
++      try {
++        confirmDeletes(gce, candidateMap);
++      } finally {
++        confirmDeletesSpan.stop();
++      }
+       gce.incrementInUseStat(origSize - candidateMap.size());
+ 
+-      deleteConfirmed(gce, candidateMap);
++      Span deleteSpan = Trace.start("deleteFiles");
++      try {
++        gce.delete(candidateMap);
++      } finally {
++        deleteSpan.stop();
++      }
++
++      cleanUpDeletedTableDirs(gce, candidateMap);
+     }
+   }
++
+ }

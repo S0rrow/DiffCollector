@@ -1,0 +1,555 @@
+diff --git a/modules/registry/airavata-jpa-registry/src/main/java/org/apache/airavata/persistance/registry/jpa/impl/AiravataJPARegistry.java b/modules/registry/airavata-jpa-registry/src/main/java/org/apache/airavata/persistance/registry/jpa/impl/AiravataJPARegistry.java
+index dc14851b5..de6c4154c 100644
+--- a/modules/registry/airavata-jpa-registry/src/main/java/org/apache/airavata/persistance/registry/jpa/impl/AiravataJPARegistry.java
++++ b/modules/registry/airavata-jpa-registry/src/main/java/org/apache/airavata/persistance/registry/jpa/impl/AiravataJPARegistry.java
+@@ -66,9 +66,7 @@ import org.apache.airavata.registry.api.exception.gateway.PublishedWorkflowDoesN
+ import org.apache.airavata.registry.api.exception.worker.ExperimentDoesNotExistsException;
+ import org.apache.airavata.registry.api.exception.worker.UserWorkflowAlreadyExistsException;
+ import org.apache.airavata.registry.api.exception.worker.UserWorkflowDoesNotExistsException;
+-import org.apache.airavata.registry.api.exception.worker.WorkflowInstanceAlreadyExistsException;
+ import org.apache.airavata.registry.api.exception.worker.WorkflowInstanceDoesNotExistsException;
+-import org.apache.airavata.registry.api.exception.worker.WorkflowInstanceNodeAlreadyExistsException;
+ import org.apache.airavata.registry.api.exception.worker.WorkflowInstanceNodeDoesNotExistsException;
+ import org.apache.airavata.registry.api.exception.worker.WorkspaceProjectAlreadyExistsException;
+ import org.apache.airavata.registry.api.exception.worker.WorkspaceProjectDoesNotExistsException;
+@@ -79,12 +77,12 @@ import org.apache.airavata.registry.api.workflow.WorkflowInstance;
+ import org.apache.airavata.registry.api.workflow.WorkflowInstanceData;
+ import org.apache.airavata.registry.api.workflow.WorkflowInstanceNode;
+ import org.apache.airavata.registry.api.workflow.WorkflowInstanceNodeData;
++import org.apache.airavata.registry.api.workflow.WorkflowInstanceNodePortData;
+ import org.apache.airavata.registry.api.workflow.WorkflowInstanceNodeStatus;
+ import org.apache.airavata.registry.api.workflow.WorkflowInstanceStatus;
+ import org.apache.airavata.registry.api.workflow.WorkflowInstanceStatus.ExecutionStatus;
+ import org.apache.airavata.registry.api.workflow.WorkflowNodeGramData;
+ import org.apache.airavata.registry.api.workflow.WorkflowNodeIOData;
+-import org.apache.airavata.registry.api.workflow.WorkflowNodeType;
+ import org.apache.xmlbeans.XmlException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+@@ -93,7 +91,6 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+     private final static Logger logger = LoggerFactory.getLogger(AiravataJPARegistry.class);
+     private JPAResourceAccessor jpa;
+     private boolean active=false;
+-    private static final String DEFAULT_PROJECT_NAME = "default";
+     
+     @Override
+     protected void initialize() {
+@@ -507,71 +504,39 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 
+     /**---------------------------------Project Registry----------------------------------**/
+ 
+-    private String createProjName(String projectName){
+-    	return createProjName(getGateway().getGatewayName(),getUser().getUserName(),projectName);
+-    }
+-    
+-    private String createProjName(String gatewayName, String userName, String projectName){
+-    	return gatewayName+"\n"+userName+"\n"+projectName;
+-    }
+-    
+-    private String getProjName(String projectLongName){
+-    	String[] s = projectLongName.split("\n");
+-    	return s[s.length-1];
+-    }
+-    
+-	@Override
+-	public boolean isWorkspaceProjectExists(String projectName)
+-			throws RegistryException {
+-		return isWorkspaceProjectExists(projectName, false);
+-	}
+-
+-	@Override
+-	public boolean isWorkspaceProjectExists(String projectName,
+-			boolean createIfNotExists) throws RegistryException {
+-		if (jpa.getWorker().isProjectExists(createProjName(projectName))){
+-			return true;
+-		}else if (createIfNotExists){
+-			addWorkspaceProject(new WorkspaceProject(projectName, this));
+-			return isWorkspaceProjectExists(projectName);
+-		}else{
+-			return false;
+-		}
+-	}
+-
+-    public void addWorkspaceProject(WorkspaceProject project) throws RegistryException {
++    public void addWorkspaceProject(WorkspaceProject project) throws WorkspaceProjectAlreadyExistsException {
+     	WorkerResource worker = jpa.getWorker();
+-		if (isWorkspaceProjectExists(project.getProjectName())){
+-        	throw new WorkspaceProjectAlreadyExistsException(createProjName(project.getProjectName()));
++		if (worker.isProjectExists(project.getProjectName())){
++        	throw new WorkspaceProjectAlreadyExistsException(project.getProjectName());
+         }
+-		ProjectResource projectResource = worker.createProject(createProjName(project.getProjectName()));
++		ProjectResource projectResource = worker.createProject(project.getProjectName());
+ 		projectResource.save();
+     }
+ 
+-    public void updateWorkspaceProject(WorkspaceProject project) throws RegistryException {
++    public void updateWorkspaceProject(WorkspaceProject project) throws WorkspaceProjectDoesNotExistsException {
+     	WorkerResource worker = jpa.getWorker();
+-		if (!isWorkspaceProjectExists(project.getProjectName())){
+-        	throw new WorkspaceProjectDoesNotExistsException(createProjName(project.getProjectName()));
++		if (!worker.isProjectExists(project.getProjectName())){
++        	throw new WorkspaceProjectDoesNotExistsException(project.getProjectName());
+         }
+-		ProjectResource projectResource = worker.getProject(createProjName(project.getProjectName()));
++		ProjectResource projectResource = worker.getProject(project.getProjectName());
+ 		projectResource.save();
+     }
+ 
+-    public void deleteWorkspaceProject(String projectName) throws RegistryException {
++    public void deleteWorkspaceProject(String projectName) throws WorkspaceProjectDoesNotExistsException {
+     	WorkerResource worker = jpa.getWorker();
+-		if (!isWorkspaceProjectExists(projectName)){
+-        	throw new WorkspaceProjectDoesNotExistsException(createProjName(projectName));
++		if (!worker.isProjectExists(projectName)){
++        	throw new WorkspaceProjectDoesNotExistsException(projectName);
+         }
+-		worker.removeProject(createProjName(projectName));
++		worker.removeProject(projectName);
+     }
+ 
+-    public WorkspaceProject getWorkspaceProject(String projectName) throws RegistryException {
++    public WorkspaceProject getWorkspaceProject(String projectName) throws WorkspaceProjectDoesNotExistsException {
+     	WorkerResource worker = jpa.getWorker();
+-		if (!isWorkspaceProjectExists(projectName)){
+-        	throw new WorkspaceProjectDoesNotExistsException(createProjName(projectName));
++		if (!worker.isProjectExists(projectName)){
++        	throw new WorkspaceProjectDoesNotExistsException(projectName);
+         }
+-		ProjectResource projectResource = worker.getProject(createProjName(projectName));
+-		return new WorkspaceProject(getProjName(projectResource.getName()), this);
++		ProjectResource projectResource = worker.getProject(projectName);
++		return new WorkspaceProject(projectResource.getName(), this);
+     }
+     
+     public List<WorkspaceProject> getWorkspaceProjects() throws RegistryException{
+@@ -579,22 +544,20 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+     	List<WorkspaceProject> projects=new ArrayList<WorkspaceProject>();
+     	List<ProjectResource> projectResouces = worker.getProjects();
+     	for (ProjectResource resource : projectResouces) {
+-			projects.add(new WorkspaceProject(getProjName(resource.getName()), this));
++			projects.add(new WorkspaceProject(resource.getName(), this));
+ 		}
+     	return projects;
+     }
+ 
+-    public void addExperiment(String projectName, AiravataExperiment experiment) throws RegistryException {
++    public void addExperiment(String projectName, AiravataExperiment experiment) throws WorkspaceProjectDoesNotExistsException, ExperimentDoesNotExistsException {
+     	WorkspaceProject workspaceProject = getWorkspaceProject(projectName);
+-    	ProjectResource project = jpa.getWorker().getProject(createProjName(workspaceProject.getProjectName()));
++    	ProjectResource project = jpa.getWorker().getProject(workspaceProject.getProjectName());
+ 		String experimentId = experiment.getExperimentId();
+-		if (isExperimentExists(experimentId)){
++		if (project.isExperimentExists(experimentId)){
+         	throw new ExperimentDoesNotExistsException(experimentId);
+         }
+ 		ExperimentResource experimentResource = project.createExperiment(experimentId);
+-		if (experiment.getSubmittedDate()!=null) {
+-			experimentResource.setSubmittedDate(new java.sql.Date(experiment.getSubmittedDate().getTime()));
+-		}
++		experimentResource.setSubmittedDate(new java.sql.Date(experiment.getSubmittedDate().getTime()));
+ 		experimentResource.save();
+     }
+ 
+@@ -624,12 +587,12 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 		e.setUser(new AiravataUser(resource.getWorker().getUser()));
+ 		e.setSubmittedDate(new Date(resource.getSubmittedDate().getTime()));
+ 		e.setGateway(new Gateway(resource.getGateway().getGatewayName()));
+-		e.setProject(new WorkspaceProject(getProjName(resource.getProject().getName()), this));
++		e.setProject(new WorkspaceProject(resource.getProject().getName(), this));
+ 		return e;
+ 	}
+ 
+     public List<AiravataExperiment> getExperiments(String projectName)throws RegistryException {
+-    	ProjectResource project = jpa.getWorker().getProject(createProjName(projectName));
++    	ProjectResource project = jpa.getWorker().getProject(projectName);
+     	List<ExperimentResource> experiments = project.getExperiments();
+     	List<AiravataExperiment> result=new ArrayList<AiravataExperiment>();
+     	for (ExperimentResource resource : experiments) {
+@@ -752,7 +715,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 		if (!isWorkflowExists(workflowName)){
+         	throw new UserWorkflowDoesNotExistsException(workflowName);
+         }
+-		UserWorkflowResource workflowResource = worker.getWorkflowTemplate(workflowName);
++		UserWorkflowResource workflowResource = worker.createWorkflowTemplate(workflowName);
+ 		workflowResource.setContent(workflowGraphXml);
+ 		workflowResource.save();
+     }
+@@ -798,36 +761,17 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 
+     /**---------------------------------Provenance Registry----------------------------------**/
+ 
+-	@Override
+-	public boolean isExperimentExists(String experimentId, boolean createIfNotPresent)throws RegistryException {
+-		if (jpa.getWorker().isExperimentExists(experimentId)){
+-			return true; 
+-		}else if (createIfNotPresent){
+-			if (!isWorkspaceProjectExists(DEFAULT_PROJECT_NAME, true)){
+-				throw new WorkspaceProjectDoesNotExistsException(createProjName(DEFAULT_PROJECT_NAME));
+-			}
+-			AiravataExperiment experiment = new AiravataExperiment();
+-			experiment.setExperimentId(experimentId);
+-			experiment.setSubmittedDate(Calendar.getInstance().getTime());
+-			experiment.setGateway(getGateway());
+-			experiment.setUser(getUser());
+-			addExperiment(DEFAULT_PROJECT_NAME, experiment);
+-			return jpa.getWorker().isExperimentExists(experimentId);
+-		}else{
+-			return false;
+-		}
+-	}
+-
+ 	@Override
+ 	public boolean isExperimentExists(String experimentId)
+ 			throws RegistryException {
+-		return isExperimentExists(experimentId, false);
++		return jpa.getWorker().isExperimentExists(experimentId);
+ 	}
+ 
++
+ 	@Override
+ 	public boolean updateExperimentExecutionUser(String experimentId,
+ 			String user) throws RegistryException {
+-		if (!isExperimentExists(experimentId, true)){
++		if (!isExperimentExists(experimentId)){
+ 			throw new ExperimentDoesNotExistsException(experimentId);
+ 		}
+ 		ExperimentResource experiment = jpa.getWorker().getExperiment(experimentId);
+@@ -863,7 +807,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public boolean updateExperimentName(String experimentId,
+ 			String experimentName) throws RegistryException {
+-		if (!isExperimentExists(experimentId, true)){
++		if (!isExperimentExists(experimentId)){
+ 			throw new ExperimentDoesNotExistsException(experimentId);
+ 		}
+ 		ExperimentResource experiment = jpa.getWorker().getExperiment(experimentId);
+@@ -877,7 +821,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public String getExperimentMetadata(String experimentId)
+ 			throws RegistryException {
+-		if (!isExperimentExists(experimentId, true)){
++		if (!isExperimentExists(experimentId)){
+ 			throw new ExperimentDoesNotExistsException(experimentId);
+ 		}
+ 		ExperimentResource experiment = jpa.getWorker().getExperiment(experimentId);
+@@ -892,7 +836,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public boolean updateExperimentMetadata(String experimentId, String metadata)
+ 			throws RegistryException {
+-		if (!isExperimentExists(experimentId, true)){
++		if (!isExperimentExists(experimentId)){
+ 			throw new ExperimentDoesNotExistsException(experimentId);
+ 		}
+ 		ExperimentResource experiment = jpa.getWorker().getExperiment(experimentId);
+@@ -912,7 +856,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 
+ 	@Override
+ 	public String getWorkflowExecutionTemplateName(String workflowInstanceId) throws RegistryException {
+-		if (!isWorkflowInstanceExists(workflowInstanceId, true)){
++		if (!isWorkflowInstanceExists(workflowInstanceId)){
+ 			throw new WorkflowInstanceDoesNotExistsException(workflowInstanceId);
+ 		}
+ 		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(workflowInstanceId);
+@@ -923,12 +867,11 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public void setWorkflowInstanceTemplateName(String workflowInstanceId,
+ 			String templateName) throws RegistryException {
+-		if (!isWorkflowInstanceExists(workflowInstanceId, true)){
++		if (!isWorkflowInstanceExists(workflowInstanceId)){
+ 			throw new WorkflowInstanceDoesNotExistsException(workflowInstanceId);
+ 		}
+ 		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(workflowInstanceId);
+ 		wi.setTemplateName(templateName);
+-		wi.save();
+ 	}
+ 
+ 
+@@ -944,41 +887,24 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 		List<WorkflowDataResource> workflowInstances = data.getWorkflowInstances();
+ 		for (WorkflowDataResource resource : workflowInstances) {
+ 			WorkflowInstance workflowInstance = new WorkflowInstance(resource.getExperimentID(), resource.getWorkflowInstanceID());
+-			workflowInstance.setTemplateName(resource.getTemplateName());
++			workflowInstance.setWorkflowName(resource.getTemplateName());
+ 			result.add(workflowInstance);
+ 		}
+ 		return result;
+ 	}
+ 
+ 
+-	@Override
+-	public boolean isWorkflowInstanceExists(String instanceId, boolean createIfNotPresent) throws RegistryException {
+-		if (jpa.getWorker().isWorkflowInstancePresent(instanceId)){
+-			return true;
+-		}else if (createIfNotPresent){
+-			//we are using the same id for the experiment id for backward compatibility 
+-			//for up to airavata 0.5 
+-			if (!isExperimentExists(instanceId, true)){
+-				throw new ExperimentDoesNotExistsException(instanceId);
+-			}
+-			addWorkflowInstance(instanceId, instanceId, null);
+-			return isWorkflowInstanceExists(instanceId);
+-		}else{
+-			return false;
+-		}
+-	}
+-
+ 	@Override
+ 	public boolean isWorkflowInstanceExists(String instanceId)
+ 			throws RegistryException {
+-		return isWorkflowInstanceExists(instanceId, false);
++		return jpa.getWorker().isWorkflowInstancePresent(instanceId);
+ 	}
+ 
+ 
+ 	@Override
+ 	public boolean updateWorkflowInstanceStatus(String instanceId,
+ 			ExecutionStatus status) throws RegistryException {
+-		if (!isWorkflowInstanceExists(instanceId, true)){
++		if (!isWorkflowInstanceExists(instanceId)){
+ 			throw new WorkflowInstanceDoesNotExistsException(instanceId);
+ 		}
+ 		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(instanceId);
+@@ -988,7 +914,6 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 			wi.setStartTime(currentTime);
+ 		}
+ 		wi.setLastUpdatedTime(currentTime);
+-		wi.save();
+ 		return true;
+ 	}
+ 
+@@ -996,7 +921,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public boolean updateWorkflowInstanceStatus(WorkflowInstanceStatus status)
+ 			throws RegistryException {
+-		if (!isWorkflowInstanceExists(status.getWorkflowInstance().getWorkflowInstanceId(), true)){
++		if (!isWorkflowInstanceExists(status.getWorkflowInstance().getWorkflowInstanceId())){
+ 			throw new WorkflowInstanceDoesNotExistsException(status.getWorkflowInstance().getWorkflowInstanceId());
+ 		}
+ 		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(status.getWorkflowInstance().getWorkflowInstanceId());
+@@ -1006,7 +931,6 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 			wi.setStartTime(currentTime);
+ 		}
+ 		wi.setLastUpdatedTime(currentTime);
+-		wi.save();
+ 		return true;
+ 	}
+ 
+@@ -1014,42 +938,46 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public WorkflowInstanceStatus getWorkflowInstanceStatus(String instanceId)
+ 			throws RegistryException {
+-		if (!isWorkflowInstanceExists(instanceId, true)){
++		if (!isWorkflowInstanceExists(instanceId)){
+ 			throw new WorkflowInstanceDoesNotExistsException(instanceId);
+ 		}
+ 		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(instanceId);
+-		return new WorkflowInstanceStatus(new WorkflowInstance(wi.getExperimentID(),wi.getWorkflowInstanceID()),wi.getStatus()==null?null:ExecutionStatus.valueOf(wi.getStatus()),wi.getLastUpdatedTime());
++		return new WorkflowInstanceStatus(new WorkflowInstance(wi.getExperimentID(),wi.getWorkflowInstanceID()),ExecutionStatus.valueOf(wi.getStatus()),wi.getLastUpdatedTime());
+ 	}
+ 
+ 
+ 	@Override
+-	public boolean updateWorkflowNodeInput(WorkflowInstanceNode node, String data)
++	public boolean updateWorkflowNodeInput(WorkflowNodeIOData workflowInputData)
+ 			throws RegistryException {
+-		if (!isWorkflowInstanceNodePresent(node.getWorkflowInstance().getWorkflowInstanceId(),node.getNodeId(),true)){
+-			throw new WorkflowInstanceNodeDoesNotExistsException(node.getWorkflowInstance().getWorkflowInstanceId(), node.getNodeId());
++		if (!isWorkflowInstanceExists(workflowInputData.getWorkflowInstanceId())){
++			throw new WorkflowInstanceDoesNotExistsException(workflowInputData.getWorkflowInstanceId());
+ 		}
+-		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(node.getWorkflowInstance().getWorkflowInstanceId());
+-		NodeDataResource nodeData = wi.getNodeData(node.getNodeId());
+-		nodeData.setInputs(data);
+-		nodeData.save();
++		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(workflowInputData.getWorkflowInstanceId());
++		NodeDataResource nodeData;
++		if (wi.isNodeExists(workflowInputData.getNodeId())){
++			nodeData = wi.getNodeData(workflowInputData.getNodeId());
++		}else{
++			nodeData = wi.createNodeData(workflowInputData.getNodeId());
++		}
++		nodeData.setInputs(workflowInputData.getValue());
+ 		return true;
+ 	}
+ 
+ 
+ 	@Override
+-	public boolean updateWorkflowNodeOutput(WorkflowInstanceNode node, String data) throws RegistryException {
+-		try {
+-			if (!isWorkflowInstanceNodePresent(node.getWorkflowInstance().getWorkflowInstanceId(),node.getNodeId(),true)){
+-				throw new WorkflowInstanceNodeDoesNotExistsException(node.getWorkflowInstance().getWorkflowInstanceId(), node.getNodeId());
+-			}
+-			WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(node.getWorkflowInstance().getWorkflowInstanceId());
+-			NodeDataResource nodeData = wi.getNodeData(node.getNodeId());
+-			nodeData.setOutputs(data);
+-			nodeData.save();
+-		} catch (RegistryException e) {
+-			e.printStackTrace();
+-			throw e;
++	public boolean updateWorkflowNodeOutput(
++			WorkflowNodeIOData workflowOutputData) throws RegistryException {
++		if (!isWorkflowInstanceExists(workflowOutputData.getWorkflowInstanceId())){
++			throw new WorkflowInstanceDoesNotExistsException(workflowOutputData.getWorkflowInstanceId());
++		}
++		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(workflowOutputData.getWorkflowInstanceId());
++		NodeDataResource nodeData;
++		if (wi.isNodeExists(workflowOutputData.getNodeId())){
++			nodeData = wi.getNodeData(workflowOutputData.getNodeId());
++		}else{
++			nodeData = wi.createNodeData(workflowOutputData.getNodeId());
+ 		}
++		nodeData.setOutputs(workflowOutputData.getValue());
+ 		return true;
+ 	}
+ 
+@@ -1157,7 +1085,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 		List<String> result=new ArrayList<String>();
+ 		List<ExperimentResource> experiments = jpa.getWorker().getExperiments();
+ 		for (ExperimentResource resource : experiments) {
+-			if (user==null || resource.getData().getUserName().equals(user)){
++			if (resource.getData().getUserName().equals(user)){
+ 				result.add(resource.getExpID());
+ 			}
+ 		}
+@@ -1189,7 +1117,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	public boolean updateWorkflowNodeStatus(
+ 			WorkflowInstanceNodeStatus workflowStatusNode)
+ 			throws RegistryException {
+-		if (!isWorkflowInstanceNodePresent(workflowStatusNode.getWorkflowInstanceNode().getWorkflowInstance().getWorkflowInstanceId(), workflowStatusNode.getWorkflowInstanceNode().getNodeId(), true)){
++		if (!isWorkflowInstanceNodePresent(workflowStatusNode.getWorkflowInstanceNode().getWorkflowInstance().getWorkflowInstanceId(), workflowStatusNode.getWorkflowInstanceNode().getNodeId())){
+ 			throw new WorkflowInstanceNodeDoesNotExistsException(workflowStatusNode.getWorkflowInstanceNode().getWorkflowInstance().getWorkflowInstanceId(), workflowStatusNode.getWorkflowInstanceNode().getNodeId());
+ 		}
+ 		NodeDataResource nodeData = jpa.getWorker().getWorkflowInstance(workflowStatusNode.getWorkflowInstanceNode().getWorkflowInstance().getWorkflowInstanceId()).getNodeData(workflowStatusNode.getWorkflowInstanceNode().getNodeId());
+@@ -1227,7 +1155,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 		}
+ 		WorkflowDataResource workflowInstance = jpa.getWorker().getWorkflowInstance(id);
+ 		NodeDataResource nodeData = workflowInstance.getNodeData(nodeId);
+-		return new WorkflowInstanceNodeStatus(new WorkflowInstanceNode(new WorkflowInstance(workflowInstance.getExperimentID(), workflowInstance.getWorkflowInstanceID()), nodeData.getNodeID()), nodeData.getStatus()==null?null:ExecutionStatus.valueOf(nodeData.getStatus()),nodeData.getLastUpdateTime());
++		return new WorkflowInstanceNodeStatus(new WorkflowInstanceNode(new WorkflowInstance(workflowInstance.getExperimentID(), workflowInstance.getWorkflowInstanceID()), nodeData.getNodeID()), ExecutionStatus.valueOf(nodeData.getStatus()),nodeData.getLastUpdateTime());
+ 	}
+ 
+ 
+@@ -1248,7 +1176,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public Date getWorkflowStartTime(WorkflowInstance workflowInstance)
+ 			throws RegistryException {
+-		if (!isWorkflowInstanceExists(workflowInstance.getWorkflowInstanceId(),true)){
++		if (!isWorkflowInstanceExists(workflowInstance.getWorkflowInstanceId())){
+ 			throw new WorkflowInstanceDoesNotExistsException(workflowInstance.getWorkflowInstanceId());
+ 		}
+ 		WorkflowDataResource wi = jpa.getWorker().getWorkflowInstance(workflowInstance.getWorkflowInstanceId());
+@@ -1259,7 +1187,7 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public boolean updateWorkflowNodeGramData(
+ 			WorkflowNodeGramData workflowNodeGramData) throws RegistryException {
+-		if (!isWorkflowInstanceNodePresent(workflowNodeGramData.getWorkflowInstanceId(),workflowNodeGramData.getNodeID(), true)){
++		if (!isWorkflowInstanceNodePresent(workflowNodeGramData.getWorkflowInstanceId(),workflowNodeGramData.getNodeID())){
+ 			throw new WorkflowInstanceNodeDoesNotExistsException(workflowNodeGramData.getWorkflowInstanceId(),workflowNodeGramData.getNodeID());
+ 		}
+ 		WorkflowDataResource workflowInstance = jpa.getWorker().getWorkflowInstance(workflowNodeGramData.getWorkflowInstanceId());
+@@ -1280,12 +1208,12 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 	@Override
+ 	public WorkflowInstanceData getWorkflowInstanceData(
+ 			String workflowInstanceId) throws RegistryException {
+-		if (!isWorkflowInstanceExists(workflowInstanceId,true)){
++		if (!isWorkflowInstanceExists(workflowInstanceId)){
+ 			throw new WorkflowInstanceDoesNotExistsException(workflowInstanceId);
+ 		}
+ 		WorkflowDataResource resource = jpa.getWorker().getWorkflowInstance(workflowInstanceId);
+ 		WorkflowInstance workflowInstance = new WorkflowInstance(resource.getExperimentID(), resource.getWorkflowInstanceID());
+-		WorkflowInstanceData workflowInstanceData = new WorkflowInstanceData(null, workflowInstance, new WorkflowInstanceStatus(workflowInstance, resource.getStatus()==null? null:ExecutionStatus.valueOf(resource.getStatus()),resource.getLastUpdatedTime()), null);
++		WorkflowInstanceData workflowInstanceData = new WorkflowInstanceData(null, workflowInstance, new WorkflowInstanceStatus(workflowInstance, ExecutionStatus.valueOf(resource.getStatus()),resource.getLastUpdatedTime()), null);
+ 		List<NodeDataResource> nodeData = resource.getNodeData();
+ 		for (NodeDataResource nodeDataResource : nodeData) {
+ 			workflowInstanceData.getNodeDataList().add(getWorkflowInstanceNodeData(workflowInstanceId, nodeDataResource.getNodeID()));
+@@ -1301,84 +1229,22 @@ public class AiravataJPARegistry extends AiravataRegistry2{
+ 			throw new WorkflowInstanceNodeDoesNotExistsException(workflowInstanceId,nodeId);
+ 		}
+ 		NodeDataResource nodeData = jpa.getWorker().getWorkflowInstance(workflowInstanceId).getNodeData(nodeId);
+-		WorkflowInstanceNodeData data = new WorkflowInstanceNodeData(new WorkflowInstanceNode(new WorkflowInstance(nodeData.getWorkflowDataResource().getExperimentID(),nodeData.getWorkflowDataResource().getWorkflowInstanceID()),nodeData.getNodeID()));
+-		data.setInput(nodeData.getInputs());
+-		data.setOutput(nodeData.getOutputs());
++		WorkflowInstanceNodeData data = new WorkflowInstanceNodeData(null,null,null,null);
++		data.getInputData().add(new WorkflowInstanceNodePortData(new WorkflowNodeIOData(nodeData.getInputs(), null, null, nodeId,(String) null)));
++		data.getOutputData().add(new WorkflowInstanceNodePortData(new WorkflowNodeIOData(nodeData.getOutputs(), null, null, nodeId,(String) null)));
+ 		//TODO setup status
+ 		return data;
+ 	}
+ 
+ 
+-
+ 	@Override
+ 	public boolean isWorkflowInstanceNodePresent(String workflowInstanceId,
+ 			String nodeId) throws RegistryException {
+-		return isWorkflowInstanceNodePresent(workflowInstanceId, nodeId, false);
+-	}
+-
+-	@Override
+-	public boolean isWorkflowInstanceNodePresent(String workflowInstanceId,
+-			String nodeId, boolean createIfNotPresent) throws RegistryException {
+-		if (!isWorkflowInstanceExists(workflowInstanceId, true)){
++		if (!isWorkflowInstanceExists(workflowInstanceId)){
+ 			throw new WorkflowInstanceDoesNotExistsException(workflowInstanceId);
+ 		}
+-		if (jpa.getWorker().getWorkflowInstance(workflowInstanceId).isNodeExists(nodeId)){
+-			return true;
+-		}else if (createIfNotPresent){
+-			addWorkflowInstanceNode(workflowInstanceId, nodeId);
+-			return isWorkflowInstanceNodePresent(workflowInstanceId, nodeId);
+-		}else{
+-			return false;
+-		}
+-	}
+-
++		return jpa.getWorker().getWorkflowInstance(workflowInstanceId).isNodeExists(nodeId);
+ 
+-	@Override
+-	public boolean addWorkflowInstance(String experimentId,
+-			String workflowInstanceId, String templateName) throws RegistryException {
+-		if (!isExperimentExists(experimentId, true)){
+-			throw new ExperimentDoesNotExistsException(experimentId);
+-		}
+-		if (isWorkflowInstanceExists(workflowInstanceId)){
+-			throw new WorkflowInstanceAlreadyExistsException(workflowInstanceId);
+-		}
+-		ExperimentResource experiment = jpa.getWorker().getExperiment(experimentId);
+-		ExperimentDataResource data = experiment.getData();
+-		WorkflowDataResource workflowInstanceResource = data.createWorkflowInstanceResource(workflowInstanceId);
+-		workflowInstanceResource.setTemplateName(templateName);
+-		workflowInstanceResource.save();
+-		return true;
+ 	}
+ 
+-
+-	@Override
+-	public boolean updateWorkflowNodeType(WorkflowInstanceNode node, WorkflowNodeType type)
+-			throws RegistryException {
+-		try {
+-			if (!isWorkflowInstanceNodePresent(node.getWorkflowInstance().getWorkflowInstanceId(),node.getNodeId(), true)){
+-				throw new WorkflowInstanceNodeDoesNotExistsException(node.getWorkflowInstance().getWorkflowInstanceId(),node.getNodeId());
+-			}
+-			NodeDataResource nodeData = jpa.getWorker().getWorkflowInstance(node.getWorkflowInstance().getWorkflowInstanceId()).getNodeData(node.getNodeId());
+-			nodeData.setNodeType(type.getNodeType().toString());
+-			nodeData.save();
+-		} catch (RegistryException e) {
+-			e.printStackTrace();
+-			throw e;
+-		}
+-		return true;
+-	}
+-
+-
+-	@Override
+-	public boolean addWorkflowInstanceNode(String workflowInstanceId,
+-			String nodeId) throws RegistryException {
+-		if (isWorkflowInstanceNodePresent(workflowInstanceId, nodeId)){
+-			throw new WorkflowInstanceNodeAlreadyExistsException(workflowInstanceId, nodeId);
+-		}
+-		NodeDataResource nodeData = jpa.getWorker().getWorkflowInstance(workflowInstanceId).createNodeData(nodeId);
+-		nodeData.save();
+-		return true;
+-	}
+-
+-
+ }

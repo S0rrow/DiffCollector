@@ -1,0 +1,78 @@
+diff --git a/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java b/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java
+index 39cffe3b0..3d3d126fd 100644
+--- a/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java
++++ b/blueprint-core/src/main/java/org/apache/geronimo/blueprint/context/BlueprintObjectRecipe.java
+@@ -24,7 +24,6 @@ import java.lang.reflect.Type;
+ 
+ import org.apache.xbean.recipe.ConstructionException;
+ import org.apache.xbean.recipe.ObjectRecipe;
+-import org.apache.geronimo.blueprint.Destroyable;
+ 
+ /**
+  *
+@@ -32,15 +31,12 @@ import org.apache.geronimo.blueprint.Destroyable;
+  * @version $Rev$, $Date$
+  */
+ public class BlueprintObjectRecipe extends ObjectRecipe {
+-
+-    private final BlueprintContextImpl blueprintContext;
++    
+     private boolean keepRecipe = false;
+     private Method initMethod;
+-    private Method destroyMethod;
+     
+-    public BlueprintObjectRecipe(BlueprintContextImpl blueprintContext, Class typeName) {
++    public BlueprintObjectRecipe(Class typeName) {
+         super(typeName);
+-        this.blueprintContext = blueprintContext;
+     }
+     
+     public void setKeepRecipe(boolean keepRecipe) {
+@@ -58,18 +54,10 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+     public Method getInitMethod() {
+         return initMethod;
+     }
+-    
+-    public void setDestroyMethod(Method destroyMethod) {
+-        this.destroyMethod = destroyMethod;
+-    }
+-    
+-    public Method getDestroyMethod() {
+-        return destroyMethod;
+-    }
+         
+     @Override
+     protected Object internalCreate(Type expectedType, boolean lazyRefAllowed) throws ConstructionException {
+-        final Object obj = super.internalCreate(expectedType, lazyRefAllowed);
++        Object obj = super.internalCreate(expectedType, lazyRefAllowed);
+         if (initMethod != null) {
+             try {
+                 initMethod.invoke(obj, new Object[] {});
+@@ -80,27 +68,7 @@ public class BlueprintObjectRecipe extends ObjectRecipe {
+                 e.printStackTrace();
+             }
+         }
+-        if (destroyMethod != null && blueprintContext != null) {
+-            Destroyable d = new Destroyable() {
+-                public void destroy() throws Exception {
+-                    destroyInstance(obj);
+-                }
+-            };
+-            blueprintContext.addDestroyable(getName(), d);
+-        }
+         return obj;
+     }
+     
+-    public void destroyInstance(Object obj) {
+-        if (!getType().equals(obj.getClass())) {
+-            throw new RuntimeException("");
+-        }
+-        if (destroyMethod != null) {
+-            try {
+-                destroyMethod.invoke(obj, new Object[] {});
+-            } catch (Exception e) {
+-                e.printStackTrace();
+-            }
+-        }
+-    }
+ }

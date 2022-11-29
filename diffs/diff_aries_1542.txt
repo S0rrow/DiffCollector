@@ -1,0 +1,68 @@
+diff --git a/src/main/java/org/apache/geronimo/blueprint/namespace/NamespaceHandlerRegistryImpl.java b/src/main/java/org/apache/geronimo/blueprint/namespace/NamespaceHandlerRegistryImpl.java
+index e0ca6146c..5e591652a 100644
+--- a/src/main/java/org/apache/geronimo/blueprint/namespace/NamespaceHandlerRegistryImpl.java
++++ b/src/main/java/org/apache/geronimo/blueprint/namespace/NamespaceHandlerRegistryImpl.java
+@@ -34,8 +34,6 @@ import java.util.AbstractSet;
+ import java.util.Iterator;
+ import java.util.HashSet;
+ import java.io.IOException;
+-import java.lang.ref.SoftReference;
+-import java.lang.ref.Reference;
+ 
+ import javax.xml.validation.Schema;
+ import javax.xml.validation.SchemaFactory;
+@@ -74,7 +72,7 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+     private final Map<URI, NamespaceHandler> handlers;
+     private final ServiceTracker tracker;
+     private final Map<Listener, Boolean> listeners;
+-    private final Map<Set<URI>, Reference<Schema>> schemas = new LRUMap<Set<URI>, Reference<Schema>>(10);
++    private final Map<Set<URI>, Schema> schemas = new LRUMap<Set<URI>, Schema>(10);
+     private SchemaFactory schemaFactory;
+ 
+     public NamespaceHandlerRegistryImpl(BundleContext bundleContext) {
+@@ -224,7 +222,7 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+         // they won't be used at all
+         for (Set<URI> key : schemas.keySet()) {
+             if (key.containsAll(namespaces)) {
+-                schema = schemas.get(key).get();
++                schema = schemas.get(key);
+                 break;
+             }
+         }
+@@ -251,7 +249,7 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+                     }
+                 }
+                 schema = getSchemaFactory().newSchema(schemaSources.toArray(new Source[schemaSources.size()]));
+-                schemas.put(namespaces, new SoftReference<Schema>(schema));
++                schemas.put(namespaces, schema);
+             } finally {
+                 for (StreamSource s : schemaSources) {
+                     try {
+@@ -266,17 +264,13 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+     }
+ 
+     protected synchronized void removeSchemasFor(List<URI> namespaces) {
+-        List<Set<URI>> keys = new ArrayList<Set<URI>>();
+         for (URI ns : namespaces) {
+             for (Set<URI> key : schemas.keySet()) {
+                 if (key.contains(ns)) {
+-                    keys.add(key);
++                    schemas.remove(key);
+                 }
+             }
+         }
+-        for (Set<URI> key : keys) {
+-            schemas.remove(key);
+-        }
+     }
+ 
+     private SchemaFactory getSchemaFactory() {
+@@ -286,7 +280,7 @@ public class NamespaceHandlerRegistryImpl implements NamespaceHandlerRegistry, S
+         return schemaFactory;
+     }
+ 
+-    public static class LRUMap<K,V> extends AbstractMap<K,V> {
++    private static class LRUMap<K,V> extends AbstractMap<K,V> {
+ 
+         private final int bound;
+         private final LinkedList<Entry<K,V>> entries = new LinkedList<Entry<K,V>>();

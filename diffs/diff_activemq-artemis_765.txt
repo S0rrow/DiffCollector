@@ -1,0 +1,149 @@
+diff --git a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/ActiveMQClientLogger.java b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/ActiveMQClientLogger.java
+index 4ed2545715..6382147130 100644
+--- a/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/ActiveMQClientLogger.java
++++ b/artemis-core-client/src/main/java/org/apache/activemq/artemis/core/client/ActiveMQClientLogger.java
+@@ -27,8 +27,6 @@ import org.jboss.logging.annotations.Message;
+ import org.jboss.logging.annotations.MessageLogger;
+ import org.w3c.dom.Node;
+ 
+-import java.net.UnknownHostException;
+-
+ /**
+  * Logger Code 21
+  * <p>
+@@ -64,14 +62,6 @@ public interface ActiveMQClientLogger extends BasicLogger {
+    @Message(id = 211001, value = "session created", format = Message.Format.MESSAGE_FORMAT)
+    void dumpingSessionStack(@Cause Exception e);
+ 
+-   @LogMessage(level = Logger.Level.DEBUG)
+-   @Message(id = 211002, value = "Started {0} Netty Connector version {1} to {2}:{3,number,#}", format = Message.Format.MESSAGE_FORMAT)
+-   void startedNettyConnector(String connectorType, String version, String host, Integer port);
+-
+-   @LogMessage(level = Logger.Level.DEBUG)
+-   @Message(id = 211003, value = "Started InVM Connector", format = Message.Format.MESSAGE_FORMAT)
+-   void startedInVMConnector();
+-
+    @LogMessage(level = Logger.Level.WARN)
+    @Message(id = 212000, value = "{0}", format = Message.Format.MESSAGE_FORMAT)
+    void warn(String message);
+@@ -330,87 +320,6 @@ public interface ActiveMQClientLogger extends BasicLogger {
+            format = Message.Format.MESSAGE_FORMAT)
+    void unableToGetMessage(@Cause Exception e);
+ 
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212059, value = "Failed to clean up: {0} ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void failedCleaningUp(String target);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212060, value = "Unexpected null data received from DiscoveryEndpoint ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unexpectedNullDataReceived();
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212061, value = "Failed to perform force close ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void failedForceClose(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212062, value = "Failed to perform post actions on message processing ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void failedPerformPostActionsOnMessage(@Cause Exception e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212063, value = "Unable to handle connection failure ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToHandleConnectionFailure(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212064, value = "Unable to receive cluster topology ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToReceiveClusterTopology(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212065, value = "{0} getting exception when receiving broadcasting ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToReceiveBroadcast(@Cause Exception e, String target);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212066, value = "failed to parse int property ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToParseValue(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212067, value = "failed to get system property ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToGetProperty(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212068, value = "Couldn't finish the client globalThreadPool in less than 10 seconds, interrupting it now ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToProcessGlobalThreadPoolIn10Sec();
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212069, value = "Couldn't finish the client scheduled in less than 10 seconds, interrupting it now ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToProcessScheduledlIn10Sec();
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212070, value = "Unable to initialize VersionLoader ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToInitVersionLoader(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212071, value = "Unable to check Epoll availability ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToCheckEpollAvailability(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212072, value = "Failed to change channel state to ReadyForWriting ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void failedToSetChannelReadyForWriting(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212073, value = "Unable to check KQueue availability ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToCheckKQueueAvailability(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 212074, value = "SendAcknowledgementHandler will not be asynchronous without setting up confirmation window size",
+-      format = Message.Format.MESSAGE_FORMAT)
+-   void confirmationNotSet();
+-
+-
+    @LogMessage(level = Logger.Level.ERROR)
+    @Message(id = 214000, value = "Failed to call onMessage", format = Message.Format.MESSAGE_FORMAT)
+    void onMessageError(@Cause Throwable e);
+@@ -465,7 +374,7 @@ public interface ActiveMQClientLogger extends BasicLogger {
+ 
+    @LogMessage(level = Logger.Level.ERROR)
+    @Message(id = 214013, value = "Failed to decode packet", format = Message.Format.MESSAGE_FORMAT)
+-   void errorDecodingPacket(@Cause Throwable e);
++   void errorDecodingPacket(@Cause Exception e);
+ 
+    @LogMessage(level = Logger.Level.ERROR)
+    @Message(id = 214014, value = "Failed to execute failure listener", format = Message.Format.MESSAGE_FORMAT)
+@@ -542,23 +451,4 @@ public interface ActiveMQClientLogger extends BasicLogger {
+    @Message(id = 214030, value = "Failed to bind {0}={1}", format = Message.Format.MESSAGE_FORMAT)
+    void failedToBind(String p1, String p2, @Cause Throwable cause);
+ 
+-   @LogMessage(level = Logger.Level.ERROR)
+-   @Message(id = 214031, value = "Failed to decode buffer, disconnect immediately.", format = Message.Format.MESSAGE_FORMAT)
+-   void disconnectOnErrorDecoding(@Cause Throwable cause);
+-
+-   @LogMessage(level = Logger.Level.ERROR)
+-   @Message(id = 214032, value = "Unable to initialize VersionLoader ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToInitVersionLoaderError(@Cause Throwable e);
+-
+-   @LogMessage(level = Logger.Level.ERROR)
+-   @Message(id = 214033, value = "Cannot resolve host ",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void unableToResolveHost(@Cause UnknownHostException e);
+-
+-   @LogMessage(level = Logger.Level.WARN)
+-   @Message(id = 214034, value = "Connection closed: {0} - {1}",
+-           format = Message.Format.MESSAGE_FORMAT)
+-   void connectionClosedWarn(ActiveMQExceptionType type, String message);
+-
+ }

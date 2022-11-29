@@ -1,0 +1,89 @@
+diff --git a/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java b/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java
+index 5b3872c81d..234006fce3 100644
+--- a/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java
++++ b/hyracks-fullstack/hyracks/hyracks-storage-am-lsm-common/src/main/java/org/apache/hyracks/storage/am/lsm/common/api/ILSMIndex.java
+@@ -24,13 +24,14 @@ import java.util.List;
+ import org.apache.hyracks.api.exceptions.HyracksDataException;
+ import org.apache.hyracks.api.replication.IReplicationJob.ReplicationOperation;
+ import org.apache.hyracks.dataflow.common.data.accessors.ITupleReference;
++import org.apache.hyracks.storage.am.common.api.IIndex;
++import org.apache.hyracks.storage.am.common.api.IIndexCursor;
+ import org.apache.hyracks.storage.am.common.api.IIndexOperationContext;
++import org.apache.hyracks.storage.am.common.api.IModificationOperationCallback;
++import org.apache.hyracks.storage.am.common.api.ISearchOperationCallback;
++import org.apache.hyracks.storage.am.common.api.ISearchPredicate;
++import org.apache.hyracks.storage.am.common.api.IndexException;
+ import org.apache.hyracks.storage.am.lsm.common.impls.LSMHarness;
+-import org.apache.hyracks.storage.common.IIndex;
+-import org.apache.hyracks.storage.common.IIndexCursor;
+-import org.apache.hyracks.storage.common.IModificationOperationCallback;
+-import org.apache.hyracks.storage.common.ISearchOperationCallback;
+-import org.apache.hyracks.storage.common.ISearchPredicate;
+ 
+ /**
+  * Methods to be implemented by an LSM index, which are called from {@link LSMHarness}.
+@@ -42,7 +43,7 @@ import org.apache.hyracks.storage.common.ISearchPredicate;
+  */
+ public interface ILSMIndex extends IIndex {
+ 
+-    void deactivate(boolean flush) throws HyracksDataException;
++    void deactivate(boolean flushOnExit) throws HyracksDataException;
+ 
+     @Override
+     ILSMIndexAccessor createAccessor(IModificationOperationCallback modificationCallback,
+@@ -61,17 +62,19 @@ public interface ILSMIndex extends IIndex {
+ 
+     boolean isPrimaryIndex();
+ 
+-    void modify(IIndexOperationContext ictx, ITupleReference tuple) throws HyracksDataException;
++    void modify(IIndexOperationContext ictx, ITupleReference tuple) throws HyracksDataException, IndexException;
+ 
+-    void search(ILSMIndexOperationContext ictx, IIndexCursor cursor, ISearchPredicate pred) throws HyracksDataException;
++    void search(ILSMIndexOperationContext ictx, IIndexCursor cursor, ISearchPredicate pred)
++            throws HyracksDataException, IndexException;
+ 
+     void scheduleFlush(ILSMIndexOperationContext ctx, ILSMIOOperationCallback callback) throws HyracksDataException;
+ 
+-    ILSMDiskComponent flush(ILSMIOOperation operation) throws HyracksDataException;
++    ILSMDiskComponent flush(ILSMIOOperation operation) throws HyracksDataException, IndexException;
+ 
+-    void scheduleMerge(ILSMIndexOperationContext ctx, ILSMIOOperationCallback callback) throws HyracksDataException;
++    void scheduleMerge(ILSMIndexOperationContext ctx, ILSMIOOperationCallback callback)
++            throws HyracksDataException, IndexException;
+ 
+-    ILSMDiskComponent merge(ILSMIOOperation operation) throws HyracksDataException;
++    ILSMDiskComponent merge(ILSMIOOperation operation) throws HyracksDataException, IndexException;
+ 
+     void addDiskComponent(ILSMDiskComponent index) throws HyracksDataException;
+ 
+@@ -130,30 +133,4 @@ public interface ILSMIndex extends IIndex {
+      * @return true if the index is durable. Otherwise false.
+      */
+     boolean isDurable();
+-
+-    /**
+-     * Update the filter with the passed tuple
+-     *
+-     * @param ictx
+-     * @param tuple
+-     * @throws HyracksDataException
+-     */
+-    void updateFilter(ILSMIndexOperationContext ictx, ITupleReference tuple) throws HyracksDataException;
+-
+-    /**
+-     * Create a component bulk loader for the given component
+-     *
+-     * @param component
+-     * @param fillFactor
+-     * @param verifyInput
+-     * @param numElementsHint
+-     * @param checkIfEmptyIndex
+-     * @param withFilter
+-     * @return
+-     * @throws HyracksDataException
+-     */
+-    ILSMDiskComponentBulkLoader createComponentBulkLoader(ILSMDiskComponent component, float fillFactor,
+-            boolean verifyInput, long numElementsHint, boolean checkIfEmptyIndex, boolean withFilter)
+-            throws HyracksDataException;
+-
+ }

@@ -1,0 +1,91 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/util/shell/Shell.java b/core/src/main/java/org/apache/accumulo/core/util/shell/Shell.java
+index 175d67e500..ef3e5197e5 100644
+--- a/core/src/main/java/org/apache/accumulo/core/util/shell/Shell.java
++++ b/core/src/main/java/org/apache/accumulo/core/util/shell/Shell.java
+@@ -140,7 +140,6 @@ import org.apache.accumulo.core.util.shell.commands.UserCommand;
+ import org.apache.accumulo.core.util.shell.commands.UserPermissionsCommand;
+ import org.apache.accumulo.core.util.shell.commands.UsersCommand;
+ import org.apache.accumulo.core.util.shell.commands.WhoAmICommand;
+-import org.apache.accumulo.core.zookeeper.ZooUtil;
+ import org.apache.accumulo.fate.zookeeper.ZooReader;
+ import org.apache.commons.cli.BasicParser;
+ import org.apache.commons.cli.CommandLine;
+@@ -265,23 +264,18 @@ public class Shell extends ShellOptions {
+     // process default parameters if unspecified
+     try {
+       boolean hasToken = (token != null);
+-      boolean hasTokenOptions = !loginOptions.isEmpty();
++      boolean hasTokenOptions = loginOptions != null && !loginOptions.isEmpty();
++      
++      // Need either both a token and options, or neither, but not just one.
++      if (hasToken != hasTokenOptions) {
++        throw new ParameterException("Must supply either both or neither of '--tokenClass' and '--tokenProperty'");
++      }
+       
+       if (hasToken && password != null) {
+         throw new ParameterException("Can not supply '--pass' option with '--tokenClass' option");
+       }
+       
+-      Runtime.getRuntime().addShutdownHook(new Thread() {
+-        @Override
+-        public void run() {
+-          reader.getTerminal().setEchoEnabled(true);
+-        }
+-      });
+-
+-      // Need either both a token and options, or neither, but not just one.
+-      if (hasToken != hasTokenOptions) {
+-        throw new ParameterException("Must supply either both or neither of '--tokenClass' and '--tokenProperty'");
+-      } else if (hasToken) { // implied hasTokenOptions
++      if (hasToken && hasTokenOptions) {
+         // Fully qualified name so we don't shadow java.util.Properties
+         org.apache.accumulo.core.client.security.tokens.AuthenticationToken.Properties props;
+         // and line wrap it because the package name is so long
+@@ -289,7 +283,21 @@ public class Shell extends ShellOptions {
+         
+         props.putAllStrings(loginOptions);
+         token.init(props);
+-      } else {
++      }
++      
++      if (!options.isFake()) {
++        ZooReader zr = new ZooReader(instance.getZooKeepers(), instance.getZooKeepersSessionTimeOut());
++        DistributedTrace.enable(instance, zr, "shell", InetAddress.getLocalHost().getHostName());
++      }
++      
++      Runtime.getRuntime().addShutdownHook(new Thread() {
++        @Override
++        public void run() {
++          reader.getTerminal().setEchoEnabled(true);
++        }
++      });
++      
++      if (!hasToken) {
+         if (password == null) {
+           password = reader.readLine("Password: ", '*');
+         }
+@@ -302,11 +310,6 @@ public class Shell extends ShellOptions {
+         }
+       }
+       
+-      if (!options.isFake()) {
+-        ZooReader zr = new ZooReader(instance.getZooKeepers(), instance.getZooKeepersSessionTimeOut());
+-        DistributedTrace.enable(instance, zr, "shell", InetAddress.getLocalHost().getHostName());
+-      }
+-      
+       this.setTableName("");
+       this.principal = user;
+       connector = instance.getConnector(this.principal, token);
+@@ -393,10 +396,11 @@ public class Shell extends ShellOptions {
+     }
+   }
+   
++  @SuppressWarnings("deprecation")
+   private static Instance getDefaultInstance(AccumuloConfiguration conf) {
+     String keepers = conf.get(Property.INSTANCE_ZK_HOST);
+     Path instanceDir = new Path(conf.get(Property.INSTANCE_DFS_DIR), "instance_id");
+-    return new ZooKeeperInstance(UUID.fromString(ZooUtil.getInstanceIDFromHdfs(instanceDir)), keepers);
++    return new ZooKeeperInstance(UUID.fromString(ZooKeeperInstance.getInstanceIDFromHdfs(instanceDir)), keepers);
+   }
+   
+   public Connector getConnector() {

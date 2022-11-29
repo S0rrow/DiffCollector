@@ -1,0 +1,49 @@
+diff --git a/hyracks/hyracks-storage-am-common/src/main/java/edu/uci/ics/hyracks/storage/am/common/dataflow/IndexLifecycleManager.java b/hyracks/hyracks-storage-am-common/src/main/java/edu/uci/ics/hyracks/storage/am/common/dataflow/IndexLifecycleManager.java
+index 77b2ec3acc..13ae7b1e4f 100644
+--- a/hyracks/hyracks-storage-am-common/src/main/java/edu/uci/ics/hyracks/storage/am/common/dataflow/IndexLifecycleManager.java
++++ b/hyracks/hyracks-storage-am-common/src/main/java/edu/uci/ics/hyracks/storage/am/common/dataflow/IndexLifecycleManager.java
+@@ -1,5 +1,6 @@
+ package edu.uci.ics.hyracks.storage.am.common.dataflow;
+ 
++import java.io.DataOutputStream;
+ import java.io.IOException;
+ import java.io.OutputStream;
+ import java.util.ArrayList;
+@@ -90,13 +91,14 @@ public class IndexLifecycleManager implements IIndexLifecycleManager, ILifeCycle
+                     + " since it does not exist.");
+         }
+ 
+-        if (!info.isOpen) {
+-            long inMemorySize = info.index.getMemoryAllocationSize();
+-            while (memoryUsed + inMemorySize > memoryBudget) {
+-                if (!evictCandidateIndex()) {
+-                    throw new HyracksDataException("Cannot activate index since memory budget would be exceeded.");
+-                }
++        long inMemorySize = info.index.getMemoryAllocationSize();
++        while (memoryUsed + inMemorySize > memoryBudget) {
++            if (!evictCandidateIndex()) {
++                throw new HyracksDataException("Cannot activate index since memory budget would be exceeded.");
+             }
++        }
++
++        if (!info.isOpen) {
+             info.index.activate();
+             info.isOpen = true;
+             memoryUsed += inMemorySize;
+@@ -202,6 +204,7 @@ public class IndexLifecycleManager implements IIndexLifecycleManager, ILifeCycle
+     }
+ 
+     private void dumpState(OutputStream os) throws IOException {
++        DataOutputStream dos = new DataOutputStream(os);
+         StringBuilder sb = new StringBuilder();
+ 
+         sb.append(String.format("Memory budget = %d\n", memoryBudget));
+@@ -215,6 +218,6 @@ public class IndexLifecycleManager implements IIndexLifecycleManager, ILifeCycle
+             ii = entry.getValue();
+             sb.append(String.format(rowFormat, entry.getKey(), ii.isOpen, ii.referenceCount, ii.lastAccess, ii.index));
+         }
+-        os.write(sb.toString().getBytes());
++        dos.writeUTF(sb.toString());
+     }
+ }
+\ No newline at end of file

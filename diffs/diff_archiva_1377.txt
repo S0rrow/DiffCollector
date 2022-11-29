@@ -1,0 +1,57 @@
+diff --git a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/scanner/RepositoryContentConsumerUtil.java b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/scanner/RepositoryContentConsumerUtil.java
+index 135db420d..ec03a3437 100644
+--- a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/scanner/RepositoryContentConsumerUtil.java
++++ b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/scanner/RepositoryContentConsumerUtil.java
+@@ -30,7 +30,6 @@
+ import org.apache.maven.archiva.consumers.KnownRepositoryContentConsumer;
+ import org.apache.maven.archiva.consumers.RepositoryContentConsumer;
+ 
+-import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+@@ -129,7 +128,7 @@ public Predicate getInvalidSelectionPredicate()
+         return new SelectedInvalidRepoConsumersPredicate();
+     }
+ 
+-    public Map getSelectedKnownConsumersMap()
++    public Map getSelectedKnownConsumers()
+     {
+         RepositoryScanningConfiguration scanning = archivaConfiguration.getConfiguration().getRepositoryScanning();
+ 
+@@ -140,7 +139,7 @@ public Map getSelectedKnownConsumersMap()
+         return consumerMapClosure.getMap();
+     }
+ 
+-    public Map getSelectedInvalidConsumersMap()
++    public Map getSelectedInvalidConsumers()
+     {
+         RepositoryScanningConfiguration scanning = archivaConfiguration.getConfiguration().getRepositoryScanning();
+ 
+@@ -150,26 +149,6 @@ public Map getSelectedInvalidConsumersMap()
+ 
+         return consumerMapClosure.getMap();
+     }
+-    
+-    public List getSelectedKnownConsumers()
+-    {
+-        RepositoryScanningConfiguration scanning = archivaConfiguration.getConfiguration().getRepositoryScanning();
+-
+-        List ret = new ArrayList();
+-        ret.addAll( CollectionUtils.select( scanning.getGoodConsumers(), getKnownSelectionPredicate() ));
+-
+-        return ret;
+-    }
+-
+-    public List getSelectedInvalidConsumers()
+-    {
+-        RepositoryScanningConfiguration scanning = archivaConfiguration.getConfiguration().getRepositoryScanning();
+-
+-        List ret = new ArrayList();
+-        ret.addAll( CollectionUtils.select( scanning.getBadConsumers(), getInvalidSelectionPredicate() ));
+-
+-        return ret;
+-    }
+ 
+     public List getAvailableKnownConsumers()
+     {

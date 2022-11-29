@@ -1,0 +1,91 @@
+diff --git a/server/gc/src/main/java/org/apache/accumulo/gc/SimpleGarbageCollector.java b/server/gc/src/main/java/org/apache/accumulo/gc/SimpleGarbageCollector.java
+index cc438026ec..2c894f8ffb 100644
+--- a/server/gc/src/main/java/org/apache/accumulo/gc/SimpleGarbageCollector.java
++++ b/server/gc/src/main/java/org/apache/accumulo/gc/SimpleGarbageCollector.java
+@@ -16,11 +16,10 @@
+  */
+ package org.apache.accumulo.gc;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.io.FileNotFoundException;
+ import java.io.IOException;
+ import java.net.UnknownHostException;
++import java.util.ArrayList;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Map;
+@@ -37,7 +36,6 @@ import org.apache.accumulo.core.client.AccumuloSecurityException;
+ import org.apache.accumulo.core.client.BatchWriter;
+ import org.apache.accumulo.core.client.BatchWriterConfig;
+ import org.apache.accumulo.core.client.Connector;
+-import org.apache.accumulo.core.client.Instance;
+ import org.apache.accumulo.core.client.IsolatedScanner;
+ import org.apache.accumulo.core.client.MutationsRejectedException;
+ import org.apache.accumulo.core.client.Scanner;
+@@ -112,6 +110,7 @@ import com.google.common.base.Function;
+ import com.google.common.collect.Iterators;
+ import com.google.common.collect.Maps;
+ import com.google.common.net.HostAndPort;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import com.google.protobuf.InvalidProtocolBufferException;
+ 
+ public class SimpleGarbageCollector extends AccumuloServerContext implements Iface {
+@@ -144,10 +143,7 @@ public class SimpleGarbageCollector extends AccumuloServerContext implements Ifa
+     SecurityUtil.serverLogin(SiteConfiguration.getInstance());
+     final String app = "gc";
+     Accumulo.setupLogging(app);
+-    Instance instance = HdfsZooInstance.getInstance();
+-    ServerConfigurationFactory conf = new ServerConfigurationFactory(instance);
+-    log.info("Version " + Constants.VERSION);
+-    log.info("Instance " + instance.getInstanceID());
++    ServerConfigurationFactory conf = new ServerConfigurationFactory(HdfsZooInstance.getInstance());
+     final VolumeManager fs = VolumeManagerImpl.get();
+     Accumulo.init(fs, conf, app);
+     Opts opts = new Opts();
+@@ -243,7 +239,7 @@ public class SimpleGarbageCollector extends AccumuloServerContext implements Ifa
+     }
+ 
+     @Override
+-    public boolean getCandidates(String continuePoint, List<String> result) throws TableNotFoundException, AccumuloException, AccumuloSecurityException {
++    public List<String> getCandidates(String continuePoint) throws TableNotFoundException, AccumuloException, AccumuloSecurityException {
+       // want to ensure GC makes progress... if the 1st N deletes are stable and we keep processing them,
+       // then will never inspect deletes after N
+       Range range = MetadataSchema.DeletesSection.getRange();
+@@ -254,23 +250,23 @@ public class SimpleGarbageCollector extends AccumuloServerContext implements Ifa
+ 
+       Scanner scanner = getConnector().createScanner(tableName, Authorizations.EMPTY);
+       scanner.setRange(range);
+-      result.clear();
++      List<String> result = new ArrayList<String>();
+       // find candidates for deletion; chop off the prefix
+       for (Entry<Key,Value> entry : scanner) {
+         String cand = entry.getKey().getRow().toString().substring(MetadataSchema.DeletesSection.getRowPrefix().length());
+         result.add(cand);
+         if (almostOutOfMemory(Runtime.getRuntime())) {
+           log.info("List of delete candidates has exceeded the memory threshold. Attempting to delete what has been gathered so far.");
+-          return true;
++          break;
+         }
+       }
+ 
+-      return false;
++      return result;
++
+     }
+ 
+     @Override
+     public Iterator<String> getBlipIterator() throws TableNotFoundException, AccumuloException, AccumuloSecurityException {
+-      @SuppressWarnings("resource")
+       IsolatedScanner scanner = new IsolatedScanner(getConnector().createScanner(tableName, Authorizations.EMPTY));
+ 
+       scanner.setRange(MetadataSchema.BlipSection.getRange());
+@@ -714,7 +710,7 @@ public class SimpleGarbageCollector extends AccumuloServerContext implements Ifa
+   }
+ 
+   private HostAndPort startStatsService() throws UnknownHostException {
+-    Iface rpcProxy = RpcWrapper.service(this, new Processor<Iface>(this));
++    Iface rpcProxy = RpcWrapper.service(this);
+     final Processor<Iface> processor;
+     if (ThriftServerType.SASL == getThriftServerType()) {
+       Iface tcProxy = TCredentialsUpdatingWrapper.service(rpcProxy, getClass(), getConfiguration());

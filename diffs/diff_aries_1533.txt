@@ -1,0 +1,154 @@
+diff --git a/src/main/java/org/apache/geronimo/blueprint/container/BeanRecipe.java b/src/main/java/org/apache/geronimo/blueprint/container/BeanRecipe.java
+index 21c1b1017..be67e2c22 100644
+--- a/src/main/java/org/apache/geronimo/blueprint/container/BeanRecipe.java
++++ b/src/main/java/org/apache/geronimo/blueprint/container/BeanRecipe.java
+@@ -33,6 +33,7 @@ import java.util.Map;
+ import org.apache.geronimo.blueprint.BeanProcessor;
+ import org.apache.geronimo.blueprint.ExtendedBlueprintContainer;
+ import org.apache.geronimo.blueprint.di.AbstractRecipe;
++import org.apache.geronimo.blueprint.di.Destroyable;
+ import org.apache.geronimo.blueprint.di.Recipe;
+ import org.apache.geronimo.blueprint.utils.ReflectionUtils;
+ import static org.apache.geronimo.blueprint.utils.ReflectionUtils.getRealCause;
+@@ -128,7 +129,8 @@ public class BeanRecipe extends AbstractRecipe {
+         this.explicitDependencies = explicitDependencies;
+     }
+ 
+-    public List<Recipe> getDependencies() {
++    @Override
++    public List<Recipe> getNestedRecipes() {
+         List<Recipe> recipes = new ArrayList<Recipe>();
+         for (Object o : properties.values()) {
+             if (o instanceof Recipe) {
+@@ -157,19 +159,6 @@ public class BeanRecipe extends AbstractRecipe {
+         }
+     }
+ 
+-    @Override
+-    protected Class loadClass(String className) {
+-        if (type instanceof Class) {
+-            try {
+-                return ((Class) type).getClassLoader().loadClass(className);
+-            } catch (ClassNotFoundException e) {
+-                throw new ComponentDefinitionException("Unable to load class " + className + " from recipe " + this, e);
+-            }
+-        } else {
+-            return super.loadClass(className);
+-        }
+-    }
+-
+     private Object getInstance() throws ComponentDefinitionException {
+         Object instance;
+         
+@@ -205,7 +194,7 @@ public class BeanRecipe extends AbstractRecipe {
+             } else if (matches.size() == 0) {
+                 throw new ComponentDefinitionException("Unable to find a matching factory method " + factoryMethod + " on class " + factoryObj.getClass() + " for arguments " + args + " when instanciating bean " + getName());
+             } else {
+-                throw new ComponentDefinitionException("Multiple matching factory methods " + factoryMethod + " found on class " + factoryObj.getClass() + " for arguments " + args + " when instanciating bean " + getName() + ": " + matches.keySet());
++                throw new ComponentDefinitionException("Multiple matching factory methods " + factoryMethod + " found on class " + factoryObj.getClass() + " for arguments " + args + " when instanciating bean " + getName());
+             }
+         } else if (factoryMethod != null) {
+             // Map of matching methods
+@@ -220,7 +209,7 @@ public class BeanRecipe extends AbstractRecipe {
+             } else if (matches.size() == 0) {
+                 throw new ComponentDefinitionException("Unable to find a matching factory method " + factoryMethod + " on class " + getType() + " for arguments " + args + " when instanciating bean " + getName());
+             } else {
+-                throw new ComponentDefinitionException("Multiple matching factory methods " + factoryMethod + " found on class " + getType() + " for arguments " + args + " when instanciating bean " + getName() + ": " + matches.keySet());
++                throw new ComponentDefinitionException("Multiple matching factory methods " + factoryMethod + " found on class " + getType() + " for arguments " + args + " when instanciating bean " + getName());
+             }
+         } else {
+             if (getType() == null) {
+@@ -238,7 +227,7 @@ public class BeanRecipe extends AbstractRecipe {
+             } else if (matches.size() == 0) {
+                 throw new ComponentDefinitionException("Unable to find a matching constructor on class " + getType() + " for arguments " + args + " when instanciating bean " + getName());
+             } else {
+-                throw new ComponentDefinitionException("Multiple matching constructors found on class " + getType() + " for arguments " + args + " when instanciating bean " + getName() + ": " + matches.keySet());
++                throw new ComponentDefinitionException("Multiple matching constructors found on class " + getType() + " for arguments " + args + " when instanciating bean " + getName());
+             }
+         }
+         
+@@ -494,14 +483,14 @@ public class BeanRecipe extends AbstractRecipe {
+         getDestroyMethod(obj);
+         
+         // Add partially created object to the container
+-//        if (initMethod == null) {
++        if (initMethod == null) {
+             addObject(obj, true);
+-//        }
++        }
+ 
+         // inject properties
+         setProperties(obj);
+ 
+-        for (BeanProcessor processor : blueprintContainer.getProcessors(BeanProcessor.class)) {
++        for (BeanProcessor processor : blueprintContainer.getBeanProcessors()) {
+             obj = processor.beforeInit(obj, getName());
+         }
+         
+@@ -511,7 +500,6 @@ public class BeanRecipe extends AbstractRecipe {
+                 initMethod.invoke(obj);
+             } catch (Throwable t) {
+                 LOGGER.info("Error invoking init method", getRealCause(t));
+-                throw new ComponentDefinitionException("Unable to intialize bean " + getName(), getRealCause(t));
+             }
+         }
+         
+@@ -519,7 +507,7 @@ public class BeanRecipe extends AbstractRecipe {
+     }
+     
+     public void destroyInstance(Object obj) {
+-        for (BeanProcessor processor : blueprintContainer.getProcessors(BeanProcessor.class)) {
++        for (BeanProcessor processor : blueprintContainer.getBeanProcessors()) {
+             processor.beforeDestroy(obj, getName());
+         }
+         try {
+@@ -530,20 +518,18 @@ public class BeanRecipe extends AbstractRecipe {
+         } catch (Exception e) {
+             LOGGER.info("Error invoking destroy method", getRealCause(e));
+         }
+-        for (BeanProcessor processor : blueprintContainer.getProcessors(BeanProcessor.class)) {
++        for (BeanProcessor processor : blueprintContainer.getBeanProcessors()) {
+             processor.afterDestroy(obj, getName());
+         }
+     }
+ 
+     @Override
+-    public void destroy(Object instance) {
++    public Destroyable getDestroyable(Object instance) {
+         Method method = getDestroyMethod(instance);
+         if (method != null) {
+-            try {
+-                method.invoke(instance);
+-            } catch (Throwable e) {
+-                LOGGER.info("Error destroying bean " + getName(), getRealCause(e));
+-            }
++            return new DestroyCallback(method, instance);
++        } else {
++            return null;
+         }
+     }
+ 
+@@ -707,4 +693,23 @@ public class BeanRecipe extends AbstractRecipe {
+ 
+     }
+ 
++    private class DestroyCallback implements Destroyable {
++
++        private Method method;
++        private Object instance;
++
++        public DestroyCallback(Method method, Object instance) {
++            this.method = method;
++            this.instance = instance;
++        }
++
++        public void destroy() {
++            try {
++                method.invoke(instance);
++            } catch (Exception e) {
++                LOGGER.info("Error destroying bean " + getName(), getRealCause(e));
++            }
++        }
++
++    }
+ }

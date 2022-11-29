@@ -1,0 +1,23 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java b/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java
+index c5e6534c6..74d91801c 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java
++++ b/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java
+@@ -457,14 +457,10 @@ public class ExportService {
+     }
+ 
+     private void removeRelationshipAttributes(AtlasEntityWithExtInfo entity) {
+-        if (entity.getEntity().getRelationshipAttributes() != null) {
+-            entity.getEntity().getRelationshipAttributes().clear();
+-        }
+-        if (entity.getReferredEntities() != null) {
+-            for (AtlasEntity e : entity.getReferredEntities().values()) {
+-                if (e.getRelationshipAttributes() != null) {
+-                    e.getRelationshipAttributes().clear();
+-                }
++        entity.getEntity().getRelationshipAttributes().clear();
++        if(entity.getReferredEntities() != null) {
++            for (AtlasEntity e: entity.getReferredEntities().values()) {
++                e.getRelationshipAttributes().clear();
+             }
+         }
+     }

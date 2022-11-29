@@ -1,0 +1,76 @@
+diff --git a/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/collections/ConcurrentLongHashMap.java b/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/collections/ConcurrentLongHashMap.java
+index 29917c997f..8af0660be6 100644
+--- a/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/collections/ConcurrentLongHashMap.java
++++ b/artemis-commons/src/main/java/org/apache/activemq/artemis/utils/collections/ConcurrentLongHashMap.java
+@@ -20,17 +20,17 @@
+  */
+ package org.apache.activemq.artemis.utils.collections;
+ 
++import static com.google.common.base.Preconditions.checkArgument;
++import static com.google.common.base.Preconditions.checkNotNull;
++
+ import java.util.Arrays;
+ import java.util.List;
+-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
++
+ import java.util.concurrent.locks.StampedLock;
+ import java.util.function.LongFunction;
+ 
+ import com.google.common.collect.Lists;
+ 
+-import static com.google.common.base.Preconditions.checkArgument;
+-import static com.google.common.base.Preconditions.checkNotNull;
+-
+ /**
+  * Map from long to an Object.
+  *
+@@ -81,9 +81,6 @@ public class ConcurrentLongHashMap<V> {
+    public int size() {
+       int size = 0;
+       for (Section<V> s : sections) {
+-         //read-acquire s.size that was write-released by s.unlockWrite
+-         s.tryOptimisticRead();
+-         //a stale value won't hurt: anyway it's subject to concurrent modifications
+          size += s.size;
+       }
+       return size;
+@@ -107,9 +104,6 @@ public class ConcurrentLongHashMap<V> {
+ 
+    public boolean isEmpty() {
+       for (Section<V> s : sections) {
+-         //read-acquire s.size that was write-released by s.unlockWrite
+-         s.tryOptimisticRead();
+-         //a stale value won't hurt: anyway it's subject to concurrent modifications
+          if (s.size != 0) {
+             return false;
+          }
+@@ -202,13 +196,11 @@ public class ConcurrentLongHashMap<V> {
+    // A section is a portion of the hash map that is covered by a single
+    @SuppressWarnings("serial")
+    private static final class Section<V> extends StampedLock {
+-
+-      private static final AtomicIntegerFieldUpdater<Section> CAPACITY_UPDATER = AtomicIntegerFieldUpdater.newUpdater(Section.class, "capacity");
+       private long[] keys;
+       private V[] values;
+ 
+-      private volatile int capacity;
+-      private int size;
++      private int capacity;
++      private volatile int size;
+       private int usedBuckets;
+       private int resizeThreshold;
+ 
+@@ -465,11 +457,11 @@ public class ConcurrentLongHashMap<V> {
+             }
+          }
+ 
++         capacity = newCapacity;
+          keys = newKeys;
+          values = newValues;
+          usedBuckets = size;
+-         CAPACITY_UPDATER.lazySet(this, newCapacity);
+-         resizeThreshold = (int) (newCapacity * MapFillFactor);
++         resizeThreshold = (int) (capacity * MapFillFactor);
+       }
+ 
+       private static <V> void insertKeyValueNoLock(long[] keys, V[] values, long key, V value) {

@@ -1,0 +1,231 @@
+diff --git a/repository/src/main/java/org/apache/atlas/discovery/graph/DefaultGraphPersistenceStrategy.java b/repository/src/main/java/org/apache/atlas/discovery/graph/DefaultGraphPersistenceStrategy.java
+index 266f27c8e..65a46a459 100755
+--- a/repository/src/main/java/org/apache/atlas/discovery/graph/DefaultGraphPersistenceStrategy.java
++++ b/repository/src/main/java/org/apache/atlas/discovery/graph/DefaultGraphPersistenceStrategy.java
+@@ -18,30 +18,22 @@
+ 
+ package org.apache.atlas.discovery.graph;
+ 
+-import java.util.List;
+-
+-import javax.inject.Inject;
+-
++import com.google.common.collect.ImmutableCollection;
++import com.google.common.collect.ImmutableList;
++import com.thinkaurelius.titan.core.TitanVertex;
+ import org.apache.atlas.AtlasException;
+-import org.apache.atlas.groovy.GroovyExpression;
++import org.apache.atlas.query.Expressions;
+ import org.apache.atlas.query.GraphPersistenceStrategies;
+ import org.apache.atlas.query.GraphPersistenceStrategies$class;
++import org.apache.atlas.query.IntSequence;
+ import org.apache.atlas.query.TypeUtils;
+ import org.apache.atlas.repository.Constants;
+ import org.apache.atlas.repository.MetadataRepository;
+-import org.apache.atlas.repository.RepositoryException;
+ import org.apache.atlas.repository.graph.GraphBackedMetadataRepository;
+-import org.apache.atlas.repository.graph.GraphHelper;
+-import org.apache.atlas.repository.graphdb.AtlasEdgeDirection;
+-import org.apache.atlas.repository.graphdb.AtlasGraph;
+-import org.apache.atlas.repository.graphdb.AtlasVertex;
+-import org.apache.atlas.repository.graphdb.GremlinVersion;
+-import org.apache.atlas.typesystem.IReferenceableInstance;
+ import org.apache.atlas.typesystem.ITypedReferenceableInstance;
+ import org.apache.atlas.typesystem.ITypedStruct;
+ import org.apache.atlas.typesystem.persistence.Id;
+ import org.apache.atlas.typesystem.types.AttributeInfo;
+-import org.apache.atlas.typesystem.types.ClassType;
+ import org.apache.atlas.typesystem.types.DataTypes;
+ import org.apache.atlas.typesystem.types.IDataType;
+ import org.apache.atlas.typesystem.types.Multiplicity;
+@@ -51,8 +43,8 @@ import org.apache.atlas.typesystem.types.TypeSystem;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import com.google.common.collect.ImmutableCollection;
+-import com.google.common.collect.ImmutableList;
++import java.util.ArrayList;
++import java.util.List;
+ 
+ /**
+  * Default implementation of GraphPersistenceStrategy.
+@@ -63,7 +55,6 @@ public class DefaultGraphPersistenceStrategy implements GraphPersistenceStrategi
+ 
+     private final GraphBackedMetadataRepository metadataRepository;
+ 
+-    @Inject
+     public DefaultGraphPersistenceStrategy(MetadataRepository metadataRepository) {
+         this.metadataRepository = (GraphBackedMetadataRepository) metadataRepository;
+     }
+@@ -80,11 +71,7 @@ public class DefaultGraphPersistenceStrategy implements GraphPersistenceStrategi
+ 
+     @Override
+     public String edgeLabel(IDataType<?> dataType, AttributeInfo aInfo) {
+-        try {
+-            return metadataRepository.getEdgeLabel(dataType, aInfo);
+-        } catch (AtlasException e) {
+-            throw new RuntimeException(e);
+-        }
++        return metadataRepository.getEdgeLabel(dataType, aInfo);
+     }
+ 
+     @Override
+@@ -102,26 +89,18 @@ public class DefaultGraphPersistenceStrategy implements GraphPersistenceStrategi
+     }
+ 
+     @Override
+-    public List<String> traitNames(AtlasVertex AtlasVertex) {
+-        return GraphHelper.getTraitNames(AtlasVertex);
++    public List<String> traitNames(TitanVertex vertex) {
++        return metadataRepository.getTraitNames(vertex);
+     }
+ 
+     @Override
+-    public Id getIdFromVertex(String dataTypeName, AtlasVertex vertex) {
+-        return GraphHelper.getIdFromVertex(dataTypeName, vertex);
++    public String fieldPrefixInSelect() {
++        return "it";
+     }
+ 
+     @Override
+-    public ITypedReferenceableInstance constructClassInstanceId(ClassType classType, Object value) {
+-        try {
+-            AtlasVertex classVertex = (AtlasVertex) value;
+-            ITypedReferenceableInstance classInstance = classType.createInstance(GraphHelper.getIdFromVertex(classVertex),
+-                    new String[0]);
+-            return classType.convert(classInstance, Multiplicity.OPTIONAL);
+-        } catch (AtlasException e) {
+-            LOG.error("error while constructing an instance", e);
+-        }
+-        return null;
++    public Id getIdFromVertex(String dataTypeName, TitanVertex vertex) {
++        return metadataRepository.getIdFromVertex(dataTypeName, vertex);
+     }
+ 
+     @Override
+@@ -148,19 +127,16 @@ public class DefaultGraphPersistenceStrategy implements GraphPersistenceStrategi
+                 break;
+ 
+             case STRUCT:
+-                AtlasVertex structVertex = (AtlasVertex) value;
++                TitanVertex structVertex = (TitanVertex) value;
+                 StructType structType = (StructType) dataType;
+                 ITypedStruct structInstance = structType.createInstance();
++
+                 TypeSystem.IdType idType = TypeSystem.getInstance().getIdType();
+ 
+                 if (dataType.getName().equals(idType.getName())) {
+-                    structInstance.set(idType.typeNameAttrName(), GraphHelper.getSingleValuedProperty(structVertex, typeAttributeName(), String.class));
+-                    structInstance.set(idType.idAttrName(), GraphHelper.getSingleValuedProperty(structVertex, idAttributeName(), String.class));
+-                    String stateValue = GraphHelper.getSingleValuedProperty(structVertex, stateAttributeName(), String.class);
+-                    if (stateValue != null) {
+-                        structInstance.set(idType.stateAttrName(), stateValue);
+-                    }
+-                    structInstance.set(idType.versionAttrName(), structVertex.getProperty(versionAttributeName(), Integer.class));
++                    structInstance.set(idType.typeNameAttrName(), structVertex.getProperty(typeAttributeName()));
++                    structInstance.set(idType.idAttrName(), structVertex.getProperty(idAttributeName()));
++
+                 } else {
+                     metadataRepository.getGraphToInstanceMapper()
+                         .mapVertexToInstance(structVertex, structInstance, structType.fieldMapping().fields);
+@@ -168,7 +144,7 @@ public class DefaultGraphPersistenceStrategy implements GraphPersistenceStrategi
+                 return dataType.convert(structInstance, Multiplicity.OPTIONAL);
+ 
+             case TRAIT:
+-                AtlasVertex traitVertex = (AtlasVertex) value;
++                TitanVertex traitVertex = (TitanVertex) value;
+                 TraitType traitType = (TraitType) dataType;
+                 ITypedStruct traitInstance = traitType.createInstance();
+                 // todo - this is not right, we should load the Instance associated with this
+@@ -180,9 +156,9 @@ public class DefaultGraphPersistenceStrategy implements GraphPersistenceStrategi
+                 break;
+ 
+             case CLASS:
+-                AtlasVertex classVertex = (AtlasVertex) value;
++                TitanVertex classVertex = (TitanVertex) value;
+                 ITypedReferenceableInstance classInstance = metadataRepository.getGraphToInstanceMapper()
+-                    .mapGraphToTypedInstance(GraphHelper.getSingleValuedProperty(classVertex, Constants.GUID_PROPERTY_KEY, String.class),
++                    .mapGraphToTypedInstance(classVertex.<String>getProperty(Constants.GUID_PROPERTY_KEY),
+                         classVertex);
+                 return dataType.convert(classInstance, Multiplicity.OPTIONAL);
+ 
+@@ -222,63 +198,43 @@ public class DefaultGraphPersistenceStrategy implements GraphPersistenceStrategi
+     }
+ 
+     @Override
+-    public AtlasEdgeDirection instanceToTraitEdgeDirection() {
+-        return AtlasEdgeDirection.OUT;
+-    }
+-
+-    @Override
+-    public AtlasEdgeDirection traitToInstanceEdgeDirection() {
+-        return AtlasEdgeDirection.IN;
++    public String gremlinCompOp(Expressions.ComparisonExpression op) {
++        return GraphPersistenceStrategies$class.gremlinCompOp(this, op);
+     }
+ 
+     @Override
+-    public String idAttributeName() {
+-        return metadataRepository.getIdAttributeName();
++    public String loopObjectExpression(IDataType<?> dataType) {
++        return GraphPersistenceStrategies$class.loopObjectExpression(this, dataType);
+     }
+ 
+     @Override
+-    public String stateAttributeName() {
+-        return metadataRepository.getStateAttributeName();
++    public String instanceToTraitEdgeDirection() {
++        return "out";
+     }
+ 
+     @Override
+-    public String versionAttributeName() {
+-        return metadataRepository.getVersionAttributeName();
++    public String traitToInstanceEdgeDirection() {
++        return "in";
+     }
+ 
+     @Override
+-    public boolean collectTypeInstancesIntoVar() {
+-        return GraphPersistenceStrategies$class.collectTypeInstancesIntoVar(this);
+-    }
+-
+-    @Override
+-    public boolean addGraphVertexPrefix(scala.collection.Traversable<GroovyExpression> preStatements) {
+-        return GraphPersistenceStrategies$class.addGraphVertexPrefix(this, preStatements);
+-    }
+-
+-    @Override
+-    public GremlinVersion getSupportedGremlinVersion() {
+-        return GraphPersistenceStrategies$class.getSupportedGremlinVersion(this);
+-    }
+-
+-    @Override
+-    public GroovyExpression generatePersisentToLogicalConversionExpression(GroovyExpression expr, IDataType<?> t) {
+-        return GraphPersistenceStrategies$class.generatePersisentToLogicalConversionExpression(this,expr, t);
++    public String idAttributeName() {
++        return metadataRepository.getIdAttributeName();
+     }
+ 
+     @Override
+-    public GroovyExpression addInitialQueryCondition(GroovyExpression expr) {
+-        return GraphPersistenceStrategies$class.addInitialQueryCondition(this, expr);
++    public scala.collection.Seq<String> typeTestExpression(String typeName, IntSequence intSeq) {
++        return GraphPersistenceStrategies$class.typeTestExpression(this, typeName, intSeq);
+     }
+ 
+     @Override
+-    public boolean isPropertyValueConversionNeeded(IDataType<?> t) {
+-        return GraphPersistenceStrategies$class.isPropertyValueConversionNeeded(this, t);
++    public boolean collectTypeInstancesIntoVar() {
++        return GraphPersistenceStrategies$class.collectTypeInstancesIntoVar(this);
+     }
+ 
+     @Override
+-    public AtlasGraph getGraph() throws RepositoryException {
+-        return metadataRepository.getGraph();
++    public boolean addGraphVertexPrefix(scala.collection.Traversable<String> preStatements) {
++        return GraphPersistenceStrategies$class.addGraphVertexPrefix(this, preStatements);
+     }
+ 
+ }

@@ -1,0 +1,86 @@
+diff --git a/maven-repository-core/src/main/java/org/apache/maven/repository/scheduler/IndexerTask.java b/maven-repository-core/src/main/java/org/apache/maven/repository/scheduler/IndexerTask.java
+index 17e28b02b..724f93e43 100644
+--- a/maven-repository-core/src/main/java/org/apache/maven/repository/scheduler/IndexerTask.java
++++ b/maven-repository-core/src/main/java/org/apache/maven/repository/scheduler/IndexerTask.java
+@@ -22,10 +22,10 @@
+ import org.apache.maven.repository.configuration.ConfigurationStoreException;
+ import org.apache.maven.repository.configuration.ConfiguredRepositoryFactory;
+ import org.apache.maven.repository.discovery.ArtifactDiscoverer;
+-import org.apache.maven.repository.discovery.DiscovererException;
+ import org.apache.maven.repository.discovery.MetadataDiscoverer;
+ import org.apache.maven.repository.indexing.ArtifactRepositoryIndex;
+ import org.apache.maven.repository.indexing.MetadataRepositoryIndex;
++import org.apache.maven.repository.indexing.PomRepositoryIndex;
+ import org.apache.maven.repository.indexing.RepositoryIndexException;
+ import org.apache.maven.repository.indexing.RepositoryIndexingFactory;
+ import org.codehaus.plexus.logging.AbstractLogEnabled;
+@@ -92,7 +92,6 @@ public void execute()
+     private void execute( Configuration configuration, File indexPath )
+         throws TaskExecutionException
+     {
+-        long time = System.currentTimeMillis();
+         getLogger().info( "Starting repository discovery process" );
+ 
+         try
+@@ -104,17 +103,23 @@ private void execute( Configuration configuration, File indexPath )
+ 
+             String layoutProperty = configuration.getRepositoryLayout();
+             ArtifactDiscoverer discoverer = (ArtifactDiscoverer) artifactDiscoverers.get( layoutProperty );
+-            List artifacts =
+-                discoverer.discoverArtifacts( defaultRepository, "indexer", blacklistedPatterns, includeSnapshots );
++            List artifacts = discoverer.discoverArtifacts( defaultRepository, blacklistedPatterns, includeSnapshots );
+             if ( !artifacts.isEmpty() )
+             {
+                 getLogger().info( "Indexing " + artifacts.size() + " new artifacts" );
+                 indexArtifact( artifacts, indexPath, defaultRepository );
+             }
+ 
++            List models = discoverer.discoverStandalonePoms( defaultRepository, blacklistedPatterns, includeSnapshots );
++            if ( !models.isEmpty() )
++            {
++                getLogger().info( "Indexing " + models.size() + " new POMs" );
++                indexPom( models, indexPath, defaultRepository );
++            }
++
+             MetadataDiscoverer metadataDiscoverer = (MetadataDiscoverer) metadataDiscoverers.get( layoutProperty );
+             List metadataList =
+-                metadataDiscoverer.discoverMetadata( defaultRepository, "indexer", blacklistedPatterns );
++                metadataDiscoverer.discoverMetadata( new File( defaultRepository.getBasedir() ), blacklistedPatterns );
+             if ( !metadataList.isEmpty() )
+             {
+                 getLogger().info( "Indexing " + metadataList.size() + " new metadata files" );
+@@ -125,13 +130,8 @@ private void execute( Configuration configuration, File indexPath )
+         {
+             throw new TaskExecutionException( e.getMessage(), e );
+         }
+-        catch ( DiscovererException e )
+-        {
+-            throw new TaskExecutionException( e.getMessage(), e );
+-        }
+ 
+-        time = System.currentTimeMillis() - time;
+-        getLogger().info( "Finished repository indexing process in " + time + "ms" );
++        getLogger().info( "Finished repository indexing process" );
+     }
+ 
+     public void executeNowIfNeeded()
+@@ -192,4 +192,19 @@ protected void indexMetadata( List metadataList, File indexPath, ArtifactReposit
+         metadataIndex.indexMetadata( metadataList );
+         metadataIndex.optimize();
+     }
++
++    /**
++     * Index the poms in the list
++     *
++     * @param models     list of poms that will be indexed
++     * @param indexPath  the path to the index
++     * @param repository the artifact repository where the poms were discovered
++     */
++    protected void indexPom( List models, File indexPath, ArtifactRepository repository )
++        throws RepositoryIndexException
++    {
++        PomRepositoryIndex pomIndex = indexFactory.createPomRepositoryIndex( indexPath, repository );
++        pomIndex.indexPoms( models );
++        pomIndex.optimize();
++    }
+ }

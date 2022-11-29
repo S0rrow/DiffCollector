@@ -1,0 +1,23 @@
+diff --git a/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/EC2Provider.java b/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/EC2Provider.java
+index 4cd2b1444..0c34a06d7 100644
+--- a/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/EC2Provider.java
++++ b/modules/gfac-core/src/main/java/org/apache/airavata/core/gfac/provider/impl/EC2Provider.java
+@@ -81,8 +81,8 @@ public class EC2Provider extends SSHProvider{
+         }
+         SecurityContextDocument.SecurityContext.AmazonWebservices amazonWebservices =
+                 document.getContextHeader().getSecurityContext().getAmazonWebservices();
+-        String access_key = amazonWebservices.getAccessKeyId();
+ 
++        String access_key = amazonWebservices.getAccessKeyId();
+         String secret_key = amazonWebservices.getSecretAccessKey();
+         String ami_id = amazonWebservices.getAmiId();
+         String ins_id = amazonWebservices.getInstanceId();
+@@ -399,4 +399,8 @@ public class EC2Provider extends SSHProvider{
+         return ret;
+     }
+ 
++    public static void main(String[] args) throws Exception {
++        new EC2Provider(null);
++    }
++
+ }

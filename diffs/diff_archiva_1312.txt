@@ -1,0 +1,75 @@
+diff --git a/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java b/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java
+index c5a3a065e..9fc9ac4a7 100644
+--- a/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java
++++ b/archiva-webapp/src/main/java/org/apache/maven/archiva/web/util/DefaultRoleManager.java
+@@ -112,12 +112,6 @@ public void initialize()
+             manager.saveOperation( operation );
+         }
+ 
+-        if ( !manager.operationExists( "grant-roles" ) )
+-        {
+-            Operation operation = manager.createOperation( "grant-roles" );
+-            manager.saveOperation( operation );
+-        }
+-
+         if ( !manager.operationExists( "remove-roles" ) )
+         {
+             Operation operation = manager.createOperation( "remove-roles" );
+@@ -156,20 +150,12 @@ public void initialize()
+                 manager.savePermission( editAllUsers );
+             }
+ 
+-            if ( !manager.permissionExists( "Grant Roles" ) )
+-            {
+-                Permission granRoles = manager.createPermission( "Grant Roles", "grant-roles",
+-                                                                    manager.getGlobalResource().getIdentifier() );
+-
+-                manager.savePermission( granRoles );
+-            }
+-            
+             if ( !manager.permissionExists( "Remove Roles" ) )
+             {
+-                Permission removeRoles = manager.createPermission( "Remove Roles", "remove-roles",
++                Permission editAllUsers = manager.createPermission( "Remove Roles", "remove-roles",
+                                                                     manager.getGlobalResource().getIdentifier() );
+ 
+-                manager.savePermission( removeRoles );
++                manager.savePermission( editAllUsers );
+             }
+ 
+             if ( !manager.permissionExists( "Regenerate Index" ) )
+@@ -185,7 +171,6 @@ public void initialize()
+                 Role userAdmin = manager.createRole( "User Administrator" );
+                 userAdmin.addPermission( manager.getPermission( "Edit All Users" ) );
+                 userAdmin.addPermission( manager.getPermission( "Remove Roles" ) );
+-                userAdmin.addPermission( manager.getPermission( "Grant Roles" ) );
+                 userAdmin.setAssignable( true );
+                 manager.saveRole( userAdmin );
+             }
+@@ -193,7 +178,7 @@ public void initialize()
+             if ( !manager.roleExists( "System Administrator" ) )
+             {
+                 Role admin = manager.createRole( "System Administrator" );
+-                admin.addChildRoleName( manager.getRole( "User Administrator" ).getName() );
++                admin.addChildRole( manager.getRole( "User Administrator" ) );
+                 admin.addPermission( manager.getPermission( "Edit Configuration" ) );
+                 admin.addPermission( manager.getPermission( "Run Indexer" ) );
+                 admin.addPermission( manager.getPermission( "Add Repository" ) );
+@@ -265,7 +250,7 @@ public void addRepository( String repositoryName )
+             regenReports = manager.savePermission( regenReports );
+ 
+             // make the roles
+-            Role repositoryObserver = manager.createRole( "Repository Observer - " + repositoryName );
++            Role repositoryObserver = manager.createRole( "Repository Manager - " + repositoryName );
+             repositoryObserver.addPermission( editRepo );
+             repositoryObserver.setAssignable( true );
+             repositoryObserver = manager.saveRole( repositoryObserver );
+@@ -274,7 +259,7 @@ public void addRepository( String repositoryName )
+             repositoryManager.addPermission( editRepo );
+             repositoryManager.addPermission( deleteRepo );
+             repositoryManager.addPermission( regenReports );
+-            repositoryManager.addChildRoleName( repositoryObserver.getName() );
++            repositoryManager.addChildRole( repositoryObserver );
+             repositoryManager.setAssignable( true );
+             manager.saveRole( repositoryManager );
+ 

@@ -1,0 +1,372 @@
+diff --git a/src/main/java/org/apache/geronimo/blueprint/container/BlueprintContainerImpl.java b/src/main/java/org/apache/geronimo/blueprint/container/BlueprintContainerImpl.java
+index 2914c7d2e..196cff8ad 100644
+--- a/src/main/java/org/apache/geronimo/blueprint/container/BlueprintContainerImpl.java
++++ b/src/main/java/org/apache/geronimo/blueprint/container/BlueprintContainerImpl.java
+@@ -25,26 +25,32 @@ import java.util.Collection;
+ import java.util.Collections;
+ import java.util.Dictionary;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Properties;
+ import java.util.Set;
+-import java.util.HashSet;
++import java.util.Arrays;
+ import java.util.concurrent.ScheduledExecutorService;
+ import java.util.concurrent.ScheduledFuture;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.TimeoutException;
+ import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.concurrent.atomic.AtomicReference;
+ 
+ import org.apache.geronimo.blueprint.BeanProcessor;
+ import org.apache.geronimo.blueprint.BlueprintConstants;
+ import org.apache.geronimo.blueprint.ComponentDefinitionRegistryProcessor;
++import org.apache.geronimo.blueprint.Destroyable;
+ import org.apache.geronimo.blueprint.ExtendedBeanMetadata;
+ import org.apache.geronimo.blueprint.ExtendedBlueprintContainer;
+ import org.apache.geronimo.blueprint.NamespaceHandlerRegistry;
+ import org.apache.geronimo.blueprint.di.DefaultExecutionContext;
++import org.apache.geronimo.blueprint.di.DefaultRepository;
+ import org.apache.geronimo.blueprint.di.ExecutionContext;
+ import org.apache.geronimo.blueprint.di.Recipe;
++import org.apache.geronimo.blueprint.di.ReferenceNameRecipe;
++import org.apache.geronimo.blueprint.di.ReferenceRecipe;
+ import org.apache.geronimo.blueprint.di.Repository;
+ import org.apache.geronimo.blueprint.namespace.ComponentDefinitionRegistryImpl;
+ import org.apache.geronimo.blueprint.namespace.NamespaceHandlerRegistryImpl;
+@@ -55,11 +61,11 @@ import org.osgi.framework.BundleContext;
+ import org.osgi.framework.Constants;
+ import org.osgi.framework.ServiceRegistration;
+ import org.osgi.service.blueprint.container.BlueprintContainer;
+-import org.osgi.service.blueprint.container.BlueprintEvent;
+-import org.osgi.service.blueprint.container.BlueprintListener;
+ import org.osgi.service.blueprint.container.ComponentDefinitionException;
+ import org.osgi.service.blueprint.container.Converter;
+ import org.osgi.service.blueprint.container.NoSuchComponentException;
++import org.osgi.service.blueprint.container.BlueprintListener;
++import org.osgi.service.blueprint.container.BlueprintEvent;
+ import org.osgi.service.blueprint.namespace.NamespaceHandler;
+ import org.osgi.service.blueprint.reflect.BeanArgument;
+ import org.osgi.service.blueprint.reflect.BeanMetadata;
+@@ -119,6 +125,7 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+     private BlueprintObjectInstantiator instantiator;
+     private ServiceRegistration registration;
+     private List<BeanProcessor> beanProcessors;
++    private Map<String, Destroyable> destroyables = new HashMap<String, Destroyable>();
+     private Map<String, List<SatisfiableRecipe>> satisfiables;
+     private long timeout = 5 * 60 * 1000;
+     private boolean waitForDependencies = true;
+@@ -146,6 +153,10 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+         return bundleContext.getBundle().loadClass(name);
+     }
+ 
++    public void addDestroyable(String name, Destroyable destroyable) {
++        destroyables.put(name, destroyable);
++    }
++
+     public List<BeanProcessor> getBeanProcessors() {
+         return beanProcessors;
+     }
+@@ -233,10 +244,11 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+                     }
+                     case Populated:
+                         instantiator = new BlueprintObjectInstantiator(this, new RecipeBuilder(this).createRepository());
++                        checkReferences();
+                         trackServiceReferences();
+                         Runnable r = new Runnable() {
+                             public void run() {
+-                                synchronized (scheduled) {
++                                synchronized (BlueprintContainerImpl.this) {
+                                     Throwable t = new TimeoutException();
+                                     state = State.Failed;
+                                     unregisterServices();
+@@ -265,16 +277,20 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+                     case InitialReferencesSatisfied:
+                         processTypeConverters();
+                         processProcessors();
+-                        // Update repository with recipes processed by the processors
++                        // Update repository wrt bean processing
+                         untrackServiceReferences();
+-                        Repository repository = instantiator.getRepository();
+-                        Repository tmpRepo = new RecipeBuilder(this).createRepository();
+-                        for (String name : tmpRepo.getNames()) {
+-                            if (repository.getInstance(name) == null) {
+-                                repository.putRecipe(name, tmpRepo.getRecipe(name));
++                        DefaultRepository repository = (DefaultRepository) instantiator.getRepository();
++                        DefaultRepository tmpRepo = new RecipeBuilder(this).createRepository();
++                        for (String name : repository.getNames()) {
++                            Recipe recipe = repository.getRecipe(name);
++                            Object instance = repository.getInstance(name);
++                            if (instance != null) {
++                                tmpRepo.putRecipe(name, recipe);
++                                tmpRepo.putInstance(name, instance);
+                             }
+                         }
+                         satisfiables = null;
++                        instantiator = new BlueprintObjectInstantiator(this, tmpRepo);
+                         trackServiceReferences();
+                         // Check references
+                         if (checkAllSatisfiables() || !waitForDependencies) {
+@@ -293,8 +309,8 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+                         }
+                     case Create:
+                         timeoutFuture.cancel(false);
+-                        registerServices();
+                         instantiateEagerSingletonBeans();
++                        registerServices();
+ 
+                         // Register the BlueprintContainer in the OSGi registry
+                         if (registration == null) {
+@@ -326,6 +342,21 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+         }
+     }
+ 
++    private void checkReferences() throws Exception {
++        DefaultRepository repository = (DefaultRepository) instantiator.getRepository();
++        for (Recipe recipe : getAllRecipes()) {
++            String ref = null;
++            if (recipe instanceof ReferenceRecipe) {
++                ref = ((ReferenceRecipe) recipe).getReferenceName();
++            } else if (recipe instanceof ReferenceNameRecipe) {
++                ref = ((ReferenceNameRecipe) recipe).getReferenceName();
++            }
++            if (ref != null && repository.get(ref) == null) {
++                throw new ComponentDefinitionException("Unresolved ref/idref to component: " + ref);
++            }
++        }
++    }
++
+     private void processTypeConverters() throws Exception {
+         List<String> typeConverters = new ArrayList<String>();
+         for (Target target : componentDefinitionRegistry.getTypeConverters()) {
+@@ -373,18 +404,23 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+ 
+     private Map<String, List<SatisfiableRecipe>> getSatisfiableDependenciesMap() {
+         if (satisfiables == null && instantiator != null) {
+-            ExecutionContext oldContext = ExecutionContext.setContext(new DefaultExecutionContext(this, instantiator.getRepository()));
++            boolean createNewContext = !ExecutionContext.isContextSet();
++            if (createNewContext) {
++                ExecutionContext.setContext(new DefaultExecutionContext(this, instantiator.getRepository()));
++            }
+             try {
+                 satisfiables = new HashMap<String, List<SatisfiableRecipe>>();
+-                for (Recipe r : instantiator.getAllRecipes()) {
+-                    List<SatisfiableRecipe> recipes = instantiator.getAllRecipes(SatisfiableRecipe.class, r.getName());
++                for (Recipe r : getAllRecipes()) {
++                    List<SatisfiableRecipe> recipes = getAllRecipes(SatisfiableRecipe.class, r.getName());
+                     if (!recipes.isEmpty()) {
+                         satisfiables.put(r.getName(), recipes);
+                     }
+                 }
+                 return satisfiables;
+             } finally {
+-                ExecutionContext.setContext(oldContext);
++                if (createNewContext) {
++                    ExecutionContext.setContext(null);
++                }
+             }
+         }
+         return satisfiables;
+@@ -392,12 +428,12 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+ 
+     private void trackServiceReferences() {
+         Map<String, List<SatisfiableRecipe>> dependencies = getSatisfiableDependenciesMap();
+-        Set<String> satisfiables = new HashSet<String>();
++        List<String> satisfiables = new ArrayList<String>();
+         for (String name : dependencies.keySet()) {
+             for (SatisfiableRecipe satisfiable : dependencies.get(name)) {
+-                if (satisfiables.add(satisfiable.getName())) {
+-                    satisfiable.start(this);
+-                }
++                satisfiable.registerListener(this);
++                satisfiable.start();
++                satisfiables.add(satisfiable.getName());
+             }
+         }
+         LOGGER.debug("Tracking service references: {}", satisfiables);
+@@ -406,12 +442,10 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+     private void untrackServiceReferences() {
+         Map<String, List<SatisfiableRecipe>> dependencies = getSatisfiableDependenciesMap();
+         if (dependencies != null) {
+-            Set<String> satisfiables = new HashSet<String>();
+             for (String name : dependencies.keySet()) {
+                 for (SatisfiableRecipe satisfiable : dependencies.get(name)) {
+-                    if (satisfiables.add(satisfiable.getName())) {
+-                        satisfiable.stop();
+-                    }
++                    satisfiable.unregisterListener(this);
++                    satisfiable.stop();
+                 }
+             }
+         }
+@@ -446,7 +480,7 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+                             break;
+                         }
+                     }
+-                    ServiceRecipe reg = (ServiceRecipe) instantiator.getRepository().getRecipe(name);
++                    ServiceExportRecipe reg = (ServiceExportRecipe) getComponentInstance(name);
+                     if (satisfied && !reg.isRegistered()) {
+                         LOGGER.debug("Registering service {} due to satisfied references", name);
+                         reg.register();
+@@ -486,8 +520,8 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+     }
+ 
+     private void registerServices() {
+-        List<ServiceRecipe> recipes = instantiator.getAllRecipes(ServiceRecipe.class);
+-        for (ServiceRecipe r : recipes) {
++        List<ServiceExportRecipe> recipes = getAllRecipes(ServiceExportRecipe.class);
++        for (ServiceExportRecipe r : recipes) {
+             List<SatisfiableRecipe> dependencies = getSatisfiableDependenciesMap().get(r.getName());
+             boolean satisfied = true;
+             if (dependencies != null) {
+@@ -506,16 +540,69 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+ 
+     private void unregisterServices() {
+         if (instantiator != null) {
+-            List<ServiceRecipe> recipes = instantiator.getAllRecipes(ServiceRecipe.class);
+-            for (ServiceRecipe r : recipes) {
++            List<ServiceExportRecipe> recipes = getAllRecipes(ServiceExportRecipe.class);
++            for (ServiceExportRecipe r : recipes) {
+                 r.unregister();
+             }
+         }
+     }
+ 
++    private <T> List<T> getAllRecipes(Class<T> clazz, String... names) {
++        List<T> recipes = new ArrayList<T>();
++        for (Recipe r : getAllRecipes(names)) {
++            if (clazz.isInstance(r)) {
++                recipes.add(clazz.cast(r));
++            }
++        }
++        return recipes;
++    }
++
++    private Set<Recipe> getAllRecipes(String... names) {
++        boolean createNewContext = !ExecutionContext.isContextSet();
++        if (createNewContext) {
++            ExecutionContext.setContext(new DefaultExecutionContext(this, instantiator.getRepository()));
++        }
++        try {
++            Set<Recipe> recipes = new HashSet<Recipe>();
++            DefaultRepository repo = (DefaultRepository) instantiator.getRepository();
++            Set<String> topLevel = names != null && names.length > 0 ? new HashSet<String>(Arrays.asList(names)) : repo.getNames();
++            for (String name : topLevel) {
++                internalGetAllRecipes(recipes, repo.getRecipe(name));
++            }
++            return recipes;
++        } finally {
++            if (createNewContext) {
++                ExecutionContext.setContext(null);
++            }
++        }
++    }
++
++    /*
++     * This method should not be called directly, only from one of the getAllRecipes() methods.
++     */
++    private void internalGetAllRecipes(Set<Recipe> recipes, Recipe r) {
++        if (r != null) {
++            if (recipes.add(r)) {
++                for (Recipe c : r.getNestedRecipes()) {
++                    internalGetAllRecipes(recipes, c);
++                }
++            }
++        }
++    }
++
+     private void destroyComponents() {
+         if (instantiator != null) {
+-            instantiator.getRepository().destroy();
++            ((DefaultRepository)instantiator.getRepository()).destroy();
++        }
++        
++        Map<String, Destroyable> destroyables = new HashMap<String, Destroyable>(this.destroyables);
++        this.destroyables.clear();
++        for (Map.Entry<String, Destroyable> entry : destroyables.entrySet()) {
++            try {
++                entry.getValue().destroy();
++            } catch (Exception e) {
++                LOGGER.info("Error destroying bean " + entry.getKey(), e);
++            }
+         }
+     }
+ 
+@@ -674,3 +761,74 @@ public class BlueprintContainerImpl implements ExtendedBlueprintContainer, Names
+ 
+ }
+ 
++
++/* TODO: fix the following deadlock
++
++      [bnd] "pool-3-thread-1" prio=5 tid=0x01018790 nid=0x8a2c00 in Object.wait() [0xb0f90000..0xb0f90d90]
++      [bnd] 	at java.lang.Object.wait(Native Method)
++      [bnd] 	- waiting on <0x25671928> (a java.lang.Object)
++      [bnd] 	at org.apache.geronimo.blueprint.container.UnaryServiceReferenceRecipe.getService(UnaryServiceReferenceRecipe.java:197)
++      [bnd] 	- locked <0x25671928> (a java.lang.Object)
++      [bnd] 	at org.apache.geronimo.blueprint.container.UnaryServiceReferenceRecipe.access$000(UnaryServiceReferenceRecipe.java:55)
++      [bnd] 	at org.apache.geronimo.blueprint.container.UnaryServiceReferenceRecipe$ServiceDispatcher.loadObject(UnaryServiceReferenceRecipe.java:225)
++      [bnd] 	at org.osgi.test.cases.blueprint.services.ServiceManager$$EnhancerByCGLIB$$f740783d.getActiveServices(<generated>)
++      [bnd] 	at org.osgi.test.cases.blueprint.components.serviceimport.NullReferenceList.init(NullReferenceList.java:43)
++      [bnd] 	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
++      [bnd] 	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)
++      [bnd] 	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)
++      [bnd] 	at java.lang.reflect.Method.invoke(Method.java:585)
++      [bnd] 	at org.apache.geronimo.blueprint.container.BlueprintObjectRecipe.internalCreate(BlueprintObjectRecipe.java:586)
++      [bnd] 	at org.apache.geronimo.blueprint.di.AbstractRecipe.create(AbstractRecipe.java:95)
++      [bnd] 	at org.apache.geronimo.blueprint.container.BlueprintObjectInstantiator.createInstance(BlueprintObjectInstantiator.java:83)
++      [bnd] 	at org.apache.geronimo.blueprint.container.BlueprintObjectInstantiator.createAll(BlueprintObjectInstantiator.java:65)
++      [bnd] 	at org.apache.geronimo.blueprint.container.BlueprintContextImpl.instantiateComponents(BlueprintContextImpl.java:541)
++      [bnd] 	at org.apache.geronimo.blueprint.container.BlueprintContextImpl.run(BlueprintContextImpl.java:303)
++      [bnd] 	- locked <0x25730658> (a org.apache.geronimo.blueprint.container.BlueprintContextImpl)
++      [bnd] 	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:417)
++      [bnd] 	at java.util.concurrent.FutureTask$Sync.innerRun(FutureTask.java:269)
++      [bnd] 	at java.util.concurrent.FutureTask.run(FutureTask.java:123)
++      [bnd] 	at java.util.concurrent.ThreadPoolExecutor$Worker.runTask(ThreadPoolExecutor.java:650)
++      [bnd] 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:675)
++      [bnd] 	at java.lang.Thread.run(Thread.java:613)
++      [bnd]
++      [bnd] "main" prio=5 tid=0x01001460 nid=0xb0801000 waiting for monitor entry [0xb07ff000..0xb0800148]
++      [bnd] 	at org.apache.geronimo.blueprint.container.BlueprintContextImpl.destroy(BlueprintContextImpl.java:687)
++      [bnd] 	- waiting to lock <0x25730658> (a org.apache.geronimo.blueprint.container.BlueprintContextImpl)
++      [bnd] 	at org.apache.geronimo.blueprint.BlueprintExtender.destroyContext(BlueprintExtender.java:121)
++      [bnd] 	at org.apache.geronimo.blueprint.BlueprintExtender.bundleChanged(BlueprintExtender.java:113)
++      [bnd] 	at org.eclipse.osgi.framework.internal.core.BundleContextImpl.dispatchEvent(BundleContextImpl.java:916)
++      [bnd] 	at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:220)
++      [bnd] 	at org.eclipse.osgi.framework.eventmgr.ListenerQueue.dispatchEventSynchronous(ListenerQueue.java:149)
++      [bnd] 	at org.eclipse.osgi.framework.internal.core.Framework.publishBundleEventPrivileged(Framework.java:1350)
++      [bnd] 	at org.eclipse.osgi.framework.internal.core.Framework.publishBundleEvent(Framework.java:1301)
++      [bnd] 	at org.eclipse.osgi.framework.internal.core.BundleHost.stopWorker(BundleHost.java:470)
++      [bnd] 	at org.eclipse.osgi.framework.internal.core.AbstractBundle.uninstallWorker(AbstractBundle.java:784)
++      [bnd] 	at org.eclipse.osgi.framework.internal.core.AbstractBundle.uninstall(AbstractBundle.java:764)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.BlueprintMetadata.cleanup(BlueprintMetadata.java:670)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.EventSet.stop(EventSet.java:97)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.TestPhase.stopEventSets(TestPhase.java:119)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.TestPhase.cleanup(TestPhase.java:98)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.BaseTestController.cleanup(BaseTestController.java:219)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.StandardTestController.cleanup(StandardTestController.java:177)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.BaseTestController.terminate(BaseTestController.java:340)
++      [bnd] 	at org.osgi.test.cases.blueprint.framework.BaseTestController.run(BaseTestController.java:363)
++      [bnd] 	at org.osgi.test.cases.blueprint.tests.TestReferenceCollection.testEmptyListCollectionServiceListener(TestReferenceCollection.java:527)
++      [bnd] 	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
++      [bnd] 	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)
++      [bnd] 	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)
++      [bnd] 	at java.lang.reflect.Method.invoke(Method.java:585)
++      [bnd] 	at junit.framework.TestCase.runTest(TestCase.java:164)
++      [bnd] 	at junit.framework.TestCase.runBare(TestCase.java:130)
++      [bnd] 	at junit.framework.TestResult$1.protect(TestResult.java:106)
++      [bnd] 	at junit.framework.TestResult.runProtected(TestResult.java:124)
++      [bnd] 	at junit.framework.TestResult.run(TestResult.java:109)
++      [bnd] 	at junit.framework.TestCase.run(TestCase.java:120)
++      [bnd] 	at junit.framework.TestSuite.runTest(TestSuite.java:230)
++      [bnd] 	at junit.framework.TestSuite.run(TestSuite.java:225)
++      [bnd] 	at junit.framework.TestSuite.runTest(TestSuite.java:230)
++      [bnd] 	at junit.framework.TestSuite.run(TestSuite.java:225)
++      [bnd] 	at aQute.junit.runtime.Target.doTesting(Target.java:157)
++      [bnd] 	at aQute.junit.runtime.Target.run(Target.java:40)
++      [bnd] 	at aQute.junit.runtime.Target.main(Target.java:33)
++
++*/
+\ No newline at end of file

@@ -1,0 +1,18 @@
+diff --git a/server/tserver/src/main/java/org/apache/accumulo/tserver/log/LocalWALRecovery.java b/server/tserver/src/main/java/org/apache/accumulo/tserver/log/LocalWALRecovery.java
+index 31f4f14d53..2adb52d16d 100644
+--- a/server/tserver/src/main/java/org/apache/accumulo/tserver/log/LocalWALRecovery.java
++++ b/server/tserver/src/main/java/org/apache/accumulo/tserver/log/LocalWALRecovery.java
+@@ -145,12 +145,7 @@ public class LocalWALRecovery implements Runnable {
+ 
+         log.info("Openning local log " + file.getAbsolutePath());
+ 
+-        Path localWal = new Path(file.toURI());
+-        FileSystem localFs = FileSystem.getLocal(fs.getConf());
+-        
+-        @SuppressWarnings("deprecation")
+-        Reader reader = new SequenceFile.Reader(localFs, localWal, localFs.getConf());
+-        // Reader reader = new SequenceFile.Reader(localFs.getConf(), SequenceFile.Reader.file(localWal));
++        Reader reader = new SequenceFile.Reader(fs.getConf(), SequenceFile.Reader.file(new Path(file.toURI())));
+         Path tmp = new Path(options.destination + "/" + name + ".copy");
+         FSDataOutputStream writer = fs.create(tmp);
+         while (reader.next(key, value)) {

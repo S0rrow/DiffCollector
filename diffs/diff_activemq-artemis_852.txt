@@ -1,0 +1,141 @@
+diff --git a/tests/integration-tests/src/test/java/org/apache/activemq/artemis/tests/integration/cli/DummyServerConsumer.java b/tests/integration-tests/src/test/java/org/apache/activemq/artemis/tests/integration/cli/DummyServerConsumer.java
+index 9858357950..d79b444360 100644
+--- a/tests/integration-tests/src/test/java/org/apache/activemq/artemis/tests/integration/cli/DummyServerConsumer.java
++++ b/tests/integration-tests/src/test/java/org/apache/activemq/artemis/tests/integration/cli/DummyServerConsumer.java
+@@ -18,8 +18,6 @@ package org.apache.activemq.artemis.tests.integration.cli;
+ 
+ import java.util.List;
+ 
+-import org.apache.activemq.artemis.api.core.RoutingType;
+-import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.filter.Filter;
+ import org.apache.activemq.artemis.core.server.HandleStatus;
+ import org.apache.activemq.artemis.core.server.MessageReference;
+@@ -45,11 +43,6 @@ public class DummyServerConsumer implements ServerConsumer {
+ 
+    }
+ 
+-   @Override
+-   public boolean allowReferenceCallback() {
+-      return false;
+-   }
+-
+    @Override
+    public Object getProtocolData() {
+       return null;
+@@ -65,11 +58,6 @@ public class DummyServerConsumer implements ServerConsumer {
+ 
+    }
+ 
+-   @Override
+-   public long sequentialID() {
+-      return 0;
+-   }
+-
+    @Override
+    public Object getProtocolContext() {
+       return null;
+@@ -90,11 +78,6 @@ public class DummyServerConsumer implements ServerConsumer {
+ 
+    }
+ 
+-   @Override
+-   public void close(boolean failed, boolean sorted) throws Exception {
+-
+-   }
+-
+    @Override
+    public void removeItself() throws Exception {
+ 
+@@ -139,11 +122,6 @@ public class DummyServerConsumer implements ServerConsumer {
+       return null;
+    }
+ 
+-   @Override
+-   public void reject(long messageID) throws Exception {
+-
+-   }
+-
+    @Override
+    public void acknowledge(Transaction tx, long messageID) throws Exception {
+ 
+@@ -155,7 +133,7 @@ public class DummyServerConsumer implements ServerConsumer {
+    }
+ 
+    @Override
+-   public void individualCancel(long messageID, boolean failed, boolean sorted) throws Exception {
++   public void individualCancel(long messageID, boolean failed) throws Exception {
+ 
+    }
+ 
+@@ -204,11 +182,6 @@ public class DummyServerConsumer implements ServerConsumer {
+       return null;
+    }
+ 
+-   @Override
+-   public SimpleString getFilterString() {
+-      return null;
+-   }
+-
+    @Override
+    public List<MessageReference> getDeliveringMessages() {
+       return null;
+@@ -228,58 +201,4 @@ public class DummyServerConsumer implements ServerConsumer {
+    public void disconnect() {
+ 
+    }
+-
+-   @Override
+-   public long getSequentialID() {
+-      // TODO Auto-generated method stub
+-      return 0;
+-   }
+-
+-   @Override
+-   public SimpleString getQueueName() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+-
+-   @Override
+-   public RoutingType getQueueType() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+-
+-   @Override
+-   public SimpleString getQueueAddress() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+-
+-   @Override
+-   public String getSessionName() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+-
+-   @Override
+-   public String getConnectionClientID() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+-
+-   @Override
+-   public String getConnectionProtocolName() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+-
+-   @Override
+-   public String getConnectionLocalAddress() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+-
+-   @Override
+-   public String getConnectionRemoteAddress() {
+-      // TODO Auto-generated method stub
+-      return null;
+-   }
+ }

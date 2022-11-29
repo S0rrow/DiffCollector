@@ -1,0 +1,159 @@
+diff --git a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
+index 6bc332366..9536673a6 100644
+--- a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
++++ b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
+@@ -23,7 +23,7 @@
+ import org.apache.maven.archiva.model.ArchivaArtifact;
+ import org.apache.maven.archiva.model.ArtifactReference;
+ import org.apache.maven.archiva.model.ProjectReference;
+-import org.apache.maven.archiva.model.VersionedReference;
++import org.apache.maven.archiva.repository.content.ArtifactExtensionMapping;
+ import org.apache.maven.archiva.repository.content.LegacyArtifactExtensionMapping;
+ 
+ import java.util.HashMap;
+@@ -40,11 +40,9 @@
+ public class LegacyBidirectionalRepositoryLayout
+     implements BidirectionalRepositoryLayout
+ {
+-    private static final String MAVEN_METADATA = "maven-metadata.xml";
+-
+     private static final String PATH_SEPARATOR = "/";
+ 
+-    private LegacyArtifactExtensionMapping extensionMapper = new LegacyArtifactExtensionMapping();
++    private ArtifactExtensionMapping extensionMapper = new LegacyArtifactExtensionMapping();
+ 
+     private Map typeToDirectoryMap;
+ 
+@@ -61,39 +59,22 @@ public String getId()
+         return "legacy";
+     }
+ 
+-    public String toPath( ArchivaArtifact artifact )
++    public String toPath( ArchivaArtifact reference )
+     {
+-        return toPath( artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(),
+-                       artifact.getClassifier(), artifact.getType() );
++        return toPath( reference.getGroupId(), reference.getArtifactId(), reference.getVersion(), reference
++            .getClassifier(), reference.getType() );
+     }
+ 
+     public String toPath( ProjectReference reference )
+     {
+-        StringBuffer path = new StringBuffer();
+-
+-        path.append( reference.getGroupId() ).append( PATH_SEPARATOR );
+-        path.append( getDirectory( null, "jar" ) ).append( PATH_SEPARATOR );
+-        path.append( MAVEN_METADATA );
+-
+-        return path.toString();
+-    }
+-
+-    public String toPath( VersionedReference reference )
+-    {
+-        // NOTE: A legacy repository cannot contain a versioned reference to the metadata.
+-        StringBuffer path = new StringBuffer();
+-
+-        path.append( reference.getGroupId() ).append( PATH_SEPARATOR );
+-        path.append( getDirectory( null, "jar" ) ).append( PATH_SEPARATOR );
+-        path.append( MAVEN_METADATA );
+-
+-        return path.toString();
++        // TODO: Verify type
++        return toPath( reference.getGroupId(), reference.getArtifactId(), null, null, "metadata-xml" );
+     }
+ 
+-    public String toPath( ArtifactReference reference )
++    public String toPath( ArtifactReference artifact )
+     {
+-        return toPath( reference.getGroupId(), reference.getArtifactId(), reference.getVersion(), reference
+-            .getClassifier(), reference.getType() );
++        return toPath( artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(),
++                       artifact.getClassifier(), artifact.getType() );
+     }
+ 
+     private String toPath( String groupId, String artifactId, String version, String classifier, String type )
+@@ -120,18 +101,10 @@ private String toPath( String groupId, String artifactId, String version, String
+ 
+     private String getDirectory( String classifier, String type )
+     {
+-        // Special Cases involving type + classifier
+-        if ( "jar".equals( type ) && StringUtils.isNotBlank( classifier ) )
++        // Special Cases involving classifiers and type.
++        if ( "jar".equals( type ) && "sources".equals( classifier ) )
+         {
+-            if ( "sources".equals( classifier ) )
+-            {
+-                return "source.jars";
+-            }
+-
+-            if ( "javadoc".equals( classifier ) )
+-            {
+-                return "javadoc.jars";
+-            }
++            return "javadoc.jars";
+         }
+ 
+         // Special Cases involving only type.
+@@ -194,20 +167,7 @@ private PathReferences toPathReferences( String path, boolean parseFilename )
+ 
+             prefs.fileParts = RepositoryLayoutUtils.splitFilename( filename, null );
+ 
+-            prefs.type = extensionMapper.getType( prefs.pathType, filename );
+-
+-            // Sanity Checks.
+-            if ( StringUtils.isEmpty( prefs.fileParts.extension ) )
+-            {
+-                throw new LayoutException( "Invalid artifact, no extension." );
+-            }
+-
+-            if ( !prefs.type.equals( prefs.fileParts.extension ) )
+-            {
+-                throw new LayoutException( "Invalid artifact, mismatch on extension <" + prefs.fileParts.extension
+-                    + "> and expected layout specified type <" + prefs.type
+-                    + "> (mapped from actual path provided type <" + prefs.pathType + ">)" );
+-            }
++            prefs.type = extensionMapper.getType( filename );
+         }
+ 
+         return prefs;
+@@ -228,29 +188,19 @@ public ArchivaArtifact toArtifact( String path )
+                                                         pathrefs.fileParts.version, pathrefs.fileParts.classifier,
+                                                         pathrefs.type );
+ 
+-        return artifact;
+-    }
+-
+-    public ArtifactReference toArtifactReference( String path )
+-        throws LayoutException
+-    {
+-        PathReferences pathrefs = toPathReferences( path, true );
+-
+-        ArtifactReference reference = new ArtifactReference();
+-
+-        reference.setGroupId( pathrefs.groupId );
+-        reference.setArtifactId( pathrefs.fileParts.artifactId );
+-        reference.setVersion( pathrefs.fileParts.version );
+-        reference.setClassifier( pathrefs.fileParts.classifier );
+-        reference.setType( pathrefs.type );
++        // Sanity Checks.
++        if ( StringUtils.isEmpty( pathrefs.fileParts.extension ) )
++        {
++            throw new LayoutException( "Invalid artifact, no extension." );
++        }
+ 
+-        return reference;
+-    }
++        if ( !pathrefs.pathType.equals( pathrefs.fileParts.extension + "s" ) )
++        {
++            throw new LayoutException( "Invalid artifact, mismatch on extension <" + pathrefs.fileParts.extension
++                + "> and layout specified type<" + pathrefs.pathType + ">." );
++        }
+ 
+-    public VersionedReference toVersionedReference( String path )
+-        throws LayoutException
+-    {
+-        return null;
++        return artifact;
+     }
+ 
+ }

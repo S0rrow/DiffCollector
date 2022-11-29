@@ -1,0 +1,134 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
+index c7df757838..30643639a6 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/PostOfficeImpl.java
+@@ -32,7 +32,6 @@ import java.util.concurrent.ScheduledExecutorService;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicBoolean;
+ 
+-import org.apache.activemq.artemis.api.core.ActiveMQAddressDoesNotExistException;
+ import org.apache.activemq.artemis.api.core.ActiveMQAddressFullException;
+ import org.apache.activemq.artemis.api.core.ActiveMQDuplicateIdException;
+ import org.apache.activemq.artemis.api.core.ActiveMQNonExistentQueueException;
+@@ -68,7 +67,6 @@ import org.apache.activemq.artemis.core.server.Queue;
+ import org.apache.activemq.artemis.core.server.QueueFactory;
+ import org.apache.activemq.artemis.core.server.RouteContextList;
+ import org.apache.activemq.artemis.core.server.RoutingContext;
+-import org.apache.activemq.artemis.core.server.RoutingType;
+ import org.apache.activemq.artemis.core.server.ServerMessage;
+ import org.apache.activemq.artemis.core.server.group.GroupingHandler;
+ import org.apache.activemq.artemis.core.server.impl.AddressInfo;
+@@ -134,7 +132,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+ 
+    private final ActiveMQServer server;
+ 
+-   private final Object addressLock = new Object();
++   private Object addressLock = new Object();
+ 
+    public PostOfficeImpl(final ActiveMQServer server,
+                          final StorageManager storageManager,
+@@ -447,45 +445,12 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+       }
+    }
+ 
+-   @Override
+-   public void addRoutingType(SimpleString addressName, RoutingType routingType) throws ActiveMQAddressDoesNotExistException {
+-      synchronized (addressLock) {
+-         final AddressInfo updateAddressInfo = addressManager.updateAddressInfoIfPresent(addressName, (name, addressInfo) -> {
+-            addressInfo.getRoutingTypes().add(routingType);
+-            return addressInfo;
+-         });
+-         if (updateAddressInfo == null) {
+-            throw ActiveMQMessageBundle.BUNDLE.addressDoesNotExist(addressName);
+-         }
+-      }
+-   }
+-
+-   @Override
+-   public void removeRoutingType(SimpleString addressName, RoutingType routingType) throws Exception {
+-      synchronized (addressLock) {
+-         if (RoutingType.MULTICAST.equals(routingType)) {
+-            final Bindings bindings = addressManager.getBindingsForRoutingAddress(addressName);
+-            final boolean existsQueueBindings = bindings.getBindings().stream().anyMatch(QueueBinding.class::isInstance);
+-            if (existsQueueBindings) {
+-               throw ActiveMQMessageBundle.BUNDLE.invalidMulticastRoutingTypeDelete();
+-            }
+-         }
+-         final AddressInfo updateAddressInfo = addressManager.updateAddressInfoIfPresent(addressName, (name, addressInfo) -> {
+-            addressInfo.getRoutingTypes().remove(routingType);
+-            return addressInfo;
+-         });
+-         if (updateAddressInfo == null) {
+-            throw ActiveMQMessageBundle.BUNDLE.addressDoesNotExist(addressName);
+-         }
+-      }
+-   }
+-
+    @Override
+    public AddressInfo removeAddressInfo(SimpleString address) throws Exception {
+       synchronized (addressLock) {
+          Bindings bindingsForAddress = getBindingsForAddress(address);
+          if (bindingsForAddress.getBindings().size() > 0) {
+-            throw ActiveMQMessageBundle.BUNDLE.addressHasBindings(address);
++            throw new IllegalStateException("Address has bindings");
+          }
+          managementService.unregisterAddress(address);
+          return addressManager.removeAddressInfo(address);
+@@ -574,8 +539,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+       }
+ 
+       if (binding.getType() == BindingType.LOCAL_QUEUE) {
+-         Queue queue = (Queue) binding.getBindable();
+-         managementService.unregisterQueue(uniqueName, binding.getAddress(), queue.getRoutingType());
++         managementService.unregisterQueue(uniqueName, binding.getAddress());
+       } else if (binding.getType() == BindingType.DIVERT) {
+          managementService.unregisterDivert(uniqueName, binding.getAddress());
+       }
+@@ -691,19 +655,18 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+                               final RoutingContext context,
+                               final boolean direct,
+                               boolean rejectDuplicates) throws Exception {
+-
+       RoutingStatus result = RoutingStatus.OK;
+       // Sanity check
+       if (message.getRefCount() > 0) {
+          throw new IllegalStateException("Message cannot be routed more than once");
+       }
+ 
++      SimpleString address = message.getAddress();
++
+       setPagingStore(message);
+ 
+       AtomicBoolean startedTX = new AtomicBoolean(false);
+ 
+-      final SimpleString address = message.getAddress();
+-
+       applyExpiryDelay(message, address);
+ 
+       if (!checkDuplicateID(message, context, rejectDuplicates, startedTX)) {
+@@ -716,7 +679,7 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+          cleanupInternalPropertiesBeforeRouting(message);
+       }
+ 
+-      Bindings bindings = addressManager.getBindingsForRoutingAddress(context.getAddress() == null ? message.getAddress() : context.getAddress());
++      Bindings bindings = addressManager.getBindingsForRoutingAddress(address);
+ 
+       // TODO auto-create queues here?
+       // first check for the auto-queue creation thing
+@@ -900,16 +863,6 @@ public class PostOfficeImpl implements PostOffice, NotificationListener, Binding
+       return addressManager.getAddresses();
+    }
+ 
+-   @Override
+-   public SimpleString getMatchingQueue(SimpleString address, RoutingType routingType) throws Exception {
+-      return addressManager.getMatchingQueue(address, routingType);
+-   }
+-
+-   @Override
+-   public SimpleString getMatchingQueue(SimpleString address, SimpleString queueName, RoutingType routingType) throws Exception {
+-      return addressManager.getMatchingQueue(address, queueName, routingType);
+-   }
+-
+    @Override
+    public void sendQueueInfoToQueue(final SimpleString queueName, final SimpleString address) throws Exception {
+       // We send direct to the queue so we can send it to the same queue that is bound to the notifications address -

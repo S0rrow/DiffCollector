@@ -1,0 +1,403 @@
+diff --git a/jpa/jpa-container/src/main/java/org/apache/aries/jpa/container/impl/PersistenceBundleManager.java b/jpa/jpa-container/src/main/java/org/apache/aries/jpa/container/impl/PersistenceBundleManager.java
+index 9f3192607..a14b31b91 100644
+--- a/jpa/jpa-container/src/main/java/org/apache/aries/jpa/container/impl/PersistenceBundleManager.java
++++ b/jpa/jpa-container/src/main/java/org/apache/aries/jpa/container/impl/PersistenceBundleManager.java
+@@ -45,7 +45,6 @@ import org.apache.aries.jpa.container.unit.impl.ManagedPersistenceUnitInfoFactor
+ import org.osgi.framework.Bundle;
+ import org.osgi.framework.BundleContext;
+ import org.osgi.framework.BundleEvent;
+-import org.osgi.framework.Constants;
+ import org.osgi.framework.ServiceReference;
+ import org.osgi.framework.Version;
+ import org.osgi.util.tracker.BundleTracker;
+@@ -65,16 +64,17 @@ public class PersistenceBundleManager extends BundleTracker
+    * synchronized on {@code this}.
+    */
+   private final Map<Bundle, EntityManagerFactoryManager> bundleToManagerMap = new HashMap<Bundle, EntityManagerFactoryManager>();
+-  /** 
+-   * The PersistenceProviders. The Set should only ever be accessed when
+-   * synchronized on {@code this}. Use a Set for constant access and add times.
+-   */
++  /** The PersistenceProviders.  */
+   private Set<ServiceReference> persistenceProviders = new HashSet<ServiceReference>();
+   /** Plug-point for persistence unit providers */
+   private ManagedPersistenceUnitInfoFactory persistenceUnitFactory; 
+   /** Configuration for this extender */
+   private Properties config;
+ 
++  private static final String DEFAULT_PU_INFO_FACTORY = "";
++  
++  private static final String DEFAULT_PU_INFO_FACTORY_KEY = "org.apache.aries.jpa.container.PersistenceUnitInfoFactory";
++  
+   /**
+    * Create the extender. Note that it will not start tracking 
+    * until the {@code open()} method is called
+@@ -89,8 +89,7 @@ public class PersistenceBundleManager extends BundleTracker
+   
+   @Override
+   public void open() {
+-    //Create the pluggable ManagedPersistenceUnitInfoFactory
+-    String className = config.getProperty(ManagedPersistenceUnitInfoFactory.DEFAULT_PU_INFO_FACTORY_KEY);
++    String className = (String) config.get(DEFAULT_PU_INFO_FACTORY_KEY);
+     Class<? extends ManagedPersistenceUnitInfoFactory> clazz = null;
+     
+     if(className != null) {
+@@ -106,12 +105,10 @@ public class PersistenceBundleManager extends BundleTracker
+     
+     if(persistenceUnitFactory == null)
+       persistenceUnitFactory = new ManagedPersistenceUnitInfoFactoryImpl();
++
+     
+     super.open();
+   }
+-  
+-  
+-  
+ //  /**
+ //   * If we have generated a resources for the supplied bundle, then
+ //   * tidy them  up.
+@@ -137,9 +134,11 @@ public class PersistenceBundleManager extends BundleTracker
+ //      }
+ //    }
+ //  }
+-
++  
++  
+   public Object addingBundle(Bundle bundle, BundleEvent event) 
+   {
++    
+     if(bundle.getState() == Bundle.ACTIVE) {
+       //TODO LOG WARNING HERE
+     }
+@@ -148,54 +147,78 @@ public class PersistenceBundleManager extends BundleTracker
+     return mgr;
+   }
+ 
+-  /**
+-   * A provider is being added, add it to our Set
+-   * @param ref
+-   */
++  private EntityManagerFactoryManager setupManager(Bundle bundle,
++    EntityManagerFactoryManager mgr) {
++  Collection <PersistenceDescriptor> persistenceXmls = PersistenceBundleHelper.findPersistenceXmlFiles(bundle);
++
++    //If we have no persistence units then our job is done
++    if (!!!persistenceXmls.isEmpty()) {
++      Collection<ParsedPersistenceUnit> pUnits = new ArrayList<ParsedPersistenceUnit>();
++      
++      for(PersistenceDescriptor descriptor : persistenceXmls) {
++        try {
++          pUnits.addAll(PersistenceDescriptorParser.parse(bundle, descriptor));
++        } catch (PersistenceDescriptorParserException e) {
++          // TODO Auto-generated catch block
++          e.printStackTrace();
++        }
++      }
++      
++      if(!!!pUnits.isEmpty()) {
++        ServiceReference ref = getProviderServiceReference(pUnits);
++          
++        Collection<ManagedPersistenceUnitInfo> infos = persistenceUnitFactory.
++            createManagedPersistenceUnitMetadata(ctx, bundle, ref, pUnits);
++        if(mgr != null)
++          mgr.manage(ref, infos);
++        else {
++          synchronized (this) {
++            if(persistenceProviders.contains(ref)) {
++                mgr = new EntityManagerFactoryManager(ctx, bundle, ref, infos);
++                bundleToManagerMap.put(bundle, mgr);
++            }
++          }
++        }
++        try {
++          mgr.bundleStateChange();
++        } catch (InvalidPersistenceUnitException e) {
++          // TODO Log this error
++          mgr.destroy();
++        }
++      }
++    }
++    return mgr;
++}
++  
+   public synchronized void addingProvider(ServiceReference ref)
+   {
+     persistenceProviders.add(ref);
+   }
+   
+-  /**
+-   * A provider is being removed, remove it from the set, and notify all
+-   * managers that it has been removed
+-   * @param ref
+-   */
+   public void removingProvider(ServiceReference ref)
+   {
+-    //We may get a null reference if the ref-list is empty to start with
+-    if(ref == null)
+-      return;
+     Map<Bundle, EntityManagerFactoryManager> mgrs;
+     synchronized (this) {
+       persistenceProviders.remove(ref);
+       mgrs = new HashMap<Bundle, EntityManagerFactoryManager>(bundleToManagerMap);
+     }
+-    //If the entry is removed then make sure we notify the persistenceUnitFactory
+     for(Entry<Bundle, EntityManagerFactoryManager> entry : mgrs.entrySet()) {
+       if(entry.getValue().providerRemoved(ref))
+         persistenceUnitFactory.destroyPersistenceBundle(entry.getKey());
+     }
+   }
+   
+-  /**
+-   * Add config properties, making sure to read in the properties file
+-   * and override the supplied properties
+-   * @param props
+-   */
+   public void setConfig(Properties props) {
+-    config = new Properties(props);
+-    URL u = ctx.getBundle().getResource(ManagedPersistenceUnitInfoFactory.ARIES_JPA_CONTAINER_PROPERTIES);
++    config = props;
++    URL u = ctx.getBundle().getResource("org.apache.aries.jpa.container.properties");
+     
+-    if(u != null) {
++    if(u != null)
+       try {
+         config.load(u.openStream());
+       } catch (IOException e) {
+         // TODO Log this error
+         e.printStackTrace();
+       }
+-    }
+   }
+      
+ //      //If we can't find a provider then bomb out
+@@ -247,8 +270,7 @@ public class PersistenceBundleManager extends BundleTracker
+   public void modifiedBundle(Bundle bundle, BundleEvent event, Object object) {
+ 
+     EntityManagerFactoryManager mgr = (EntityManagerFactoryManager) object;
+-    //If the bundle was updated we need to destroy it and re-initialize
+-    //the EntityManagerFactoryManager
++    
+     if(event != null && event.getType() == BundleEvent.UPDATED) {
+       mgr.destroy();
+       persistenceUnitFactory.destroyPersistenceBundle(bundle);
+@@ -267,72 +289,13 @@ public class PersistenceBundleManager extends BundleTracker
+     EntityManagerFactoryManager mgr = (EntityManagerFactoryManager) object;   
+     mgr.destroy();
+     persistenceUnitFactory.destroyPersistenceBundle(bundle);
+-    //Remember to tidy up the map
++    
+     synchronized (this) {
+       bundleToManagerMap.remove(bundle);
+     }
+   }
+   
+-  /**
+-   * Set up an {@link EntityManagerFactoryManager} for the supplied bundle
+-   * 
+-   * @param bundle The bundle
+-   * @param mgr The previously existing {@link EntityManagerFactoryManager} or {@code null} if none existed
+-   * @return The manager to use, or null if no persistence units can be managed for this bundle
+-   */
+-  private EntityManagerFactoryManager setupManager(Bundle bundle,
+-      EntityManagerFactoryManager mgr) {
+-    //Find Persistence descriptors
+-    Collection <PersistenceDescriptor> persistenceXmls = PersistenceBundleHelper.findPersistenceXmlFiles(bundle);
+ 
+-      //If we have no persistence units then our job is done
+-      if (!!!persistenceXmls.isEmpty()) {
+-        Collection<ParsedPersistenceUnit> pUnits = new ArrayList<ParsedPersistenceUnit>();
+-        
+-        //Parse each descriptor
+-        for(PersistenceDescriptor descriptor : persistenceXmls) {
+-          try {
+-            pUnits.addAll(PersistenceDescriptorParser.parse(bundle, descriptor));
+-          } catch (PersistenceDescriptorParserException e) {
+-            // TODO Auto-generated catch block
+-            e.printStackTrace();
+-          }
+-        }
+-        
+-        //If we have any persistence units then find a provider to use
+-        if(!!!pUnits.isEmpty()) {
+-          ServiceReference ref = getProviderServiceReference(pUnits);
+-          //If we found a provider then create the ManagedPersistenceUnitInfo objects
+-          if(ref != null) {  
+-            Collection<ManagedPersistenceUnitInfo> infos = persistenceUnitFactory.
+-                createManagedPersistenceUnitMetadata(ctx, bundle, ref, pUnits);
+-            //Either update the existing manager or create a new one
+-            if(mgr != null)
+-              mgr.manage(ref, infos);
+-            else {
+-              synchronized (this) {
+-                if(persistenceProviders.contains(ref)) {
+-                    mgr = new EntityManagerFactoryManager(ctx, bundle, ref, infos);
+-                    bundleToManagerMap.put(bundle, mgr);
+-                }
+-              }
+-            }
+-          }
+-          //If we have a manager then prod it to get it into the right state
+-          if(mgr != null) {
+-            try {
+-              mgr.bundleStateChange();
+-            } catch (InvalidPersistenceUnitException e) {
+-              // TODO Log this error
+-              mgr.destroy();
+-              persistenceUnitFactory.destroyPersistenceBundle(bundle);
+-            }
+-          }
+-        }
+-      }
+-      return mgr;
+-    }
+-  
+   /**
+    * Get a persistence provider from the service registry described by the
+    * persistence units defined
+@@ -369,15 +332,13 @@ public class PersistenceBundleManager extends BundleTracker
+     }
+     //If we have too many provider class names or incompatible version ranges specified then blow up
+     
+-    VersionRange range = null;
+-    if(!!!versionRanges.isEmpty()) {
+-      try {
+-        range = combineVersionRanges(versionRanges);
+-      } catch (InvalidRangeCombination e) {
+-        // TODO Log this error
+-        e.printStackTrace();
+-        return null;
+-      }
++    VersionRange range;
++    try {
++      range = combineVersionRanges(versionRanges);
++    } catch (InvalidRangeCombination e) {
++      // TODO Log this error
++      e.printStackTrace();
++      return null;
+     }
+     
+     if(ppClassNames.size() > 1)
+@@ -392,12 +353,6 @@ public class PersistenceBundleManager extends BundleTracker
+     }
+   }
+  
+-  /**
+-   * Turn a Collection of version ranges into a single range including common overlap
+-   * @param versionRanges
+-   * @return
+-   * @throws InvalidRangeCombination
+-   */
+   private VersionRange combineVersionRanges(List<VersionRange> versionRanges) throws InvalidRangeCombination {
+ 
+     Version minVersion = new Version(0,0,0);
+@@ -435,14 +390,13 @@ public class PersistenceBundleManager extends BundleTracker
+     }
+     
+     //Now check that we have valid values
+-    int check = (maxVersion == null) ? -1 : minVersion.compareTo(maxVersion);
++    int check = minVersion.compareTo(maxVersion);
+     //If min is greater than max, or min is equal to max and one of the exclusive
+     //flags is set then we have a problem!
+     if(check > 0 || (check == 0 && (minExclusive || maxExclusive))) {
+       throw new InvalidRangeCombination(minVersion, minExclusive, maxVersion, maxExclusive);
+     }
+     
+-    //Turn the Versions into a version range string
+     StringBuilder rangeString = new StringBuilder();
+     rangeString.append(minVersion);
+     
+@@ -450,9 +404,9 @@ public class PersistenceBundleManager extends BundleTracker
+       rangeString.insert(0, minExclusive ? "(" : "[");
+       rangeString.append(",");
+       rangeString.append(maxVersion);
+-      rangeString.append(maxExclusive ? ")" : "]");
++      rangeString.append(maxExclusive ? ")" : "[");
+     }
+-    //Turn that string back into a VersionRange
++    
+     return ManifestHeaderProcessor.parseVersionRange(rangeString.toString());
+   }
+ 
+@@ -462,56 +416,41 @@ public class PersistenceBundleManager extends BundleTracker
+    * @param matchingCriteria
+    * @return
+    */
+-  @SuppressWarnings("unchecked")
+   private synchronized ServiceReference getBestProvider(String providerClass, VersionRange matchingCriteria)
+   {
+     if(!!!persistenceProviders.isEmpty()) {
+-      if((providerClass != null && !!!"".equals(providerClass))
+-          || matchingCriteria != null) {
+-        List<ServiceReference> refs = new ArrayList<ServiceReference>();
+-        for(ServiceReference reference : persistenceProviders) {
+-          
+-          if(providerClass != null && !!!providerClass.equals(
+-              reference.getProperty("javax.persistence.provider")))
+-            continue;
+-            
+-          if(matchingCriteria == null || matchingCriteria.
+-              matches(reference.getBundle().getVersion()))
+-            refs.add(reference);
+-        }
++
++      List<ServiceReference> refs = new ArrayList<ServiceReference>();
++      
++      for(ServiceReference reference : persistenceProviders) {
+         
+-        if(!!!refs.isEmpty()) {
+-          //Return the "best" provider, i.e. the highest version
+-          return Collections.max(refs, new ProviderServiceComparator());
+-        } else {
+-          //TODO no matching providers for matching criteria
+-        }
++        if(providerClass != null && !!!providerClass.equals(
++            reference.getProperty("javax.persistence.provider")))
++          continue;
++          
++        if(matchingCriteria.matches(reference.getBundle().getVersion()))
++          refs.add(reference);
++      }
++      
++      if(!!!refs.isEmpty()) {
++        //Sort the list in DESCENDING ORDER
++        Collections.sort(refs, new Comparator<ServiceReference>() {
++
++          //TODO we may wish to use Ranking, then versions for equal ranks
++          public int compare(ServiceReference object1, ServiceReference object2)
++          {
++            Version v1 = object1.getBundle().getVersion();
++            Version v2 = object2.getBundle().getVersion();
++            return v2.compareTo(v1);
++          }
++        });
++        return refs.get(0);
+       } else {
+-        //Return the "best" provider, i.e. the service OSGi would pick
+-        return (ServiceReference) Collections.max(persistenceProviders);
++        //TODO no matching providers for matching criteria
+       }
+     } else {
+       //TODO log no matching Providers for impl class
+     }
+     return null;
+   }
+-  
+-  /**
+-   * Sort the providers so that the highest version, highest ranked service is at the top
+-   */
+-  private static class ProviderServiceComparator implements Comparator<ServiceReference> {
+-    public int compare(ServiceReference object1, ServiceReference object2)
+-    {
+-      Version v1 = object1.getBundle().getVersion();
+-      Version v2 = object2.getBundle().getVersion();
+-      int res = v1.compareTo(v2);
+-      if (res == 0) {
+-        Integer rank1 = (Integer) object1.getProperty(Constants.SERVICE_RANKING);
+-        Integer rank2 = (Integer) object2.getProperty(Constants.SERVICE_RANKING);
+-        if (rank1 != null && rank2 != null)
+-          res = rank1.compareTo(rank2);
+-      }
+-      return res;
+-    }
+-  }
+ }

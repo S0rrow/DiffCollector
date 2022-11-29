@@ -1,0 +1,118 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java
+index 37756dc1e5..5808bd372f 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/management/impl/AddressControlImpl.java
+@@ -25,13 +25,10 @@ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ 
+-import org.apache.activemq.artemis.api.core.ActiveMQException;
+-import org.apache.activemq.artemis.api.core.RoutingType;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.api.core.management.AddressControl;
+ import org.apache.activemq.artemis.api.core.management.QueueControl;
+ import org.apache.activemq.artemis.api.core.management.ResourceNames;
+-import org.apache.activemq.artemis.core.message.impl.CoreMessage;
+ import org.apache.activemq.artemis.core.paging.PagingManager;
+ import org.apache.activemq.artemis.core.paging.PagingStore;
+ import org.apache.activemq.artemis.core.persistence.StorageManager;
+@@ -44,6 +41,7 @@ import org.apache.activemq.artemis.core.security.Role;
+ import org.apache.activemq.artemis.core.security.SecurityAuth;
+ import org.apache.activemq.artemis.core.security.SecurityStore;
+ import org.apache.activemq.artemis.core.server.impl.AddressInfo;
++import org.apache.activemq.artemis.core.server.impl.ServerMessageImpl;
+ import org.apache.activemq.artemis.core.server.management.ManagementService;
+ import org.apache.activemq.artemis.core.settings.HierarchicalRepository;
+ import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+@@ -98,24 +96,8 @@ public class AddressControlImpl extends AbstractControl implements AddressContro
+    }
+ 
+    @Override
+-   public Set<RoutingType> getDeliveryModes() {
+-      return addressInfo.getRoutingTypes();
+-   }
+-
+-   @Override
+-   public String getDeliveryModesAsJSON() throws Exception {
+-      clearIO();
+-      try {
+-         JsonArrayBuilder json = JsonLoader.createArrayBuilder();
+-         Set<RoutingType> routingTypes = getDeliveryModes();
+-
+-         for (RoutingType routingType : routingTypes) {
+-            json.add(routingType.toString());
+-         }
+-         return json.build().toString();
+-      } finally {
+-         blockOnIO();
+-      }
++   public String getRoutingType() {
++      return addressInfo.getRoutingType().toString();
+    }
+ 
+    @Override
+@@ -267,39 +249,35 @@ public class AddressControlImpl extends AbstractControl implements AddressContro
+                              boolean durable,
+                              final String user,
+                              final String password) throws Exception {
+-      try {
+-         securityStore.check(addressInfo.getName(), CheckType.SEND, new SecurityAuth() {
+-            @Override
+-            public String getUsername() {
+-               return user;
+-            }
+-
+-            @Override
+-            public String getPassword() {
+-               return password;
+-            }
++      securityStore.check(addressInfo.getName(), CheckType.SEND, new SecurityAuth() {
++         @Override
++         public String getUsername() {
++            return user;
++         }
+ 
+-            @Override
+-            public RemotingConnection getRemotingConnection() {
+-               return null;
+-            }
+-         });
+-         CoreMessage message = new CoreMessage(storageManager.generateID(), 50);
+-         for (String header : headers.keySet()) {
+-            message.putStringProperty(new SimpleString(header), new SimpleString(headers.get(header)));
++         @Override
++         public String getPassword() {
++            return password;
+          }
+-         message.setType((byte) type);
+-         message.setDurable(durable);
+-         message.setTimestamp(System.currentTimeMillis());
+-         if (body != null) {
+-            message.getBodyBuffer().writeBytes(Base64.decode(body));
++
++         @Override
++         public RemotingConnection getRemotingConnection() {
++            return null;
+          }
+-         message.setAddress(addressInfo.getName());
+-         postOffice.route(message, true);
+-         return "" + message.getMessageID();
+-      } catch (ActiveMQException e) {
+-         throw new IllegalStateException(e.getMessage());
++      });
++      ServerMessageImpl message = new ServerMessageImpl(storageManager.generateID(), 50);
++      for (String header : headers.keySet()) {
++         message.putStringProperty(new SimpleString(header), new SimpleString(headers.get(header)));
++      }
++      message.setType((byte) type);
++      message.setDurable(durable);
++      message.setTimestamp(System.currentTimeMillis());
++      if (body != null) {
++         message.getBodyBuffer().writeBytes(Base64.decode(body));
+       }
++      message.setAddress(addressInfo.getName());
++      postOffice.route(message, null, true);
++      return "" + message.getMessageID();
+    }
+ 
+    @Override

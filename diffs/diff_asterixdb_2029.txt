@@ -1,0 +1,312 @@
+diff --git a/hyracks/hyracks-control/hyracks-control-common/src/main/java/edu/uci/ics/hyracks/control/common/ipc/CCNCFunctions.java b/hyracks/hyracks-control/hyracks-control-common/src/main/java/edu/uci/ics/hyracks/control/common/ipc/CCNCFunctions.java
+index f6ab9ba4a4..8f0056fc4c 100644
+--- a/hyracks/hyracks-control/hyracks-control-common/src/main/java/edu/uci/ics/hyracks/control/common/ipc/CCNCFunctions.java
++++ b/hyracks/hyracks-control/hyracks-control-common/src/main/java/edu/uci/ics/hyracks/control/common/ipc/CCNCFunctions.java
+@@ -28,7 +28,6 @@ import java.util.Map;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ 
+-import edu.uci.ics.hyracks.api.client.NodeControllerInfo;
+ import edu.uci.ics.hyracks.api.comm.NetworkAddress;
+ import edu.uci.ics.hyracks.api.dataflow.ActivityId;
+ import edu.uci.ics.hyracks.api.dataflow.ConnectorDescriptorId;
+@@ -36,11 +35,11 @@ import edu.uci.ics.hyracks.api.dataflow.OperatorDescriptorId;
+ import edu.uci.ics.hyracks.api.dataflow.TaskAttemptId;
+ import edu.uci.ics.hyracks.api.dataflow.TaskId;
+ import edu.uci.ics.hyracks.api.dataflow.connectors.IConnectorPolicy;
+-import edu.uci.ics.hyracks.api.dataset.ResultSetId;
+ import edu.uci.ics.hyracks.api.job.JobFlag;
+ import edu.uci.ics.hyracks.api.job.JobId;
+ import edu.uci.ics.hyracks.api.job.JobStatus;
+ import edu.uci.ics.hyracks.api.partitions.PartitionId;
++import edu.uci.ics.hyracks.control.common.application.ApplicationStatus;
+ import edu.uci.ics.hyracks.control.common.controllers.NodeParameters;
+ import edu.uci.ics.hyracks.control.common.controllers.NodeRegistration;
+ import edu.uci.ics.hyracks.control.common.heartbeat.HeartbeatData;
+@@ -68,18 +67,16 @@ public class CCNCFunctions {
+         REPORT_PROFILE,
+         REGISTER_PARTITION_PROVIDER,
+         REGISTER_PARTITION_REQUEST,
+-        REGISTER_RESULT_PARTITION_LOCATION,
+-        REPORT_RESULT_PARTITION_WRITE_COMPLETION,
+-        REPORT_RESULT_PARTITION_FAILURE,
++        APPLICATION_STATE_CHANGE_RESPONSE,
+ 
+         NODE_REGISTRATION_RESULT,
+         START_TASKS,
+         ABORT_TASKS,
+         CLEANUP_JOBLET,
++        CREATE_APPLICATION,
++        DESTROY_APPLICATION,
+         REPORT_PARTITION_AVAILABILITY,
+         SEND_APPLICATION_MESSAGE,
+-        GET_NODE_CONTROLLERS_INFO,
+-        GET_NODE_CONTROLLERS_INFO_RESPONSE,
+ 
+         OTHER
+     }
+@@ -88,6 +85,7 @@ public class CCNCFunctions {
+         private static final long serialVersionUID = 1L;
+         private byte[] serializedMessage;
+         private String nodeId;
++        private String appName;
+ 
+         public String getNodeId() {
+             return nodeId;
+@@ -101,9 +99,11 @@ public class CCNCFunctions {
+             return serializedMessage;
+         }
+ 
+-        public SendApplicationMessageFunction(byte[] data, String nodeId) {
++        public SendApplicationMessageFunction(byte[] data, String appName, String nodeId) {
++            super();
+             this.serializedMessage = data;
+             this.nodeId = nodeId;
++            this.appName = appName;
+         }
+ 
+         @Override
+@@ -111,6 +111,10 @@ public class CCNCFunctions {
+             return FunctionId.SEND_APPLICATION_MESSAGE;
+         }
+ 
++        public String getAppName() {
++            return appName;
++        }
++
+     }
+ 
+     public static abstract class Function implements Serializable {
+@@ -431,124 +435,34 @@ public class CCNCFunctions {
+         }
+     }
+ 
+-    public static class RegisterResultPartitionLocationFunction extends Function {
++    public static class ApplicationStateChangeResponseFunction extends Function {
+         private static final long serialVersionUID = 1L;
+ 
+-        private final JobId jobId;
+-
+-        private final ResultSetId rsId;
+-
+-        private final boolean orderedResult;
+-
+-        private final int partition;
+-
+-        private final int nPartitions;
+-
+-        private NetworkAddress networkAddress;
+-
+-        public RegisterResultPartitionLocationFunction(JobId jobId, ResultSetId rsId, boolean orderedResult,
+-                int partition, int nPartitions, NetworkAddress networkAddress) {
+-            this.jobId = jobId;
+-            this.rsId = rsId;
+-            this.orderedResult = orderedResult;
+-            this.partition = partition;
+-            this.nPartitions = nPartitions;
+-            this.networkAddress = networkAddress;
+-        }
+-
+-        @Override
+-        public FunctionId getFunctionId() {
+-            return FunctionId.REGISTER_RESULT_PARTITION_LOCATION;
+-        }
+-
+-        public JobId getJobId() {
+-            return jobId;
+-        }
+-
+-        public ResultSetId getResultSetId() {
+-            return rsId;
+-        }
+-
+-        public boolean getOrderedResult() {
+-            return orderedResult;
+-        }
+-
+-        public int getPartition() {
+-            return partition;
+-        }
+-
+-        public int getNPartitions() {
+-            return nPartitions;
+-        }
+-
+-        public NetworkAddress getNetworkAddress() {
+-            return networkAddress;
+-        }
+-    }
+-
+-    public static class ReportResultPartitionWriteCompletionFunction extends Function {
+-        private static final long serialVersionUID = 1L;
+-
+-        private final JobId jobId;
+-
+-        private final ResultSetId rsId;
+-
+-        private final int partition;
+-
+-        public ReportResultPartitionWriteCompletionFunction(JobId jobId, ResultSetId rsId, int partition) {
+-            this.jobId = jobId;
+-            this.rsId = rsId;
+-            this.partition = partition;
+-        }
+-
+-        @Override
+-        public FunctionId getFunctionId() {
+-            return FunctionId.REPORT_RESULT_PARTITION_WRITE_COMPLETION;
+-        }
+-
+-        public JobId getJobId() {
+-            return jobId;
+-        }
+-
+-        public ResultSetId getResultSetId() {
+-            return rsId;
+-        }
+-
+-        public int getPartition() {
+-            return partition;
+-        }
+-    }
+-
+-    public static class ReportResultPartitionFailureFunction extends Function {
+-        private static final long serialVersionUID = 1L;
+-
+-        private final JobId jobId;
+-
+-        private final ResultSetId rsId;
+-
+-        private final int partition;
++        private final String nodeId;
++        private final String appName;
++        private final ApplicationStatus status;
+ 
+-        public ReportResultPartitionFailureFunction(JobId jobId, ResultSetId rsId, int partition) {
+-            this.jobId = jobId;
+-            this.rsId = rsId;
+-            this.partition = partition;
++        public ApplicationStateChangeResponseFunction(String nodeId, String appName, ApplicationStatus status) {
++            this.nodeId = nodeId;
++            this.appName = appName;
++            this.status = status;
+         }
+ 
+         @Override
+         public FunctionId getFunctionId() {
+-            return FunctionId.REPORT_RESULT_PARTITION_FAILURE;
++            return FunctionId.APPLICATION_STATE_CHANGE_RESPONSE;
+         }
+ 
+-        public JobId getJobId() {
+-            return jobId;
++        public String getNodeId() {
++            return nodeId;
+         }
+ 
+-        public ResultSetId getResultSetId() {
+-            return rsId;
++        public String getApplicationName() {
++            return appName;
+         }
+ 
+-        public int getPartition() {
+-            return partition;
++        public ApplicationStatus getStatus() {
++            return status;
+         }
+     }
+ 
+@@ -581,14 +495,17 @@ public class CCNCFunctions {
+     public static class StartTasksFunction extends Function {
+         private static final long serialVersionUID = 1L;
+ 
++        private final String appName;
+         private final JobId jobId;
+         private final byte[] planBytes;
+         private final List<TaskAttemptDescriptor> taskDescriptors;
+         private final Map<ConnectorDescriptorId, IConnectorPolicy> connectorPolicies;
+         private final EnumSet<JobFlag> flags;
+ 
+-        public StartTasksFunction(JobId jobId, byte[] planBytes, List<TaskAttemptDescriptor> taskDescriptors,
++        public StartTasksFunction(String appName, JobId jobId, byte[] planBytes,
++                List<TaskAttemptDescriptor> taskDescriptors,
+                 Map<ConnectorDescriptorId, IConnectorPolicy> connectorPolicies, EnumSet<JobFlag> flags) {
++            this.appName = appName;
+             this.jobId = jobId;
+             this.planBytes = planBytes;
+             this.taskDescriptors = taskDescriptors;
+@@ -601,6 +518,10 @@ public class CCNCFunctions {
+             return FunctionId.START_TASKS;
+         }
+ 
++        public String getAppName() {
++            return appName;
++        }
++
+         public JobId getJobId() {
+             return jobId;
+         }
+@@ -672,31 +593,53 @@ public class CCNCFunctions {
+         }
+     }
+ 
+-    public static class GetNodeControllersInfoFunction extends Function {
++    public static class CreateApplicationFunction extends Function {
+         private static final long serialVersionUID = 1L;
+ 
++        private final String appName;
++        private final boolean deployHar;
++        private final byte[] serializedDistributedState;
++
++        public CreateApplicationFunction(String appName, boolean deployHar, byte[] serializedDistributedState) {
++            this.appName = appName;
++            this.deployHar = deployHar;
++            this.serializedDistributedState = serializedDistributedState;
++        }
++
+         @Override
+         public FunctionId getFunctionId() {
+-            return FunctionId.GET_NODE_CONTROLLERS_INFO;
++            return FunctionId.CREATE_APPLICATION;
++        }
++
++        public String getAppName() {
++            return appName;
++        }
++
++        public boolean isDeployHar() {
++            return deployHar;
++        }
++
++        public byte[] getSerializedDistributedState() {
++            return serializedDistributedState;
+         }
+     }
+ 
+-    public static class GetNodeControllersInfoResponseFunction extends Function {
++    public static class DestroyApplicationFunction extends Function {
+         private static final long serialVersionUID = 1L;
+ 
+-        private final Map<String, NodeControllerInfo> ncInfos;
++        private final String appName;
+ 
+-        public GetNodeControllersInfoResponseFunction(Map<String, NodeControllerInfo> ncInfos) {
+-            this.ncInfos = ncInfos;
++        public DestroyApplicationFunction(String appName) {
++            this.appName = appName;
+         }
+ 
+         @Override
+         public FunctionId getFunctionId() {
+-            return FunctionId.GET_NODE_CONTROLLERS_INFO_RESPONSE;
++            return FunctionId.DESTROY_APPLICATION;
+         }
+ 
+-        public Map<String, NodeControllerInfo> getNodeControllerInfos() {
+-            return ncInfos;
++        public String getAppName() {
++            return appName;
+         }
+     }
+ 

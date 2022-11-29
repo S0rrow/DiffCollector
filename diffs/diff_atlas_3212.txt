@@ -1,0 +1,52 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasTypeDefGraphStore.java b/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasTypeDefGraphStore.java
+index 458ec49ea..0b1317ad6 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasTypeDefGraphStore.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/graph/AtlasTypeDefGraphStore.java
+@@ -692,7 +692,7 @@ public abstract class AtlasTypeDefGraphStore implements AtlasTypeDefStore {
+         }
+ 
+         AtlasTypesDef typesDef = new AtlasTypesDef();
+-        AtlasBaseTypeDef baseTypeDef = getByNameNoAuthz(typeName);
++        AtlasBaseTypeDef baseTypeDef = getByName(typeName);
+ 
+         if (baseTypeDef instanceof AtlasClassificationDef) {
+             typesDef.setClassificationDefs(Collections.singletonList((AtlasClassificationDef) baseTypeDef));
+@@ -775,27 +775,7 @@ public abstract class AtlasTypeDefGraphStore implements AtlasTypeDefStore {
+         return getTypeDefFromType(type);
+     }
+ 
+-    private AtlasBaseTypeDef getByNameNoAuthz(String name) throws AtlasBaseException {
+-        if (StringUtils.isBlank(name)) {
+-            throw new AtlasBaseException(AtlasErrorCode.TYPE_NAME_INVALID, "", name);
+-        }
+-
+-        AtlasType type = typeRegistry.getType(name);
+-
+-        return getTypeDefFromTypeWithNoAuthz(type);
+-    }
+-
+     private AtlasBaseTypeDef getTypeDefFromType(AtlasType type) throws AtlasBaseException {
+-        AtlasBaseTypeDef ret = getTypeDefFromTypeWithNoAuthz(type);
+-
+-        if (ret != null) {
+-            AtlasAuthorizationUtils.verifyAccess(new AtlasTypeAccessRequest(AtlasPrivilege.TYPE_READ, ret), "read type ", ret.getName());
+-        }
+-
+-        return ret;
+-    }
+-
+-    private AtlasBaseTypeDef getTypeDefFromTypeWithNoAuthz(AtlasType type) throws AtlasBaseException {
+         AtlasBaseTypeDef ret;
+         switch (type.getTypeCategory()) {
+             case ENUM:
+@@ -824,6 +804,10 @@ public abstract class AtlasTypeDefGraphStore implements AtlasTypeDefStore {
+                 throw new AtlasBaseException(AtlasErrorCode.SYSTEM_TYPE, type.getTypeCategory().name());
+         }
+ 
++        if (ret != null) {
++            AtlasAuthorizationUtils.verifyAccess(new AtlasTypeAccessRequest(AtlasPrivilege.TYPE_READ, ret), "read type ", ret.getName());
++        }
++
+         return ret;
+     }
+ 

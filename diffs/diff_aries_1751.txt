@@ -1,0 +1,148 @@
+diff --git a/application/application-utils/src/main/java/org/apache/aries/application/utils/filesystem/IOUtils.java b/application/application-utils/src/main/java/org/apache/aries/application/utils/filesystem/IOUtils.java
+index 7ad169948..d9306eceb 100644
+--- a/application/application-utils/src/main/java/org/apache/aries/application/utils/filesystem/IOUtils.java
++++ b/application/application-utils/src/main/java/org/apache/aries/application/utils/filesystem/IOUtils.java
+@@ -33,11 +33,8 @@ import java.util.Set;
+ import java.util.jar.JarOutputStream;
+ import java.util.jar.Manifest;
+ import java.util.zip.ZipEntry;
+-import java.util.zip.ZipException;
+-import java.util.zip.ZipInputStream;
+ import java.util.zip.ZipOutputStream;
+ 
+-import org.apache.aries.application.filesystem.IFile;
+ import org.apache.aries.application.utils.internal.MessageUtil;
+ 
+ public class IOUtils
+@@ -48,24 +45,16 @@ public class IOUtils
+   public static void copy(InputStream in, OutputStream out) throws IOException
+   {
+     try {
+-      copyAndDoNotCloseInputStream(in, out);
++      int len;
++      byte[] b = new byte[1024];
++      while ((len = in.read(b)) != -1)
++        out.write(b,0,len);
+     }
+     finally {
+       close(in);
+     }
+   }
+   
+-  /**
+-   * Copy an InputStream to an OutputStream and do not close the InputStream afterwards.
+-   */
+-  public static void copyAndDoNotCloseInputStream(InputStream in, OutputStream out) throws IOException
+-  {
+-    int len;
+-    byte[] b = new byte[1024];
+-    while ((len = in.read(b)) != -1)
+-      out.write(b,0,len);
+-  }
+-  
+   /**
+    * Close some xStream for good :)
+    */
+@@ -75,9 +64,7 @@ public class IOUtils
+       if (c != null)
+         c.close();
+     }
+-    catch (IOException e) {
+-      c = null;
+-    }
++    catch (IOException e) { c=null; } //in other words do nothing in a language findbugs can understand 
+   }
+   
+   public static OutputStream getOutputStream(File outputDir, String relativePath) throws IOException
+@@ -123,23 +110,7 @@ public class IOUtils
+     }
+   }
+   
+-  /**
+-   * Write the given InputStream to a file given by a root directory (outputDir) and a relative directory.
+-   * Necessary subdirectories will be created. This method will not close the supplied InputStream.
+-   */
+-  public static void writeOutAndDontCloseInputStream(File outputDir, String relativePath, InputStream content) throws IOException
+-  {
+-    OutputStream out = null;
+-    try {
+-      out = getOutputStream(outputDir, relativePath);
+-      IOUtils.copyAndDoNotCloseInputStream(content, out);
+-    }
+-    finally {
+-      close(out);
+-    }
+-  }
+-  
+-   /** 
++  /** 
+    * Zip up all contents of rootDir (recursively) into targetStream
+    */
+   @SuppressWarnings("unchecked")
+@@ -157,17 +128,9 @@ public class IOUtils
+   /**
+    * Zip up all contents of rootDir (recursively) into targetFile
+    */
+-  @SuppressWarnings("unchecked")
+   public static void zipUp(File rootDir, File targetFile) throws IOException
+   {
+-    ZipOutputStream out = null; 
+-    try {
+-      out = new ZipOutputStream(new FileOutputStream(targetFile));
+-      zipUpRecursive(out, "", rootDir, (Set<String>) Collections.EMPTY_SET);
+-    }
+-    finally {
+-      close(out);
+-    }
++    zipUp (rootDir, new FileOutputStream (targetFile));
+   }
+   
+   /**
+@@ -238,46 +201,5 @@ public class IOUtils
+       return root.delete() && result;
+     }
+   }
+-  
+-  /**
+-   * Unpack the zip file into the outputDir
+-   * @param zip
+-   * @param outputDir
+-   * @return true if the zip was expanded, false if the zip was found not to be a zip
+-   * @throws IOException when there are unexpected issues handling the zip files.
+-   */
+-  public static boolean unpackZip(IFile zip, File outputDir) throws IOException{
+-    boolean success=true;
+-    //unpack from fileOnDisk into bundleDir.
+-    ZipInputStream zis = null;
+-    try{
+-      boolean isZip = false;
+-      ZipEntry zipEntry = null;
+-      try {
+-        zis = new ZipInputStream (zip.open());
+-        zipEntry = zis.getNextEntry();
+-        isZip = zipEntry != null; 
+-      } catch (ZipException e) { // It's not a zip - that's ok, we'll return that below. 
+-        isZip = false;
+-      } catch (UnsupportedOperationException e) {  // This isn't declared, but is thrown in practice
+-        isZip = false;                             // It's not a zip - that's ok, we'll return that below. 
+-      }
+-      if(isZip){
+-        do { 
+-          if (!zipEntry.isDirectory()) { 
+-            writeOutAndDontCloseInputStream(outputDir, zipEntry.getName(), zis);
+-          }
+-          zis.closeEntry();
+-          zipEntry = zis.getNextEntry();
+-        } while (zipEntry != null);
+-      }else{
+-        success=false;
+-      }
+-    }finally{
+-      IOUtils.close(zis);
+-    }
+-    return success;
+-  }
+-  
+-
+ }
++

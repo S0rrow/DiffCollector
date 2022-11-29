@@ -1,0 +1,376 @@
+diff --git a/webapp/src/main/java/org/apache/hadoop/metadata/web/resources/EntityResource.java b/webapp/src/main/java/org/apache/hadoop/metadata/web/resources/EntityResource.java
+old mode 100755
+new mode 100644
+index 3d9162b02..aafbb7f30
+--- a/webapp/src/main/java/org/apache/hadoop/metadata/web/resources/EntityResource.java
++++ b/webapp/src/main/java/org/apache/hadoop/metadata/web/resources/EntityResource.java
+@@ -20,13 +20,10 @@ package org.apache.hadoop.metadata.web.resources;
+ 
+ import com.google.common.base.Preconditions;
+ import org.apache.hadoop.metadata.MetadataException;
+-import org.apache.hadoop.metadata.MetadataServiceClient;
+-import org.apache.hadoop.metadata.ParamChecker;
+-import org.apache.hadoop.metadata.repository.EntityNotFoundException;
+ import org.apache.hadoop.metadata.services.MetadataService;
+-import org.apache.hadoop.metadata.typesystem.types.ValueConversionException;
+ import org.apache.hadoop.metadata.web.util.Servlets;
+ import org.codehaus.jettison.json.JSONArray;
++import org.codehaus.jettison.json.JSONException;
+ import org.codehaus.jettison.json.JSONObject;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+@@ -35,24 +32,19 @@ import javax.inject.Inject;
+ import javax.inject.Singleton;
+ import javax.servlet.http.HttpServletRequest;
+ import javax.ws.rs.Consumes;
+-import javax.ws.rs.DELETE;
++import javax.ws.rs.DefaultValue;
+ import javax.ws.rs.GET;
+ import javax.ws.rs.POST;
+-import javax.ws.rs.PUT;
+ import javax.ws.rs.Path;
+ import javax.ws.rs.PathParam;
+ import javax.ws.rs.Produces;
+ import javax.ws.rs.QueryParam;
+ import javax.ws.rs.WebApplicationException;
+ import javax.ws.rs.core.Context;
++import javax.ws.rs.core.MediaType;
+ import javax.ws.rs.core.Response;
+-import javax.ws.rs.core.UriBuilder;
+-import javax.ws.rs.core.UriInfo;
+-import java.io.IOException;
+-import java.net.URI;
+ import java.util.List;
+ 
+-
+ /**
+  * Entity management operations as REST API.
+  *
+@@ -64,13 +56,9 @@ import java.util.List;
+ public class EntityResource {
+ 
+     private static final Logger LOG = LoggerFactory.getLogger(EntityResource.class);
+-    private static final String TRAIT_NAME = "traitName";
+ 
+     private final MetadataService metadataService;
+ 
+-    @Context
+-    UriInfo uriInfo;
+-
+     /**
+      * Created by the Guice ServletModule and injected with the
+      * configured MetadataService.
+@@ -84,40 +72,29 @@ public class EntityResource {
+ 
+     /**
+      * Submits an entity definition (instance) corresponding to a given type.
++     *
++     * @param typeName name of a type which is unique.
+      */
+     @POST
+-    @Consumes(Servlets.JSON_MEDIA_TYPE)
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response submit(@Context HttpServletRequest request) {
++    @Path("submit/{typeName}")
++    @Consumes(MediaType.APPLICATION_JSON)
++    @Produces(MediaType.APPLICATION_JSON)
++    public Response submit(@Context HttpServletRequest request,
++                           @PathParam("typeName") final String typeName) {
+         try {
+             final String entity = Servlets.getRequestPayload(request);
+             LOG.debug("submitting entity {} ", entity);
+ 
+-            final String guid = metadataService.createEntity(entity);
+-
+-            UriBuilder ub = uriInfo.getAbsolutePathBuilder();
+-            URI locationURI = ub.path(guid).build();
+-
++            final String guid = metadataService.createEntity(typeName, entity);
+             JSONObject response = new JSONObject();
+-            response.put(MetadataServiceClient.REQUEST_ID, Servlets.getRequestId());
+-            response.put(MetadataServiceClient.GUID, guid);
+-            response.put(MetadataServiceClient.DEFINITION,
+-                    metadataService.getEntityDefinition(guid));
+-
+-            return Response.created(locationURI).entity(response).build();
++            response.put("GUID", guid);
++            response.put("requestId", Thread.currentThread().getName());
+ 
+-        } catch(ValueConversionException ve) {
+-            LOG.error("Unable to persist entity instance due to a desrialization error ", ve);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(ve.getCause(), Response.Status.BAD_REQUEST));
+-        } catch (MetadataException | IllegalArgumentException e) {
+-            LOG.error("Unable to persist entity instance", e);
++            return Response.ok(response).build();
++        } catch (Exception e) {
++            LOG.error("Unable to persist instance for type {}", typeName, e);
+             throw new WebApplicationException(
+                     Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
+-            LOG.error("Unable to persist entity instance", e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+ 
+@@ -127,229 +104,71 @@ public class EntityResource {
+      * @param guid GUID for the entity
+      */
+     @GET
+-    @Path("{guid}")
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
++    @Path("definition/{guid}")
++    @Produces(MediaType.APPLICATION_JSON)
+     public Response getEntityDefinition(@PathParam("guid") String guid) {
++        Preconditions.checkNotNull(guid, "guid cannot be null");
++
+         try {
+-            LOG.debug("Fetching entity definition for guid={} ", guid);
+-            ParamChecker.notEmpty(guid, "guid cannot be null");
+             final String entityDefinition = metadataService.getEntityDefinition(guid);
+ 
+             JSONObject response = new JSONObject();
+-            response.put(MetadataServiceClient.REQUEST_ID, Servlets.getRequestId());
+-            response.put(MetadataServiceClient.GUID, guid);
++            response.put("requestId", Thread.currentThread().getName());
+ 
+             Response.Status status = Response.Status.NOT_FOUND;
+             if (entityDefinition != null) {
+-                response.put(MetadataServiceClient.DEFINITION, entityDefinition);
++                response.put("definition", entityDefinition);
+                 status = Response.Status.OK;
+-            } else {
+-                response.put(MetadataServiceClient.ERROR, Servlets.escapeJsonString(
+-                        String.format("An entity with GUID={%s} does not exist", guid)));
+             }
+ 
+             return Response.status(status).entity(response).build();
+ 
+-        } catch (EntityNotFoundException e) {
++        } catch (MetadataException e) {
+             LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+-        } catch (MetadataException | IllegalArgumentException e) {
+-            LOG.error("Bad GUID={}", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
++            throw new WebApplicationException(e, Response
++                    .status(Response.Status.NOT_FOUND)
++                    .entity(e.getMessage())
++                    .type(MediaType.APPLICATION_JSON)
++                    .build());
++        } catch (JSONException e) {
+             LOG.error("Unable to get instance definition for GUID {}", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
++            throw new WebApplicationException(e, Response
++                    .status(Response.Status.INTERNAL_SERVER_ERROR)
++                    .entity(e.getMessage())
++                    .type(MediaType.APPLICATION_JSON)
++                    .build());
+         }
+     }
+ 
+     /**
+      * Gets the list of entities for a given entity type.
+      *
+-     * @param entityType name of a type which is unique
++     * @param entityType     name of a type which is unique
++     * @param offset         starting offset for pagination
++     * @param resultsPerPage number of results for pagination
+      */
+     @GET
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response getEntityListByType(@QueryParam("type") String entityType) {
++    @Path("list/{entityType}")
++    @Produces(MediaType.APPLICATION_JSON)
++    public Response getEntityList(@PathParam("entityType") String entityType,
++                                  @DefaultValue("0") @QueryParam("offset") Integer offset,
++                                  @QueryParam("numResults") Integer resultsPerPage) {
+         try {
+-            Preconditions.checkNotNull(entityType, "Entity type cannot be null");
+-
+-            LOG.debug("Fetching entity list for type={} ", entityType);
+             final List<String> entityList = metadataService.getEntityList(entityType);
+ 
+             JSONObject response = new JSONObject();
+-            response.put(MetadataServiceClient.REQUEST_ID, Servlets.getRequestId());
+-            response.put(MetadataServiceClient.TYPENAME, entityType);
+-            response.put(MetadataServiceClient.RESULTS, new JSONArray(entityList));
+-            response.put(MetadataServiceClient.COUNT, entityList.size());
++            response.put("requestId", Thread.currentThread().getName());
++            response.put("list", new JSONArray(entityList));
+ 
+             return Response.ok(response).build();
+-        } catch (NullPointerException e) {
+-            LOG.error("Entity type cannot be null", e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (MetadataException | IllegalArgumentException e) {
++        } catch (MetadataException e) {
+             LOG.error("Unable to get entity list for type {}", entityType, e);
+             throw new WebApplicationException(
+                     Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
++        } catch (JSONException e) {
+             LOG.error("Unable to get entity list for type {}", entityType, e);
+             throw new WebApplicationException(
+                     Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+         }
+     }
+-
+-    /**
+-     * Adds property to the given entity id
+-     * @param guid entity id
+-     * @param property property to add
+-     * @param value property's value
+-     * @return response payload as json
+-     */
+-    @PUT
+-    @Path("{guid}")
+-    @Consumes(Servlets.JSON_MEDIA_TYPE)
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response update(@PathParam("guid") String guid,
+-                           @QueryParam("property") String property,
+-                           @QueryParam("value") String value) {
+-        try {
+-            Preconditions.checkNotNull(property, "Entity property cannot be null");
+-            Preconditions.checkNotNull(value, "Entity value cannot be null");
+-
+-            metadataService.updateEntity(guid, property, value);
+-
+-            JSONObject response = new JSONObject();
+-            response.put(MetadataServiceClient.REQUEST_ID, Thread.currentThread().getName());
+-            return Response.ok(response).build();
+-        } catch (EntityNotFoundException e) {
+-            LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+-        } catch (MetadataException | IllegalArgumentException e) {
+-            LOG.error("Unable to add property {} to entity id {}", property, guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
+-            LOG.error("Unable to add property {} to entity id {}", property, guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+-        }
+-    }
+-
+-    // Trait management functions
+-    /**
+-     * Gets the list of trait names for a given entity represented by a guid.
+-     *
+-     * @param guid globally unique identifier for the entity
+-     * @return a list of trait names for the given entity guid
+-     */
+-    @GET
+-    @Path("{guid}/traits")
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response getTraitNames(@PathParam("guid") String guid) {
+-        try {
+-            LOG.debug("Fetching trait names for entity={}", guid);
+-            final List<String> traitNames = metadataService.getTraitNames(guid);
+-
+-            JSONObject response = new JSONObject();
+-            response.put(MetadataServiceClient.REQUEST_ID, Servlets.getRequestId());
+-            response.put(MetadataServiceClient.GUID, guid);
+-            response.put(MetadataServiceClient.RESULTS, new JSONArray(traitNames));
+-            response.put(MetadataServiceClient.COUNT, traitNames.size());
+-
+-            return Response.ok(response).build();
+-        } catch (EntityNotFoundException e) {
+-            LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+-        } catch (MetadataException | IllegalArgumentException e) {
+-            LOG.error("Unable to get trait names for entity {}", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
+-            LOG.error("Unable to get trait names for entity {}", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+-        }
+-    }
+-
+-    /**
+-     * Adds a new trait to an existing entity represented by a guid.
+-     *
+-     * @param guid globally unique identifier for the entity
+-     */
+-    @POST
+-    @Path("{guid}/traits")
+-    @Consumes(Servlets.JSON_MEDIA_TYPE)
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response addTrait(@Context HttpServletRequest request,
+-                             @PathParam("guid") String guid) {
+-        try {
+-            final String traitDefinition = Servlets.getRequestPayload(request);
+-            LOG.debug("Adding trait={} for entity={} ", traitDefinition, guid);
+-            metadataService.addTrait(guid, traitDefinition);
+-
+-            UriBuilder ub = uriInfo.getAbsolutePathBuilder();
+-            URI locationURI = ub.path(guid).build();
+-
+-            JSONObject response = new JSONObject();
+-            response.put(MetadataServiceClient.REQUEST_ID, Servlets.getRequestId());
+-            response.put(MetadataServiceClient.GUID, guid);
+-
+-            return Response.created(locationURI).entity(response).build();
+-        } catch (EntityNotFoundException e) {
+-            LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+-        } catch (MetadataException | IOException | IllegalArgumentException e) {
+-            LOG.error("Unable to add trait for entity={}", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
+-            LOG.error("Unable to add trait for entity={}", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+-        }
+-    }
+-
+-    /**
+-     * Deletes a given trait from an existing entity represented by a guid.
+-     *
+-     * @param guid      globally unique identifier for the entity
+-     * @param traitName name of the trait
+-     */
+-    @DELETE
+-    @Path("{guid}/traits/{traitName}")
+-    @Consumes(Servlets.JSON_MEDIA_TYPE)
+-    @Produces(Servlets.JSON_MEDIA_TYPE)
+-    public Response deleteTrait(@Context HttpServletRequest request,
+-                                @PathParam("guid") String guid,
+-                                @PathParam(TRAIT_NAME) String traitName) {
+-        LOG.debug("Deleting trait={} from entity={} ", traitName, guid);
+-        try {
+-            metadataService.deleteTrait(guid, traitName);
+-
+-            JSONObject response = new JSONObject();
+-            response.put(MetadataServiceClient.REQUEST_ID, Servlets.getRequestId());
+-            response.put(MetadataServiceClient.GUID, guid);
+-            response.put(TRAIT_NAME, traitName);
+-
+-            return Response.ok(response).build();
+-        } catch (EntityNotFoundException e) {
+-            LOG.error("An entity with GUID={} does not exist", guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.NOT_FOUND));
+-        } catch (MetadataException | IllegalArgumentException e) {
+-            LOG.error("Unable to delete trait name={} for entity={}", traitName, guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.BAD_REQUEST));
+-        } catch (Throwable e) {
+-            LOG.error("Unable to delete trait name={} for entity={}", traitName, guid, e);
+-            throw new WebApplicationException(
+-                    Servlets.getErrorResponse(e, Response.Status.INTERNAL_SERVER_ERROR));
+-        }
+-    }
+ }

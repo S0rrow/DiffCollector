@@ -1,0 +1,41 @@
+diff --git a/asterixdb/asterix-runtime/src/main/java/org/apache/asterix/runtime/evaluators/functions/records/FieldAccessByNameEvalFactory.java b/asterixdb/asterix-runtime/src/main/java/org/apache/asterix/runtime/evaluators/functions/records/FieldAccessByNameEvalFactory.java
+index 2078921970..bad37d085b 100644
+--- a/asterixdb/asterix-runtime/src/main/java/org/apache/asterix/runtime/evaluators/functions/records/FieldAccessByNameEvalFactory.java
++++ b/asterixdb/asterix-runtime/src/main/java/org/apache/asterix/runtime/evaluators/functions/records/FieldAccessByNameEvalFactory.java
+@@ -21,12 +21,13 @@ package org.apache.asterix.runtime.evaluators.functions.records;
+ import java.io.DataOutput;
+ import java.io.IOException;
+ 
++import org.apache.asterix.common.exceptions.AsterixException;
+ import org.apache.asterix.dataflow.data.nontagged.serde.ARecordSerializerDeserializer;
+-import org.apache.asterix.om.functions.BuiltinFunctions;
++import org.apache.asterix.runtime.exceptions.TypeMismatchException;
++import org.apache.asterix.om.functions.AsterixBuiltinFunctions;
+ import org.apache.asterix.om.types.ATypeTag;
+ import org.apache.asterix.om.types.EnumDeserializer;
+-import org.apache.asterix.om.utils.NonTaggedFormatUtil;
+-import org.apache.asterix.runtime.exceptions.TypeMismatchException;
++import org.apache.asterix.om.util.NonTaggedFormatUtil;
+ import org.apache.hyracks.algebricks.runtime.base.IScalarEvaluator;
+ import org.apache.hyracks.algebricks.runtime.base.IScalarEvaluatorFactory;
+ import org.apache.hyracks.api.context.IHyracksTaskContext;
+@@ -75,7 +76,7 @@ public class FieldAccessByNameEvalFactory implements IScalarEvaluatorFactory {
+                     int serRecordLen = inputArg0.getLength();
+ 
+                     if (serRecord[serRecordOffset] != ATypeTag.SERIALIZED_RECORD_TYPE_TAG) {
+-                        throw new TypeMismatchException(BuiltinFunctions.FIELD_ACCESS_BY_NAME, 0,
++                        throw new TypeMismatchException(AsterixBuiltinFunctions.FIELD_ACCESS_BY_NAME, 0,
+                                 serRecord[serRecordOffset], ATypeTag.SERIALIZED_RECORD_TYPE_TAG);
+                     }
+                     byte[] serFldName = inputArg1.getByteArray();
+@@ -93,7 +94,9 @@ public class FieldAccessByNameEvalFactory implements IScalarEvaluatorFactory {
+                             fieldValueTypeTag, true) + 1;
+                     result.set(serRecord, fieldValueOffset, fieldValueLength);
+                 } catch (IOException e) {
+-                    throw HyracksDataException.create(e);
++                    throw new HyracksDataException(e);
++                } catch (AsterixException e) {
++                    throw new HyracksDataException(e);
+                 }
+             }
+         };

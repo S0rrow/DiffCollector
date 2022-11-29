@@ -1,0 +1,87 @@
+diff --git a/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ExperimentStatusEntity.java b/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ExperimentStatusEntity.java
+index afbd826d1..7a73e78a4 100644
+--- a/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ExperimentStatusEntity.java
++++ b/modules/registry-refactoring/src/main/java/org/apache/airavata/registry/core/entities/expcatalog/ExperimentStatusEntity.java
+@@ -21,40 +21,20 @@
+ package org.apache.airavata.registry.core.entities.expcatalog;
+ 
+ import javax.persistence.*;
+-import java.io.Serializable;
+-import java.sql.Timestamp;
+ 
+-/**
+- * The persistent class for the experiment_status database table.
+- */
+ @Entity
+-@Table(name = "EXPERIMENT_STATUS")
++@Table(name = "EXPCAT_EXPERIMENT_STATUS")
+ @IdClass(ExperimentStatusPK.class)
+-public class ExperimentStatusEntity implements Serializable {
+-    private static final long serialVersionUID = 1L;
+-
+-    @Id
+-    @Column(name = "EXPERIMENT_ID")
++public class ExperimentStatusEntity {
+     private String experimentId;
+-
+-    @Id
+-    @Column(name = "STATE")
+     private String state;
+-
+-    @Column(name = "TIME_OF_STATE_CHANGE")
+-    private Timestamp timeOfStateChange;
+-
+-    @Lob
+-    @Column(name = "REASON")
++    private long timeOfStateChange;
+     private String reason;
+ 
+-    @ManyToOne(targetEntity = ExperimentEntity.class, cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+-    @JoinColumn(name = "EXPERIMENT_ID", referencedColumnName = "EXPERIMENT_ID")
+     private ExperimentEntity experiment;
+ 
+-    public ExperimentStatusEntity() {
+-    }
+-
++    @Id
++    @Column(name = "EXPERIMENT_ID")
+     public String getExperimentId() {
+         return experimentId;
+     }
+@@ -63,6 +43,8 @@ public class ExperimentStatusEntity implements Serializable {
+         this.experimentId = experimentId;
+     }
+ 
++    @Id
++    @Column(name = "STATE")
+     public String getState() {
+         return state;
+     }
+@@ -71,14 +53,16 @@ public class ExperimentStatusEntity implements Serializable {
+         this.state = state;
+     }
+ 
+-    public Timestamp getTimeOfStateChange() {
++    @Column(name = "TIME_OF_STATE_CHANGE")
++    public long getTimeOfStateChange() {
+         return timeOfStateChange;
+     }
+ 
+-    public void setTimeOfStateChange(Timestamp timeOfStateChange) {
++    public void setTimeOfStateChange(long timeOfStateChange) {
+         this.timeOfStateChange = timeOfStateChange;
+     }
+ 
++    @Column(name = "REASON")
+     public String getReason() {
+         return reason;
+     }
+@@ -87,6 +71,8 @@ public class ExperimentStatusEntity implements Serializable {
+         this.reason = reason;
+     }
+ 
++    @ManyToOne(targetEntity = ExperimentEntity.class, cascade = CascadeType.ALL, fetch = FetchType.LAZY)
++    @JoinColumn(name = "EXPERIMENT_ID", referencedColumnName = "EXPERIMENT_ID")
+     public ExperimentEntity getExperiment() {
+         return experiment;
+     }

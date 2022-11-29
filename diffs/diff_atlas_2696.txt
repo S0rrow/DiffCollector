@@ -1,0 +1,246 @@
+diff --git a/webapp/src/main/java/org/apache/atlas/web/resources/ExportService.java b/webapp/src/main/java/org/apache/atlas/web/resources/ExportService.java
+index 7d3d4429f..4499b9c79 100644
+--- a/webapp/src/main/java/org/apache/atlas/web/resources/ExportService.java
++++ b/webapp/src/main/java/org/apache/atlas/web/resources/ExportService.java
+@@ -23,7 +23,6 @@ import org.apache.atlas.model.typedef.AtlasTypesDef;
+ import org.apache.atlas.repository.graph.AtlasGraphProvider;
+ import org.apache.atlas.repository.graphdb.AtlasGraph;
+ import org.apache.atlas.repository.store.graph.v1.EntityGraphRetriever;
+-import org.apache.atlas.type.AtlasEntityType;
+ import org.apache.atlas.type.AtlasTypeRegistry;
+ import org.apache.atlas.AtlasException;
+ import org.apache.atlas.AtlasServiceException;
+@@ -36,7 +35,7 @@ import org.apache.commons.collections.CollectionUtils;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import javax.script.*;
++import javax.script.ScriptException;
+ import java.util.*;
+ 
+ 
+@@ -47,25 +46,18 @@ public class ExportService {
+     private final AtlasGraph           atlasGraph;
+     private final EntityGraphRetriever entityGraphRetriever;
+ 
+-    // query engine support
+-    private ScriptEngineManager scriptEngineManager;
+-    private ScriptEngine scriptEngine;
+-    private Bindings bindings;
+-    private final String gremlinQuery = "g.V('__guid', startGuid).bothE().bothV().has('__guid').__guid.dedup().toList()";
+-
+     public ExportService(final AtlasTypeRegistry typeRegistry) {
++
+         this.typeRegistry         = typeRegistry;
+         this.entityGraphRetriever = new EntityGraphRetriever(this.typeRegistry);
+         this.atlasGraph           = AtlasGraphProvider.getGraphInstance();
+-
+-        initScriptEngine();
+     }
+ 
+     private class ExportContext {
+-        final Set<String>       guidsProcessed = new HashSet<>();
+-        final List<String>      guidsToProcess = new ArrayList<>();
+-        final AtlasExportResult result;
+-        final ZipSink           sink;
++        final Map<String, Boolean> entitiesToBeProcessed = new HashMap<>();
++        final AtlasExportResult    result;
++        final ZipSink              sink;
++        long                       numOfEntitiesExported = 0;
+ 
+         ExportContext(AtlasExportResult result, ZipSink sink) {
+             this.result = result;
+@@ -74,24 +66,26 @@ public class ExportService {
+     }
+ 
+     public AtlasExportResult run(ZipSink exportSink, AtlasExportRequest request, String userName, String hostName,
+-                                 String requestingIP) throws AtlasBaseException {
++                                 String requestingIP) throws AtlasException {
+ 
+-        ExportContext context = new ExportContext(new AtlasExportResult(request, userName, hostName, requestingIP,
+-                                                                        System.currentTimeMillis()), exportSink);
++        ExportContext context = new ExportContext(new AtlasExportResult(request, userName, hostName, requestingIP, System.currentTimeMillis()), exportSink);
+ 
+         try {
+             LOG.info("==> export(user={}, from={})", userName, requestingIP);
+ 
++            int i = 0;
+             for (AtlasObjectId item : request.getItemsToExport()) {
+-                processObjectId(item, context);
++                process(Integer.toString(i++), item, context);
+             }
+ 
+             context.sink.setExportOrder(context.result.getData().getEntityCreationOrder());
+             context.sink.setTypesDef(context.result.getData().getTypesDef());
+-            context.result.setData(null);
++
++            context.result.getData().clear();
+             context.result.setOperationStatus(AtlasExportResult.OperationStatus.SUCCESS);
+             context.sink.setResult(context.result);
+-        } catch(Exception ex) {
++        }
++        catch(Exception ex) {
+             LOG.error("Operation failed: ", ex);
+         } finally {
+             LOG.info("<== export(user={}, from={}): status {}", userName, requestingIP, context.result.getOperationStatus());
+@@ -100,86 +94,80 @@ public class ExportService {
+         return context.result;
+     }
+ 
+-    private void processObjectId(AtlasObjectId item, ExportContext context) throws AtlasServiceException, AtlasException, AtlasBaseException {
+-        if (LOG.isDebugEnabled()) {
+-            LOG.debug("==> processObjectId({})", item);
+-        }
+-
++    private void process(String folder, AtlasObjectId item, ExportContext context) throws AtlasServiceException, AtlasException, AtlasBaseException {
+         try {
+-            AtlasEntity entity = entityGraphRetriever.toAtlasEntity(item);
+-
+-            processEntity(entity, context);
++            AtlasEntity  entity = entityGraphRetriever.toAtlasEntity(item);
++            List<String> queue  = populateConnectedEntities(entity.getGuid(), context);
+ 
+-            while (!context.guidsToProcess.isEmpty()) {
+-                String guid = context.guidsToProcess.remove(0);
++            process(entity, context);
+ 
+-                entity = entityGraphRetriever.toAtlasEntity(guid);
++            for (String guid : queue) {
++                if(context.entitiesToBeProcessed.get(guid)) {
++                    continue;
++                }
+ 
+-                processEntity(entity, context);
++                process(entityGraphRetriever.toAtlasEntity(guid), context);
+             }
+-        } catch (AtlasBaseException excp) {
+-            context.result.setOperationStatus(AtlasExportResult.OperationStatus.PARTIAL_SUCCESS);
+ 
+-            LOG.error("Fetching entity failed for: {}", item, excp);
+-        }
++            context.result.getData().getEntityCreationOrder().put(folder, queue);
++        } catch (AtlasBaseException e) {
++            context.result.setOperationStatus(AtlasExportResult.OperationStatus.PARTIAL_SUCCESS);
+ 
+-        if (LOG.isDebugEnabled()) {
+-            LOG.debug("<== processObjectId({})", item);
++            LOG.error("Fetching entity failed for: {}", item);
+         }
+     }
+ 
+-    private void processEntity(AtlasEntity entity, ExportContext context) throws AtlasBaseException {
+-        if (LOG.isDebugEnabled()) {
+-            LOG.debug("==> processEntity({})", entity.getAtlasObjectId());
+-        }
++    private void process(AtlasEntity entity, ExportContext context) throws AtlasBaseException, AtlasException {
++        addTypesAsNeeded(entity.getTypeName(), context);
++        addClassificationsAsNeeded(entity, context);
++        addEntity(entity, context);
++    }
+ 
+-        if (!context.guidsProcessed.contains(entity.getGuid())) {
+-            addTypesAsNeeded(entity.getTypeName(), context);
+-            addClassificationsAsNeeded(entity, context);
+-            addEntity(entity, context);
++    private void addEntity(AtlasEntity entity, ExportContext context) throws AtlasException, AtlasBaseException {
++        context.entitiesToBeProcessed.put(entity.getGuid(), true);
++        context.sink.add(entity);
+ 
+-            context.guidsProcessed.add(entity.getGuid());
+-            context.result.getData().getEntityCreationOrder().add(entity.getGuid());
++        context.result.incrementMeticsCounter(String.format("entity:%s", entity.getTypeName()));
++        context.result.incrementMeticsCounter("Entities");
+ 
+-            getConnectedEntityGuids(entity, context);
+-        }
++        context.numOfEntitiesExported++;
+ 
+-        if (LOG.isDebugEnabled()) {
+-            LOG.debug("<== processEntity({})", entity.getAtlasObjectId());
++        if (context.numOfEntitiesExported % 10 == 0) {
++            LOG.info("export(): in progress.. number of entities exported: {}", context.numOfEntitiesExported);
+         }
+     }
+ 
+-    private void getConnectedEntityGuids(AtlasEntity entity, ExportContext context) {
++    private List<String> populateConnectedEntities(String startGuid, ExportContext context) {
++        final String gremlinQuery = "g.V('__guid', '%s').bothE().bothV().has('__guid').__guid.toList()";
+ 
+-        try {
+-            if (LOG.isDebugEnabled()) {
+-                LOG.debug("==> getConnectedEntityGuids({}): guidsToProcess {}", entity.getAtlasObjectId(), context.guidsToProcess.size());
+-            }
++        Map<String, Boolean> entitiesToBeProcessed = context.entitiesToBeProcessed;
+ 
+-            List<String> result = executeGremlinScriptFor(entity.getGuid());
+-            for (String guid : result) {
+-                if (!context.guidsProcessed.contains(guid)) {
+-                    context.guidsToProcess.add(guid);
+-                }
+-            }
++        List<String> queue = new ArrayList<>();
+ 
+-            if (LOG.isDebugEnabled()) {
+-                LOG.debug("<== getConnectedEntityGuids({}): found {} guids; guidsToProcess {}", entity.getGuid(), result.size(), context.guidsToProcess.size());
+-            }
+-        } catch (ScriptException e) {
+-            LOG.error("Child entities could not be added for %s", entity.getGuid());
+-        }
+-    }
++        entitiesToBeProcessed.put(startGuid, false);
++        queue.add(startGuid);
+ 
+-    private void addEntity(AtlasEntity entity, ExportContext context) throws AtlasBaseException {
+-        context.sink.add(entity);
++        for (int i=0; i < queue.size(); i++) {
++            String currentGuid = queue.get(i);
+ 
+-        context.result.incrementMeticsCounter(String.format("entity:%s", entity.getTypeName()));
+-        context.result.incrementMeticsCounter("Entities");
++            try {
++                List<String> result = (List<String>) atlasGraph.executeGremlinScript(
++                                                        String.format(gremlinQuery, currentGuid), false);
+ 
+-        if (context.guidsProcessed.size() % 10 == 0) {
+-            LOG.info("export(): in progress.. number of entities exported: {}", context.guidsProcessed.size());
++                for (String guid : result) {
++                    if (entitiesToBeProcessed.containsKey(guid)) {
++                        continue;
++                    }
++
++                    entitiesToBeProcessed.put(guid, false);
++                    queue.add(guid);
++                }
++            } catch (ScriptException e) {
++                LOG.error("Child entities could not be added for %s", currentGuid);
++            }
+         }
++
++        return queue;
+     }
+ 
+     private void addClassificationsAsNeeded(AtlasEntity entity, ExportContext context) {
+@@ -211,23 +199,4 @@ public class ExportService {
+             result.incrementMeticsCounter("Type(s)");
+         }
+     }
+-
+-    private List<String> executeGremlinScriptFor(String guid) throws ScriptException {
+-
+-        bindings.put("startGuid", guid);
+-        return (List<String>) atlasGraph.executeGremlinScript(this.scriptEngine, this.bindings, this.gremlinQuery, false);
+-    }
+-
+-    private void initScriptEngine() {
+-        if (scriptEngineManager != null) {
+-            return;
+-        }
+-
+-        scriptEngineManager = new ScriptEngineManager();
+-        scriptEngine = scriptEngineManager.getEngineByName("gremlin-groovy");
+-        bindings = scriptEngine.createBindings();
+-
+-        //Do not cache script compilations due to memory implications
+-        scriptEngine.getContext().setAttribute("#jsr223.groovy.engine.keep.globals", "phantom", ScriptContext.ENGINE_SCOPE);
+-    }
+ }

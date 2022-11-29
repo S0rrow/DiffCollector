@@ -1,0 +1,89 @@
+diff --git a/archiva-base/archiva-policies/src/main/java/org/apache/maven/archiva/policies/AbstractUpdatePolicy.java b/archiva-base/archiva-policies/src/main/java/org/apache/maven/archiva/policies/AbstractUpdatePolicy.java
+index 44c224679..c9960e186 100644
+--- a/archiva-base/archiva-policies/src/main/java/org/apache/maven/archiva/policies/AbstractUpdatePolicy.java
++++ b/archiva-base/archiva-policies/src/main/java/org/apache/maven/archiva/policies/AbstractUpdatePolicy.java
+@@ -88,64 +88,62 @@ public AbstractUpdatePolicy()
+     }
+ 
+     protected abstract boolean isSnapshotPolicy();
+-    
+-    protected abstract String getUpdateMode();
+ 
+     public boolean applyPolicy( String policySetting, Properties request, File localFile )
+     {
+         String version = request.getProperty( "version", "" );
+         boolean isSnapshotVersion = false;
+-
+-        if ( StringUtils.isNotBlank( version ) )
++        
++        if( StringUtils.isNotBlank( version ) )
+         {
+             isSnapshotVersion = VersionUtil.isSnapshot( version );
+         }
+ 
+-        if ( !validPolicyCodes.contains( policySetting ) )
++        // Test for mismatches.
++        if ( !isSnapshotVersion && isSnapshotPolicy() )
+         {
+-            // No valid code? false it is then.
+-            getLogger().error( "Unknown artifact-update policyCode [" + policySetting + "]" );
+-            return false;
++            getLogger().debug( "Non-snapshot version detected in during snapshot policy. ignoring policy.");
++            return true;
+         }
+-
+-        if ( IGNORED.equals( policySetting ) )
++        
++        if ( isSnapshotVersion && !isSnapshotPolicy() )
+         {
+-            // Ignored means ok to update.
+-            getLogger().debug( "OK to update, " + getUpdateMode() + " policy set to IGNORED." );
++            getLogger().debug( "Snapshot version detected in during release policy. ignoring policy.");
+             return true;
+         }
+ 
+-        // Test for mismatches.
+-        if ( !isSnapshotVersion && isSnapshotPolicy() )
++        if ( !validPolicyCodes.contains( policySetting ) )
+         {
+-            getLogger().debug( "OK to update, snapshot policy does not apply for non-snapshot versions." );
+-            return true;
++            // No valid code? false it is then.
++            getLogger().error( "Unknown artifact-update policyCode [" + policySetting + "]" );
++            return false;
+         }
+-
+-        if ( isSnapshotVersion && !isSnapshotPolicy() )
++        
++        if ( IGNORED.equals( policySetting ) )
+         {
+-            getLogger().debug( "OK to update, release policy does not apply for snapshot versions." );
++            // Disabled means no.
++            getLogger().debug( "OK to update, policy ignored." );
+             return true;
+         }
+ 
+         if ( DISABLED.equals( policySetting ) )
+         {
+             // Disabled means no.
+-            getLogger().debug( "NO to update, " + getUpdateMode() + " policy set to DISABLED." );
++            getLogger().debug( "NO to update, disabled." );
+             return false;
+         }
+ 
+         if ( !localFile.exists() )
+         {
+             // No file means it's ok.
+-            getLogger().debug( "OK to update " + getUpdateMode() + ", local file does not exist." );
++            getLogger().debug( "OK to update, local file does not exist." );
+             return true;
+         }
+ 
+         if ( ONCE.equals( policySetting ) )
+         {
+             // File exists, but policy is once.
+-            getLogger().debug( "NO to update" + getUpdateMode() + ", local file exist (and policy is ONCE)." );
++            getLogger().debug( "NO to update, local file exist (and policy is ONCE)." );
+             return false;
+         }
+ 

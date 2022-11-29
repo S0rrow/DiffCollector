@@ -1,0 +1,278 @@
+diff --git a/minicluster/src/main/java/org/apache/accumulo/cluster/standalone/StandaloneClusterControl.java b/minicluster/src/main/java/org/apache/accumulo/cluster/standalone/StandaloneClusterControl.java
+index 378cb6bf84..caef1dea7d 100644
+--- a/minicluster/src/main/java/org/apache/accumulo/cluster/standalone/StandaloneClusterControl.java
++++ b/minicluster/src/main/java/org/apache/accumulo/cluster/standalone/StandaloneClusterControl.java
+@@ -20,10 +20,7 @@ import java.io.BufferedReader;
+ import java.io.File;
+ import java.io.FileReader;
+ import java.io.IOException;
+-import java.net.URL;
+-import java.security.CodeSource;
+ import java.util.ArrayList;
+-import java.util.Collections;
+ import java.util.List;
+ import java.util.Map.Entry;
+ 
+@@ -31,11 +28,7 @@ import org.apache.accumulo.cluster.ClusterControl;
+ import org.apache.accumulo.cluster.RemoteShell;
+ import org.apache.accumulo.cluster.RemoteShellOptions;
+ import org.apache.accumulo.minicluster.ServerType;
+-import org.apache.accumulo.server.util.Admin;
+-import org.apache.commons.lang.StringUtils;
+ import org.apache.hadoop.util.Shell.ExitCodeException;
+-import org.slf4j.Logger;
+-import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.collect.Maps;
+ 
+@@ -43,16 +36,11 @@ import com.google.common.collect.Maps;
+  * Use the {@link RemoteShell} to control a standalone (possibly distibuted) Accumulo instance
+  */
+ public class StandaloneClusterControl implements ClusterControl {
+-  private static final Logger log = LoggerFactory.getLogger(StandaloneClusterControl.class);
+-
+-  private static final String START_SERVER_SCRIPT = "start-server.sh", ACCUMULO_SCRIPT = "accumulo", TOOL_SCRIPT = "tool.sh";
+-  private static final String MASTER_HOSTS_FILE = "masters", GC_HOSTS_FILE = "gc", TSERVER_HOSTS_FILE = "slaves", TRACER_HOSTS_FILE = "tracers",
+-      MONITOR_HOSTS_FILE = "monitor";
+ 
+   protected String accumuloHome, accumuloConfDir;
+   protected RemoteShellOptions options;
+ 
+-  protected String startServerPath, accumuloPath, toolPath;
++  protected String startServerPath;
+ 
+   public StandaloneClusterControl() {
+     this(System.getenv("ACCUMULO_HOME"), System.getenv("ACCUMULO_CONF_DIR"));
+@@ -64,9 +52,8 @@ public class StandaloneClusterControl implements ClusterControl {
+     this.accumuloConfDir = accumuloConfDir;
+ 
+     File bin = new File(accumuloHome, "bin");
+-    this.startServerPath = new File(bin, START_SERVER_SCRIPT).getAbsolutePath();
+-    this.accumuloPath = new File(bin, ACCUMULO_SCRIPT).getAbsolutePath();
+-    this.toolPath = new File(bin, TOOL_SCRIPT).getAbsolutePath();
++    File startServer = new File(bin, "start-server.sh");
++    this.startServerPath = startServer.getAbsolutePath();
+   }
+ 
+   protected Entry<Integer,String> exec(String hostname, String[] command) throws IOException {
+@@ -77,97 +64,39 @@ public class StandaloneClusterControl implements ClusterControl {
+       // capture the stdout of the process as well.
+       String output = shell.getOutput();
+       // add output for the ExitCodeException.
+-      ExitCodeException ece = new ExitCodeException(e.getExitCode(), "stderr: " + e.getMessage() + ", stdout: " + output);
+-      log.error("Failed to run command", ece);
+-      return Maps.immutableEntry(e.getExitCode(), output);
++      throw new ExitCodeException(e.getExitCode(), "stderr: " + e.getMessage() + ", stdout: " + output);
+     }
+ 
+     return Maps.immutableEntry(shell.getExitCode(), shell.getOutput());
+   }
+ 
+   @Override
+-  public int exec(Class<?> clz, String[] args) throws IOException {
+-    return execWithStdout(clz, args).getKey();
+-  }
+-
+-  @Override
+-  public Entry<Integer,String> execWithStdout(Class<?> clz, String[] args) throws IOException {
+-    File confDir = getConfDir();
+-    String master = getHosts(new File(confDir, "masters")).get(0);
+-    String[] cmd = new String[2 + args.length];
+-    cmd[0] = accumuloPath;
+-    cmd[1] = clz.getName();
+-    System.arraycopy(args, 0, cmd, 2, args.length);
+-    log.info("Running: '{}' on {}", StringUtils.join(cmd, " "), master);
+-    return exec(master, cmd);
+-  }
+-
+-  public Entry<Integer,String> execMapreduceWithStdout(Class<?> clz, String[] args) throws IOException {
+-    File confDir = getConfDir();
+-    String master = getHosts(new File(confDir, "masters")).get(0);
+-    String[] cmd = new String[3 + args.length];
+-    cmd[0] = toolPath;
+-    CodeSource source = clz.getProtectionDomain().getCodeSource();
+-    if (null == source) {
+-      throw new RuntimeException("Could not get CodeSource for class");
+-    }
+-    URL jarUrl = source.getLocation();
+-    String jar = jarUrl.getPath();
+-    if (!jar.endsWith(".jar")) {
+-      throw new RuntimeException("Need to have a jar to run mapreduce: " + jar);
+-    }
+-    cmd[1] = jar;
+-    cmd[2] = clz.getName();
+-    for (int i = 0, j = 3; i < args.length; i++, j++) {
+-      cmd[j] = "'" + args[i] + "'";
+-    }
+-    log.info("Running: '{}' on {}", StringUtils.join(cmd, " "), master);
+-    return exec(master, cmd);
+-  }
+-
+-  @Override
+-  public void adminStopAll() throws IOException {
+-    File confDir = getConfDir();
+-    String master = getHosts(new File(confDir, "masters")).get(0);
+-    String[] cmd = new String[] { accumuloPath, Admin.class.getName(), "stopAll" };
+-    exec(master, cmd);
+-  }
+-
+-  @Override
+-  public void startAllServers(ServerType server) throws IOException {
++  public void startAll(ServerType server) throws IOException {
+     File confDir = getConfDir();
+ 
+     switch (server) {
+       case TABLET_SERVER:
+-        for (String tserver : getHosts(new File(confDir, TSERVER_HOSTS_FILE))) {
++        for (String tserver : getHosts(new File(confDir, "slaves"))) {
+           start(server, tserver);
+         }
+         break;
+       case MASTER:
+-        for (String master : getHosts(new File(confDir, MASTER_HOSTS_FILE))) {
++        for (String master : getHosts(new File(confDir, "masters"))) {
+           start(server, master);
+         }
+         break;
+       case GARBAGE_COLLECTOR:
+-        List<String> hosts = getHosts(new File(confDir, GC_HOSTS_FILE));
+-        if (hosts.isEmpty()) {
+-          hosts = getHosts(new File(confDir, MASTER_HOSTS_FILE));
+-          if (hosts.isEmpty()) {
+-            throw new IOException("Found hosts to run garbage collector on");
+-          }
+-          hosts = Collections.singletonList(hosts.get(0));
+-        }
+-        for (String gc : hosts) {
++        for (String gc : getHosts(new File(confDir, "gc"))) {
+           start(server, gc);
+         }
+         break;
+       case TRACER:
+-        for (String tracer : getHosts(new File(confDir, TRACER_HOSTS_FILE))) {
++        for (String tracer : getHosts(new File(confDir, "tracers"))) {
+           start(server, tracer);
+         }
+         break;
+       case MONITOR:
+-        for (String monitor : getHosts(new File(confDir, MONITOR_HOSTS_FILE))) {
++        for (String monitor : getHosts(new File(confDir, "monitor"))) {
+           start(server, monitor);
+         }
+         break;
+@@ -180,39 +109,36 @@ public class StandaloneClusterControl implements ClusterControl {
+   @Override
+   public void start(ServerType server, String hostname) throws IOException {
+     String[] cmd = new String[] {startServerPath, hostname, getProcessString(server)};
+-    Entry<Integer,String> pair = exec(hostname, cmd);
+-    if (0 != pair.getKey()) {
+-      throw new IOException("Start " + server + " on " + hostname + " failed for execute successfully");
+-    }
++    exec(hostname, cmd);
+   }
+ 
+   @Override
+-  public void stopAllServers(ServerType server) throws IOException {
++  public void stopAll(ServerType server) throws IOException {
+     File confDir = getConfDir();
+ 
+     switch (server) {
+       case TABLET_SERVER:
+-        for (String tserver : getHosts(new File(confDir, TSERVER_HOSTS_FILE))) {
++        for (String tserver : getHosts(new File(confDir, "slaves"))) {
+           stop(server, tserver);
+         }
+         break;
+       case MASTER:
+-        for (String master : getHosts(new File(confDir, MASTER_HOSTS_FILE))) {
++        for (String master : getHosts(new File(confDir, "masters"))) {
+           stop(server, master);
+         }
+         break;
+       case GARBAGE_COLLECTOR:
+-        for (String gc : getHosts(new File(confDir, GC_HOSTS_FILE))) {
++        for (String gc : getHosts(new File(confDir, "gc"))) {
+           stop(server, gc);
+         }
+         break;
+       case TRACER:
+-        for (String tracer : getHosts(new File(confDir, TRACER_HOSTS_FILE))) {
++        for (String tracer : getHosts(new File(confDir, "tracers"))) {
+           stop(server, tracer);
+         }
+         break;
+       case MONITOR:
+-        for (String monitor : getHosts(new File(confDir, MONITOR_HOSTS_FILE))) {
++        for (String monitor : getHosts(new File(confDir, "monitor"))) {
+           stop(server, monitor);
+         }
+         break;
+@@ -224,9 +150,12 @@ public class StandaloneClusterControl implements ClusterControl {
+ 
+   @Override
+   public void stop(ServerType server, String hostname) throws IOException {
++    String pid = getPid(server, accumuloHome, hostname);
++
+     // TODO Use `accumulo admin stop` for tservers, instrument clean stop for GC, monitor, tracer instead kill
+ 
+-    kill(server, hostname);
++    String[] stopCmd = new String[] {"kill", "-9", pid};
++    exec(hostname, stopCmd);
+   }
+ 
+   @Override
+@@ -241,30 +170,36 @@ public class StandaloneClusterControl implements ClusterControl {
+ 
+     String[] stopCmd;
+     if (isSignalNumber) {
+-      stopCmd = new String[] {"kill", "-" + signal, pid};
++      stopCmd = new String[] {"kill", signal, pid};
+     } else {
+       stopCmd = new String[] {"kill", "-s", signal, pid};
+     }
+ 
+-    Entry<Integer,String> pair = exec(hostname, stopCmd);
+-    if (0 != pair.getKey()) {
+-      throw new IOException("Signal " + signal + " to " + server + " on " + hostname + " failed for execute successfully");
+-    }
++    exec(hostname, stopCmd);
+   }
+ 
+   @Override
+   public void suspend(ServerType server, String hostname) throws IOException {
+-    signal(server, hostname, "SIGSTOP");
++    String pid = getPid(server, accumuloHome, hostname);
++
++    String[] stopCmd = new String[] {"kill", "-s", "SIGSTOP", pid};
++    exec(hostname, stopCmd);
+   }
+ 
+   @Override
+   public void resume(ServerType server, String hostname) throws IOException {
+-    signal(server, hostname, "SIGCONT");
++    String pid = getPid(server, accumuloHome, hostname);
++
++    String[] stopCmd = new String[] {"kill", "-s", "SIGCONT", pid};
++    exec(hostname, stopCmd);
+   }
+ 
+   @Override
+   public void kill(ServerType server, String hostname) throws IOException {
+-    signal(server, hostname, "SIGKILL");
++    String pid = getPid(server, accumuloHome, hostname);
++
++    String[] stopCmd = new String[] {"kill", "-s", "SIGKILL", pid};
++    exec(hostname, stopCmd);
+   }
+ 
+   protected String getPid(ServerType server, String accumuloHome, String hostname) throws IOException {
+@@ -329,8 +264,7 @@ public class StandaloneClusterControl implements ClusterControl {
+       List<String> hosts = new ArrayList<String>();
+       String line = null;
+       while ((line = reader.readLine()) != null) {
+-        line = line.trim();
+-        if (!line.isEmpty() && !line.startsWith("#")) {
++        if (!line.trim().startsWith("#")) {
+           hosts.add(line);
+         }
+       }

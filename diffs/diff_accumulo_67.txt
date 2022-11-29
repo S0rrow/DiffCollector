@@ -1,0 +1,23 @@
+diff --git a/src/server/src/main/java/org/apache/accumulo/server/master/Master.java b/src/server/src/main/java/org/apache/accumulo/server/master/Master.java
+index 50273cf68f..65483cb229 100644
+--- a/src/server/src/main/java/org/apache/accumulo/server/master/Master.java
++++ b/src/server/src/main/java/org/apache/accumulo/server/master/Master.java
+@@ -2005,14 +2005,11 @@ public class Master implements LiveTServerSet.Listener, LoggerWatcher, TableObse
+           tserverSet.remove(server);
+         }
+       }
+-    }
+-    synchronized (badServers) {
+-      Set<TServerInstance> deadBadServers = new HashSet<TServerInstance>(badServers.keySet());
+-      deadBadServers.removeAll(currentServers);
+-      if (!badServers.isEmpty()) {
+-        log.debug("Forgetting about bad servers: " + badServers);
++      synchronized (badServers) {
++        Set<TServerInstance> deadBadServers = new HashSet<TServerInstance>(badServers.keySet());
++        deadBadServers.removeAll(currentServers);
++        badServers.entrySet().removeAll(deadBadServers);
+       }
+-      badServers.entrySet().removeAll(deadBadServers);
+     }
+     log.debug(String.format("Finished gathering information from %d servers in %.2f seconds", result.size(), (System.currentTimeMillis() - start) / 1000.));
+     return result;

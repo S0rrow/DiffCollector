@@ -1,0 +1,346 @@
+diff --git a/asterix-algebra/src/main/java/edu/uci/ics/asterix/translator/CompiledStatements.java b/asterix-algebra/src/main/java/edu/uci/ics/asterix/translator/CompiledStatements.java
+index c08f1005e4..6cf8d28aaa 100644
+--- a/asterix-algebra/src/main/java/edu/uci/ics/asterix/translator/CompiledStatements.java
++++ b/asterix-algebra/src/main/java/edu/uci/ics/asterix/translator/CompiledStatements.java
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright 2009-2013 by The Regents of the University of California
++ * Copyright 2009-2012 by The Regents of the University of California
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+  * you may obtain a copy of the License from
+@@ -22,6 +22,7 @@ import edu.uci.ics.asterix.aql.base.Clause;
+ import edu.uci.ics.asterix.aql.base.Expression;
+ import edu.uci.ics.asterix.aql.base.Statement.Kind;
+ import edu.uci.ics.asterix.aql.expression.CallExpr;
++import edu.uci.ics.asterix.aql.expression.ControlFeedStatement.OperationType;
+ import edu.uci.ics.asterix.aql.expression.FLWOGRExpression;
+ import edu.uci.ics.asterix.aql.expression.FieldAccessor;
+ import edu.uci.ics.asterix.aql.expression.FieldBinding;
+@@ -34,7 +35,6 @@ import edu.uci.ics.asterix.aql.expression.VariableExpr;
+ import edu.uci.ics.asterix.aql.expression.WhereClause;
+ import edu.uci.ics.asterix.aql.literal.StringLiteral;
+ import edu.uci.ics.asterix.common.config.DatasetConfig.IndexType;
+-import edu.uci.ics.asterix.common.feeds.FeedConnectionRequest;
+ import edu.uci.ics.asterix.common.functions.FunctionConstants;
+ import edu.uci.ics.asterix.common.functions.FunctionSignature;
+ import edu.uci.ics.asterix.metadata.declared.AqlMetadataProvider;
+@@ -54,6 +54,44 @@ public class CompiledStatements {
+         public Kind getKind();
+     }
+ 
++    public static class CompiledWriteFromQueryResultStatement implements ICompiledDmlStatement {
++
++        private String dataverseName;
++        private String datasetName;
++        private Query query;
++        private int varCounter;
++
++        public CompiledWriteFromQueryResultStatement(String dataverseName, String datasetName, Query query,
++                int varCounter) {
++            this.dataverseName = dataverseName;
++            this.datasetName = datasetName;
++            this.query = query;
++            this.varCounter = varCounter;
++        }
++
++        public String getDataverseName() {
++            return dataverseName;
++        }
++
++        public String getDatasetName() {
++            return datasetName;
++        }
++
++        public int getVarCounter() {
++            return varCounter;
++        }
++
++        public Query getQuery() {
++            return query;
++        }
++
++        @Override
++        public Kind getKind() {
++            return Kind.WRITE_FROM_QUERY_RESULT;
++        }
++
++    }
++
+     public static class CompiledDatasetDropStatement implements ICompiledStatement {
+         private final String dataverseName;
+         private final String datasetName;
+@@ -198,23 +236,19 @@ public class CompiledStatements {
+         private final String indexName;
+         private final String dataverseName;
+         private final String datasetName;
+-        private final List<List<String>> keyFields;
+-        private final List<IAType> keyTypes;
+-        private final boolean isEnforced;
++        private final List<String> keyFields;
+         private final IndexType indexType;
+ 
+         // Specific to NGram index.
+         private final int gramLength;
+ 
+         public CompiledCreateIndexStatement(String indexName, String dataverseName, String datasetName,
+-                List<List<String>> keyFields, List<IAType> keyTypes, boolean isEnforced, int gramLength, IndexType indexType) {
++                List<String> keyFields, int gramLength, IndexType indexType) {
+             this.indexName = indexName;
+             this.dataverseName = dataverseName;
+             this.datasetName = datasetName;
+             this.keyFields = keyFields;
+-            this.keyTypes = keyTypes;
+             this.gramLength = gramLength;
+-            this.isEnforced = isEnforced;
+             this.indexType = indexType;
+         }
+ 
+@@ -230,14 +264,10 @@ public class CompiledStatements {
+             return indexName;
+         }
+ 
+-        public List<List<String>> getKeyFields() {
++        public List<String> getKeyFields() {
+             return keyFields;
+         }
+ 
+-        public List<IAType> getKeyFieldTypes() {
+-            return keyTypes;
+-        }
+-
+         public IndexType getIndexType() {
+             return indexType;
+         }
+@@ -246,10 +276,6 @@ public class CompiledStatements {
+             return gramLength;
+         }
+ 
+-        public boolean isEnforced() {
+-            return isEnforced;
+-        }
+-
+         @Override
+         public Kind getKind() {
+             return Kind.CREATE_INDEX;
+@@ -294,7 +320,7 @@ public class CompiledStatements {
+ 
+         @Override
+         public Kind getKind() {
+-            return Kind.LOAD;
++            return Kind.LOAD_FROM_FILE;
+         }
+     }
+ 
+@@ -333,20 +359,15 @@ public class CompiledStatements {
+         }
+     }
+ 
+-    public static class CompiledConnectFeedStatement implements ICompiledDmlStatement {
++    public static class CompiledBeginFeedStatement implements ICompiledDmlStatement {
+         private String dataverseName;
+-        private String feedName;
+         private String datasetName;
+-        private String policyName;
+         private Query query;
+         private int varCounter;
+ 
+-        public CompiledConnectFeedStatement(String dataverseName, String feedName, String datasetName,
+-                String policyName, Query query, int varCounter) {
++        public CompiledBeginFeedStatement(String dataverseName, String datasetName, Query query, int varCounter) {
+             this.dataverseName = dataverseName;
+-            this.feedName = feedName;
+             this.datasetName = datasetName;
+-            this.policyName = policyName;
+             this.query = query;
+             this.varCounter = varCounter;
+         }
+@@ -356,10 +377,6 @@ public class CompiledStatements {
+             return dataverseName;
+         }
+ 
+-        public String getFeedName() {
+-            return feedName;
+-        }
+-
+         @Override
+         public String getDatasetName() {
+             return datasetName;
+@@ -379,67 +396,24 @@ public class CompiledStatements {
+ 
+         @Override
+         public Kind getKind() {
+-            return Kind.CONNECT_FEED;
+-        }
+-
+-        public String getPolicyName() {
+-            return policyName;
++            return Kind.BEGIN_FEED;
+         }
+     }
+-    
+-    public static class CompiledSubscribeFeedStatement implements ICompiledDmlStatement {
+ 
+-        private final FeedConnectionRequest request;
+-        private Query query;
+-        private final int varCounter;
+-
+-        public CompiledSubscribeFeedStatement(FeedConnectionRequest request, Query query, int varCounter) {
+-            this.request = request;
+-            this.query = query;
+-            this.varCounter = varCounter;
+-        }
+-
+-        @Override
+-        public String getDataverseName() {
+-            return request.getReceivingFeedId().getDataverse();
+-        }
+-
+-        @Override
+-        public String getDatasetName() {
+-            return request.getTargetDataset();
+-        }
+-
+-        public int getVarCounter() {
+-            return varCounter;
+-        }
+-
+-        public Query getQuery() {
+-            return query;
+-        }
+-
+-        public void setQuery(Query query) {
+-            this.query = query;
+-        }
+-
+-        @Override
+-        public Kind getKind() {
+-            return Kind.SUBSCRIBE_FEED;
+-        }
+-
+-    }
+-
+-
+-    public static class CompiledDisconnectFeedStatement implements ICompiledDmlStatement {
++    public static class CompiledControlFeedStatement implements ICompiledDmlStatement {
+         private String dataverseName;
+         private String datasetName;
+-        private String feedName;
++        private OperationType operationType;
+         private Query query;
+         private int varCounter;
++        private Map<String, String> alteredParams;
+ 
+-        public CompiledDisconnectFeedStatement(String dataverseName, String feedName, String datasetName) {
++        public CompiledControlFeedStatement(OperationType operationType, String dataverseName, String datasetName,
++                Map<String, String> alteredParams) {
+             this.dataverseName = dataverseName;
+-            this.feedName = feedName;
+             this.datasetName = datasetName;
++            this.operationType = operationType;
++            this.alteredParams = alteredParams;
+         }
+ 
+         @Override
+@@ -452,8 +426,8 @@ public class CompiledStatements {
+             return datasetName;
+         }
+ 
+-        public String getFeedName() {
+-            return feedName;
++        public OperationType getOperationType() {
++            return operationType;
+         }
+ 
+         public int getVarCounter() {
+@@ -466,9 +440,16 @@ public class CompiledStatements {
+ 
+         @Override
+         public Kind getKind() {
+-            return Kind.DISCONNECT_FEED;
++            return Kind.CONTROL_FEED;
++        }
++
++        public Map<String, String> getProperties() {
++            return alteredParams;
+         }
+ 
++        public void setProperties(Map<String, String> properties) {
++            this.alteredParams = properties;
++        }
+     }
+ 
+     public static class CompiledDeleteStatement implements ICompiledDmlStatement {
+@@ -554,72 +535,4 @@ public class CompiledStatements {
+ 
+     }
+ 
+-    public static class CompiledCompactStatement implements ICompiledStatement {
+-        private final String dataverseName;
+-        private final String datasetName;
+-
+-        public CompiledCompactStatement(String dataverseName, String datasetName) {
+-            this.dataverseName = dataverseName;
+-            this.datasetName = datasetName;
+-        }
+-
+-        public String getDataverseName() {
+-            return dataverseName;
+-        }
+-
+-        public String getDatasetName() {
+-            return datasetName;
+-        }
+-
+-        @Override
+-        public Kind getKind() {
+-            return Kind.COMPACT;
+-        }
+-    }
+-
+-    public static class CompiledIndexCompactStatement extends CompiledCompactStatement {
+-        private final String indexName;
+-        private final List<List<String>> keyFields;
+-        private final List<IAType> keyTypes;
+-        private final IndexType indexType;
+-        private final boolean isEnforced;
+-
+-        // Specific to NGram index.
+-        private final int gramLength;
+-
+-        public CompiledIndexCompactStatement(String dataverseName, String datasetName, String indexName,
+-                List<List<String>> keyFields, List<IAType> keyTypes, boolean isEnforced, int gramLength, IndexType indexType) {
+-            super(dataverseName, datasetName);
+-            this.indexName = indexName;
+-            this.keyFields = keyFields;
+-            this.keyTypes = keyTypes;
+-            this.gramLength = gramLength;
+-            this.indexType = indexType;
+-            this.isEnforced = isEnforced;
+-        }
+-
+-        public String getIndexName() {
+-            return indexName;
+-        }
+-
+-        public List<List<String>> getKeyFields() {
+-            return keyFields;
+-        }
+-
+-        public List<IAType> getKeyTypes() {
+-            return keyTypes;
+-        }
+-
+-        public IndexType getIndexType() {
+-            return indexType;
+-        }
+-
+-        public int getGramLength() {
+-            return gramLength;
+-        }
+-
+-        public boolean isEnforced() {
+-            return isEnforced;
+-        }
+-    }
+ }

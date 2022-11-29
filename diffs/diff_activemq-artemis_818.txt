@@ -1,0 +1,543 @@
+diff --git a/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java b/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java
+index 01fee3fce0..d8a15285c4 100644
+--- a/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java
++++ b/artemis-cli/src/main/java/org/apache/activemq/artemis/cli/commands/tools/PrintData.java
+@@ -1,4 +1,4 @@
+-/*
++/**
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements. See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.
+@@ -17,25 +17,24 @@
+ package org.apache.activemq.artemis.cli.commands.tools;
+ 
+ import java.io.File;
+-import java.io.PrintStream;
+ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import java.util.concurrent.Executor;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+ import java.util.concurrent.ScheduledExecutorService;
+-import java.util.concurrent.ScheduledThreadPoolExecutor;
+ 
++import io.airlift.airline.Command;
++import io.airlift.airline.Option;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffers;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+-import org.apache.activemq.artemis.cli.Artemis;
++import org.apache.activemq.artemis.cli.commands.Action;
+ import org.apache.activemq.artemis.cli.commands.ActionContext;
+-import org.apache.activemq.artemis.core.config.Configuration;
+ import org.apache.activemq.artemis.core.journal.RecordInfo;
+-import org.apache.activemq.artemis.core.message.impl.CoreMessagePersister;
+ import org.apache.activemq.artemis.core.paging.PagedMessage;
+ import org.apache.activemq.artemis.core.paging.PagingManager;
+ import org.apache.activemq.artemis.core.paging.PagingStore;
+@@ -49,281 +48,265 @@ import org.apache.activemq.artemis.core.paging.impl.PagingStoreFactoryNIO;
+ import org.apache.activemq.artemis.core.persistence.StorageManager;
+ import org.apache.activemq.artemis.core.persistence.impl.journal.DescribeJournal;
+ import org.apache.activemq.artemis.core.persistence.impl.journal.JournalRecordIds;
+-import org.apache.activemq.artemis.core.persistence.impl.journal.codec.CursorAckRecordEncoding;
+-import org.apache.activemq.artemis.core.persistence.impl.journal.codec.PageUpdateTXEncoding;
++import org.apache.activemq.artemis.core.persistence.impl.journal.JournalStorageManager;
+ import org.apache.activemq.artemis.core.persistence.impl.nullpm.NullStorageManager;
+ import org.apache.activemq.artemis.core.server.impl.FileLockNodeManager;
+ import org.apache.activemq.artemis.core.settings.HierarchicalRepository;
+ import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+ import org.apache.activemq.artemis.core.settings.impl.HierarchicalObjectRepository;
+-import org.apache.activemq.artemis.spi.core.protocol.MessagePersister;
+-import org.apache.activemq.artemis.utils.ActiveMQThreadFactory;
+ import org.apache.activemq.artemis.utils.ExecutorFactory;
+-import org.apache.activemq.artemis.utils.actors.ArtemisExecutor;
+-
+-import io.airlift.airline.Command;
+-import io.airlift.airline.Option;
+ 
+ @Command(name = "print", description = "Print data records information (WARNING: don't use while a production server is running)")
+-public class PrintData extends DBOption {
++public class PrintData implements Action
++{
++   @Option(name = "--bindings", description = "The folder used for bindings (default ../data/bindings)")
++   public String binding = "../data/bindings";
+ 
++   @Option(name = "--journal", description = "The folder used for messages journal (default ../data/journal)")
++   public String journal = "../data/journal";
+ 
+-   @Option(name = "--safe", description = "It will print your data structure without showing your data")
+-   private boolean safe = false;
++   @Option(name = "--paging", description = "The folder used for paging (default ../data/paging)")
++   public String paging = "../data/paging";
+ 
+-   private static final String BINDINGS_BANNER = "B I N D I N G S  J O U R N A L";
+-   private static final String MESSAGES_BANNER = "M E S S A G E S   J O U R N A L";
+-   static {
+-      MessagePersister.registerPersister(CoreMessagePersister.getInstance());
+-   }
+ 
+    @Override
+-   public Object execute(ActionContext context) throws Exception {
+-      super.execute(context);
+-
+-      Configuration configuration = getParameterConfiguration();
+-
+-      try {
+-         if (configuration.isJDBC()) {
+-            printDataJDBC(configuration, context.out);
+-         } else {
+-            printData(new File(getBinding()), new File(getJournal()), new File(getPaging()), context.out, safe);
+-         }
+-      } catch (Exception e) {
+-         treatError(e, "data", "print");
+-      }
++   public Object execute(ActionContext context) throws Exception
++   {
++      printData(binding, journal, paging);
+       return null;
+    }
+ 
+-
+-   public void printDataJDBC(Configuration configuration, PrintStream out) throws Exception {
+-      initializeJournal(configuration);
+-
+-      Artemis.printBanner(out);
+-
+-      printBanner(out, BINDINGS_BANNER);
+-
+-      DescribeJournal.printSurvivingRecords(storageManager.getBindingsJournal(), out, safe);
+-
+-      printBanner(out, MESSAGES_BANNER);
+-
+-      DescribeJournal describeJournal = DescribeJournal.printSurvivingRecords(storageManager.getMessageJournal(), out, safe);
+-
+-      printPages(describeJournal, storageManager, pagingmanager, out, safe);
+-
+-      cleanup();
+-
+-   }
+-   public static void printData(File bindingsDirectory, File messagesDirectory, File pagingDirectory) throws Exception {
+-      printData(bindingsDirectory, messagesDirectory, pagingDirectory, false);
+-   }
+-
+-   public static void printData(File bindingsDirectory, File messagesDirectory, File pagingDirectory, boolean secret) throws Exception {
+-      printData(bindingsDirectory, messagesDirectory, pagingDirectory, System.out, secret);
+-   }
+-
+-   public static void printData(File bindingsDirectory, File messagesDirectory, File pagingDirectory, PrintStream out, boolean safe) throws Exception {
+-         // Having the version on the data report is an information very useful to understand what happened
+-      // When debugging stuff
+-      Artemis.printBanner(out);
+-
++   public static void printData(String bindingsDirectory, String messagesDirectory, String pagingDirectory)
++   {
+       File serverLockFile = new File(messagesDirectory, "server.lock");
+ 
+-      if (serverLockFile.isFile()) {
+-         try {
+-            FileLockNodeManager fileLock = new FileLockNodeManager(messagesDirectory, false, new ScheduledThreadPoolExecutor(1));
++      if (serverLockFile.isFile())
++      {
++         try
++         {
++            FileLockNodeManager fileLock = new FileLockNodeManager(messagesDirectory, false);
+             fileLock.start();
+-            printBanner(out, "Server's ID=" + fileLock.getNodeId().toString());
++            System.out.println("********************************************");
++            System.out.println("Server's ID=" + fileLock.getNodeId().toString());
++            System.out.println("********************************************");
+             fileLock.stop();
+-         } catch (Exception e) {
++         }
++         catch (Exception e)
++         {
+             e.printStackTrace();
+          }
+       }
+ 
+-      printBanner(out, BINDINGS_BANNER);
++      System.out.println("********************************************");
++      System.out.println("B I N D I N G S  J O U R N A L");
++      System.out.println("********************************************");
+ 
+-      try {
+-         DescribeJournal.describeBindingsJournal(bindingsDirectory, out, safe);
+-      } catch (Exception e) {
++      try
++      {
++         DescribeJournal.describeBindingsJournal(bindingsDirectory);
++      }
++      catch (Exception e)
++      {
+          e.printStackTrace();
+       }
+ 
+-      printBanner(out, MESSAGES_BANNER);
++      System.out.println();
++      System.out.println("********************************************");
++      System.out.println("M E S S A G E S   J O U R N A L");
++      System.out.println("********************************************");
+ 
+       DescribeJournal describeJournal = null;
+-      try {
+-         describeJournal = DescribeJournal.describeMessagesJournal(messagesDirectory, out, safe);
+-      } catch (Exception e) {
++      try
++      {
++         describeJournal = DescribeJournal.describeMessagesJournal(messagesDirectory);
++      }
++      catch (Exception e)
++      {
+          e.printStackTrace();
+          return;
+       }
+ 
+-      try {
+-         printBanner(out, "P A G I N G");
+ 
+-         printPages(pagingDirectory, describeJournal, out, safe);
+-      } catch (Exception e) {
++      try
++      {
++         System.out.println();
++         System.out.println("********************************************");
++         System.out.println("P A G I N G");
++         System.out.println("********************************************");
++
++         printPages(pagingDirectory, describeJournal);
++      }
++      catch (Exception e)
++      {
+          e.printStackTrace();
+          return;
+       }
+ 
+-   }
+ 
+-   protected static void printBanner(PrintStream out, String x2) {
+-      out.println();
+-      out.println("********************************************");
+-      out.println(x2);
+-      out.println("********************************************");
+    }
+ 
+-   private static void printPages(File pageDirectory, DescribeJournal describeJournal, PrintStream out, boolean safe) {
+-      ActiveMQThreadFactory daemonFactory = new ActiveMQThreadFactory("cli", true, PrintData.class.getClassLoader());
+-      final ScheduledExecutorService scheduled = Executors.newScheduledThreadPool(1, daemonFactory);
+-      final ExecutorService executor = Executors.newFixedThreadPool(10, daemonFactory);
+-      ExecutorFactory execfactory = new ExecutorFactory() {
+-         @Override
+-         public ArtemisExecutor getExecutor() {
+-            return ArtemisExecutor.delegate(executor);
+-         }
+-      };
+-      try {
+ 
+-         final StorageManager sm = new NullStorageManager();
+-         PagingStoreFactory pageStoreFactory = new PagingStoreFactoryNIO(sm, pageDirectory, 1000L, scheduled, execfactory, false, null);
+-         HierarchicalRepository<AddressSettings> addressSettingsRepository = new HierarchicalObjectRepository<>();
+-         addressSettingsRepository.setDefault(new AddressSettings());
+-         PagingManager manager = new PagingManagerImpl(pageStoreFactory, addressSettingsRepository);
++   private static void printPages(String pageDirectory, DescribeJournal describeJournal)
++   {
++      try
++      {
+ 
+-         printPages(describeJournal, sm, manager, out, safe);
+-      } catch (Exception e) {
+-         e.printStackTrace();
+-      } finally {
+-         executor.shutdownNow();
+-         scheduled.shutdownNow();
+-      }
+-   }
++         PageCursorsInfo cursorACKs = calculateCursorsInfo(describeJournal.getRecords());
+ 
+-   private static void printPages(DescribeJournal describeJournal,
+-                                  StorageManager sm,
+-                                  PagingManager manager,
+-                                  PrintStream out,
+-                                  boolean safe) throws Exception {
+-      PageCursorsInfo cursorACKs = calculateCursorsInfo(describeJournal.getRecords());
++         Set<Long> pgTXs = cursorACKs.getPgTXs();
+ 
+-      Set<Long> pgTXs = cursorACKs.getPgTXs();
++         ScheduledExecutorService scheduled = Executors.newScheduledThreadPool(1);
++         final ExecutorService executor = Executors.newFixedThreadPool(10);
++         ExecutorFactory execfactory = new ExecutorFactory()
++         {
++            @Override
++            public Executor getExecutor()
++            {
++               return executor;
++            }
++         };
++         final StorageManager sm = new NullStorageManager();
++         PagingStoreFactory pageStoreFactory =
++            new PagingStoreFactoryNIO(sm, pageDirectory, 1000L, scheduled, execfactory, false, null);
++         HierarchicalRepository<AddressSettings> addressSettingsRepository = new HierarchicalObjectRepository<AddressSettings>();
++         addressSettingsRepository.setDefault(new AddressSettings());
++         PagingManager manager = new PagingManagerImpl(pageStoreFactory, addressSettingsRepository);
+ 
+-      manager.start();
++         manager.start();
+ 
+-      SimpleString[] stores = manager.getStoreNames();
++         SimpleString[] stores = manager.getStoreNames();
+ 
+-      for (SimpleString store : stores) {
+-         PagingStore pgStore = manager.getPageStore(store);
+-         File folder = null;
++         for (SimpleString store : stores)
++         {
++            PagingStore pgStore = manager.getPageStore(store);
++            String folder = null;
+ 
+-         if (pgStore != null) {
+-            folder = pgStore.getFolder();
+-            out.println("####################################################################################################");
+-            out.println("Exploring store " + store + " folder = " + folder);
++            if (pgStore != null)
++            {
++               folder = pgStore.getFolder();
++            }
++            System.out.println("####################################################################################################");
++            System.out.println("Exploring store " + store + " folder = " + folder);
+             int pgid = (int) pgStore.getFirstPage();
+-            for (int pg = 0; pg < pgStore.getNumberOfPages(); pg++) {
+-               out.println("*******   Page " + pgid);
++            for (int pg = 0; pg < pgStore.getNumberOfPages(); pg++)
++            {
++               System.out.println("*******   Page " + pgid);
+                Page page = pgStore.createPage(pgid);
+                page.open();
+                List<PagedMessage> msgs = page.read(sm);
+-               page.close(false, false);
++               page.close();
+ 
+                int msgID = 0;
+ 
+-               for (PagedMessage msg : msgs) {
++               for (PagedMessage msg : msgs)
++               {
+                   msg.initMessage(sm);
+-                  if (safe) {
+-                     try {
+-                        out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ", msg=" + msg.getMessage().getClass().getSimpleName() + "(safe data, size=" + msg.getMessage().getPersistentSize() + ")");
+-                     } catch (Exception e) {
+-                        out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ", msg=" + msg.getMessage().getClass().getSimpleName() + "(safe data)");
+-                     }
+-                  } else {
+-                     out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ",userMessageID=" + (msg.getMessage().getUserID() != null ? msg.getMessage().getUserID() : "") + ", msg=" + msg.getMessage());
+-                  }
+-                  out.print(",Queues = ");
++                  System.out.print("pg=" + pgid + ", msg=" + msgID + ",pgTX=" + msg.getTransactionID() + ",userMessageID=" + (msg.getMessage().getUserID() != null ? msg.getMessage().getUserID() : "") + ", msg=" + msg.getMessage());
++                  System.out.print(",Queues = ");
+                   long[] q = msg.getQueueIDs();
+-                  for (int i = 0; i < q.length; i++) {
+-                     out.print(q[i]);
++                  for (int i = 0; i < q.length; i++)
++                  {
++                     System.out.print(q[i]);
+ 
+                      PagePosition posCheck = new PagePositionImpl(pgid, msgID);
+ 
+                      boolean acked = false;
+ 
+                      Set<PagePosition> positions = cursorACKs.getCursorRecords().get(q[i]);
+-                     if (positions != null) {
++                     if (positions != null)
++                     {
+                         acked = positions.contains(posCheck);
+                      }
+ 
+-                     if (acked) {
+-                        out.print(" (ACK)");
++                     if (acked)
++                     {
++                        System.out.print(" (ACK)");
+                      }
+ 
+-                     if (cursorACKs.getCompletePages(q[i]).contains(Long.valueOf(pgid))) {
+-                        out.println(" (PG-COMPLETE)");
++                     if (cursorACKs.getCompletePages(q[i]).contains(Long.valueOf(pgid)))
++                     {
++                        System.out.println(" (PG-COMPLETE)");
+                      }
+ 
+-                     if (i + 1 < q.length) {
+-                        out.print(",");
++
++                     if (i + 1 < q.length)
++                     {
++                        System.out.print(",");
+                      }
+                   }
+-                  if (msg.getTransactionID() >= 0 && !pgTXs.contains(msg.getTransactionID())) {
+-                     out.print(", **PG_TX_NOT_FOUND**");
++                  if (msg.getTransactionID() >= 0 && !pgTXs.contains(msg.getTransactionID()))
++                  {
++                     System.out.print(", **PG_TX_NOT_FOUND**");
+                   }
+-                  out.println();
++                  System.out.println();
+                   msgID++;
+                }
++
+                pgid++;
++
+             }
+          }
++
++      }
++      catch (Exception e)
++      {
++         e.printStackTrace();
+       }
+    }
+ 
+-   /**
+-    * Calculate the acks on the page system
+-    */
+-   private static PageCursorsInfo calculateCursorsInfo(List<RecordInfo> records) throws Exception {
++
++   /** Calculate the acks on the page system */
++   protected static PageCursorsInfo calculateCursorsInfo(List<RecordInfo> records) throws Exception
++   {
+ 
+       PageCursorsInfo cursorInfo = new PageCursorsInfo();
+ 
+-      for (RecordInfo record : records) {
++
++      for (RecordInfo record : records)
++      {
+          byte[] data = record.data;
+ 
+          ActiveMQBuffer buff = ActiveMQBuffers.wrappedBuffer(data);
+ 
+-         if (record.userRecordType == JournalRecordIds.ACKNOWLEDGE_CURSOR) {
+-            CursorAckRecordEncoding encoding = new CursorAckRecordEncoding();
++         if (record.userRecordType == JournalRecordIds.ACKNOWLEDGE_CURSOR)
++         {
++            JournalStorageManager.CursorAckRecordEncoding encoding = new JournalStorageManager.CursorAckRecordEncoding();
+             encoding.decode(buff);
+ 
+             Set<PagePosition> set = cursorInfo.getCursorRecords().get(encoding.queueID);
+ 
+-            if (set == null) {
+-               set = new HashSet<>();
++            if (set == null)
++            {
++               set = new HashSet<PagePosition>();
+                cursorInfo.getCursorRecords().put(encoding.queueID, set);
+             }
+ 
+             set.add(encoding.position);
+-         } else if (record.userRecordType == JournalRecordIds.PAGE_CURSOR_COMPLETE) {
+-            CursorAckRecordEncoding encoding = new CursorAckRecordEncoding();
++         }
++         else if (record.userRecordType == JournalRecordIds.PAGE_CURSOR_COMPLETE)
++         {
++            JournalStorageManager.CursorAckRecordEncoding encoding = new JournalStorageManager.CursorAckRecordEncoding();
+             encoding.decode(buff);
+ 
+             Long queueID = Long.valueOf(encoding.queueID);
+             Long pageNR = Long.valueOf(encoding.position.getPageNr());
+ 
+-            if (!cursorInfo.getCompletePages(queueID).add(pageNR)) {
++            if (!cursorInfo.getCompletePages(queueID).add(pageNR))
++            {
+                System.err.println("Page " + pageNR + " has been already set as complete on queue " + queueID);
+             }
+-         } else if (record.userRecordType == JournalRecordIds.PAGE_TRANSACTION) {
+-            if (record.isUpdate) {
+-               PageUpdateTXEncoding pageUpdate = new PageUpdateTXEncoding();
++         }
++         else if (record.userRecordType == JournalRecordIds.PAGE_TRANSACTION)
++         {
++            if (record.isUpdate)
++            {
++               JournalStorageManager.PageUpdateTXEncoding pageUpdate = new JournalStorageManager.PageUpdateTXEncoding();
+ 
+                pageUpdate.decode(buff);
+                cursorInfo.getPgTXs().add(pageUpdate.pageTX);
+-            } else {
++            }
++            else
++            {
+                PageTransactionInfoImpl pageTransactionInfo = new PageTransactionInfoImpl();
+ 
+                pageTransactionInfo.decode(buff);
+@@ -337,36 +320,53 @@ public class PrintData extends DBOption {
+       return cursorInfo;
+    }
+ 
+-   private static class PageCursorsInfo {
+ 
+-      private final Map<Long, Set<PagePosition>> cursorRecords = new HashMap<>();
++   private static class PageCursorsInfo
++   {
++      private final Map<Long, Set<PagePosition>> cursorRecords = new HashMap<Long, Set<PagePosition>>();
+ 
+-      private final Set<Long> pgTXs = new HashSet<>();
++      private final Set<Long> pgTXs = new HashSet<Long>();
+ 
+-      private final Map<Long, Set<Long>> completePages = new HashMap<>();
++      private final Map<Long, Set<Long>> completePages = new HashMap<Long, Set<Long>>();
+ 
+-      private PageCursorsInfo() {
++      public PageCursorsInfo()
++      {
+       }
+ 
++
+       /**
+        * @return the pgTXs
+        */
+-      Set<Long> getPgTXs() {
++      public Set<Long> getPgTXs()
++      {
+          return pgTXs;
+       }
+ 
++
+       /**
+        * @return the cursorRecords
+        */
+-      Map<Long, Set<PagePosition>> getCursorRecords() {
++      public Map<Long, Set<PagePosition>> getCursorRecords()
++      {
+          return cursorRecords;
+       }
+ 
+-      Set<Long> getCompletePages(Long queueID) {
++
++      /**
++       * @return the completePages
++       */
++      public Map<Long, Set<Long>> getCompletePages()
++      {
++         return completePages;
++      }
++
++      public Set<Long> getCompletePages(Long queueID)
++      {
+          Set<Long> completePagesSet = completePages.get(queueID);
+ 
+-         if (completePagesSet == null) {
+-            completePagesSet = new HashSet<>();
++         if (completePagesSet == null)
++         {
++            completePagesSet = new HashSet<Long>();
+             completePages.put(queueID, completePagesSet);
+          }
+ 
+@@ -375,4 +375,5 @@ public class PrintData extends DBOption {
+ 
+    }
+ 
++
+ }

@@ -1,0 +1,60 @@
+diff --git a/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java b/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
+index 776c4a1b2..92ad682a0 100644
+--- a/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
++++ b/modules/commons/registry-api/src/main/java/org/apache/airavata/registry/api/impl/JCRRegistry.java
+@@ -22,7 +22,6 @@
+ package org.apache.airavata.registry.api.impl;
+ 
+ import java.lang.reflect.Constructor;
+-import java.net.URI;
+ import java.util.ArrayList;
+ import java.util.List;
+ import java.util.Map;
+@@ -426,42 +425,17 @@ public class JCRRegistry implements Axis2Registry {
+ 
+     public boolean saveGFacDescriptor(String gfacURL) {
+         Session session = null;
++        String result = null;
+         try {
+-            URI uri = new URI(gfacURL);
+-            String propertyName = uri.getHost() + "-" + uri.getPort();
+             session = getSession();
+             Node gfacDataNode = getOrAddNode(session.getRootNode(), GFAC_INSTANCE_DATA);
+             try {
+-                Property prop = gfacDataNode.getProperty(propertyName);
+-                prop.setValue(gfacURL);
+-                session.save();
++                Property prop = gfacDataNode.getProperty(GFAC_URL_PROPERTY_NAME);
++                result = prop.getString();
++                prop.setValue(result + "," + gfacURL);
+             } catch (PathNotFoundException e) {
+-                gfacDataNode.setProperty(propertyName, gfacURL);
+-                session.save();
+-            }
+-        } catch (Exception e) {
+-            System.out.println(e);
+-            e.printStackTrace();
+-            return false;
+-            // TODO propagate
+-        } finally {
+-            if (session != null && session.isLive()) {
+-                session.logout();
++                gfacDataNode.setProperty(GFAC_URL_PROPERTY_NAME, gfacURL);
+             }
+-            return true;
+-        }
+-    }
+-
+-    public boolean deleteGFacDescriptor(String gfacURL) {
+-        Session session = null;
+-        try {
+-            URI uri = new URI(gfacURL);
+-            String propertyName = uri.getHost() + "-" + uri.getPort();
+-            session = getSession();
+-            Node gfacDataNode = getOrAddNode(session.getRootNode(), GFAC_INSTANCE_DATA);
+-            Property prop = gfacDataNode.getProperty(propertyName);
+-            prop.setValue((String) null);
+-            session.save();
+         } catch (Exception e) {
+             System.out.println(e);
+             e.printStackTrace();

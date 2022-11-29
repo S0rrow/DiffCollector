@@ -1,0 +1,26 @@
+diff --git a/application/application-utils/src/main/java/org/apache/aries/application/impl/ContentImpl.java b/application/application-utils/src/main/java/org/apache/aries/application/impl/ContentImpl.java
+index d4b69338b..40501b6e4 100644
+--- a/application/application-utils/src/main/java/org/apache/aries/application/impl/ContentImpl.java
++++ b/application/application-utils/src/main/java/org/apache/aries/application/impl/ContentImpl.java
+@@ -32,7 +32,7 @@ import org.osgi.framework.Version;
+ 
+ 
+ /**
+- * Implementation of Content
++ * Implementation of Content 
+  *
+  */
+ public final class ContentImpl implements Content
+@@ -66,12 +66,6 @@ public final class ContentImpl implements Content
+     setup();
+   }
+   
+-  public ContentImpl (String bundleSymbolicName, VersionRange version) { 
+-    this.contentName = bundleSymbolicName;
+-    this.nameValueMap = new NameValueMap<String, String>();
+-    nameValueMap.put("version", version.toString());
+-    setup();
+-  }
+   /**
+    * 
+    * @param contentName  

@@ -1,0 +1,40 @@
+diff --git a/src/main/java/org/apache/aries/proxy/UnableToProxyException.java b/src/main/java/org/apache/aries/proxy/UnableToProxyException.java
+index 2e55eaccf..a589e3ebf 100644
+--- a/src/main/java/org/apache/aries/proxy/UnableToProxyException.java
++++ b/src/main/java/org/apache/aries/proxy/UnableToProxyException.java
+@@ -20,6 +20,7 @@ package org.apache.aries.proxy;
+ 
+ public class UnableToProxyException extends Exception
+ {
++
+   /**
+    * 
+    */
+@@ -28,7 +29,6 @@ public class UnableToProxyException extends Exception
+ 
+   public UnableToProxyException(Class<?> clazz)
+   {
+-    super(clazz.getName());
+     className = clazz.getName();
+   }
+ 
+@@ -42,19 +42,7 @@ public class UnableToProxyException extends Exception
+     super(e);
+     this.className = className;
+   }
+-  
+-  public UnableToProxyException(Object proxy, String msg)
+-  {
+-    super(msg);
+-    this.className = proxy.getClass().getName();
+-  }
+ 
+-  public UnableToProxyException(Class<?> clazz, String msg)
+-  {
+-    super(msg);
+-    className = clazz.getName();
+-  }
+-  
+   public String getClassName()
+   {
+     return className;

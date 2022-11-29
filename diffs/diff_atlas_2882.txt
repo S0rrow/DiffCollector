@@ -1,0 +1,221 @@
+diff --git a/repository/src/main/java/org/apache/atlas/discovery/SearchProcessor.java b/repository/src/main/java/org/apache/atlas/discovery/SearchProcessor.java
+index 2e75dfeb5..1a2d997bb 100644
+--- a/repository/src/main/java/org/apache/atlas/discovery/SearchProcessor.java
++++ b/repository/src/main/java/org/apache/atlas/discovery/SearchProcessor.java
+@@ -50,10 +50,8 @@ public abstract class SearchProcessor {
+     public static final String  SPACE_STRING    = " ";
+     public static final String  BRACE_OPEN_STR  = "( ";
+     public static final String  BRACE_CLOSE_STR = " )";
+-    public static final char    DOUBLE_QUOTE    = '"';
+ 
+     private static final Map<SearchParameters.Operator, String> OPERATOR_MAP = new HashMap<>();
+-    private static final char[] OFFENDING_CHARS = {'@', '/', ' '}; // This can grow as we discover corner cases
+ 
+     static
+     {
+@@ -62,9 +60,9 @@ public abstract class SearchProcessor {
+         OPERATOR_MAP.put(SearchParameters.Operator.LTE,"v.\"%s\": [* TO %s]");
+         OPERATOR_MAP.put(SearchParameters.Operator.GTE,"v.\"%s\": [%s TO *]");
+         OPERATOR_MAP.put(SearchParameters.Operator.EQ,"v.\"%s\": %s");
+-        OPERATOR_MAP.put(SearchParameters.Operator.NEQ,"-" + "v.\"%s\": %s");
+-        OPERATOR_MAP.put(SearchParameters.Operator.IN, "v.\"%s\": (%s)"); // this should be a list of quoted strings
+-        OPERATOR_MAP.put(SearchParameters.Operator.LIKE, "v.\"%s\": (%s)"); // this should be regex pattern
++        OPERATOR_MAP.put(SearchParameters.Operator.NEQ,"v.\"%s\": (NOT %s)");
++        OPERATOR_MAP.put(SearchParameters.Operator.IN, "v.\"%s\": (%s)");
++        OPERATOR_MAP.put(SearchParameters.Operator.LIKE, "v.\"%s\": (%s)");
+         OPERATOR_MAP.put(SearchParameters.Operator.STARTS_WITH, "v.\"%s\": (%s*)");
+         OPERATOR_MAP.put(SearchParameters.Operator.ENDS_WITH, "v.\"%s\": (*%s)");
+         OPERATOR_MAP.put(SearchParameters.Operator.CONTAINS, "v.\"%s\": (*%s*)");
+@@ -88,10 +86,8 @@ public abstract class SearchProcessor {
+ 
+     public abstract List<AtlasVertex> execute();
+ 
+-    public void filter(List<AtlasVertex> entityVertices) {
+-        if (nextProcessor != null && CollectionUtils.isNotEmpty(entityVertices)) {
+-            nextProcessor.filter(entityVertices);
+-        }
++    public List<AtlasVertex> filter(List<AtlasVertex> entityVertices) {
++        return nextProcessor == null ? entityVertices : nextProcessor.filter(entityVertices);
+     }
+ 
+ 
+@@ -121,11 +117,6 @@ public abstract class SearchProcessor {
+                     gremlinFiltered.add(attributeName);
+                 }
+ 
+-                if (structType instanceof AtlasEntityType) {
+-                    // Capture the entity attributes
+-                    context.getEntityAttributes().add(attributeName);
+-                }
+-
+                 allAttributes.add(attributeName);
+             } catch (AtlasBaseException e) {
+                 LOG.warn(e.getMessage());
+@@ -181,69 +172,51 @@ public abstract class SearchProcessor {
+         return ret;
+     }
+ 
+-    protected void constructTypeTestQuery(StringBuilder solrQuery, AtlasStructType type, Set<String> typeAndAllSubTypes) {
++    protected void constructTypeTestQuery(StringBuilder solrQuery, Set<String> typeAndAllSubTypes) {
+         String typeAndSubtypesString = StringUtils.join(typeAndAllSubTypes, SPACE_STRING);
+ 
+-        if (CollectionUtils.isNotEmpty(typeAndAllSubTypes)) {
+-            if (solrQuery.length() > 0) {
+-                solrQuery.append(AND_STR);
+-            }
+-
+-            solrQuery.append("v.\"").append(Constants.TYPE_NAME_PROPERTY_KEY).append("\": (")
+-                    .append(typeAndSubtypesString)
+-                    .append(")");
+-        }
+-
+-        if (type instanceof AtlasEntityType && context.getSearchParameters().getExcludeDeletedEntities()) {
+-            if (solrQuery.length() > 0) {
+-                solrQuery.append(AND_STR);
+-            }
+-
+-            solrQuery.append("v.\"").append(Constants.STATE_PROPERTY_KEY).append("\":ACTIVE");
+-        }
++        solrQuery.append("v.\"__typeName\": (")
++                .append(typeAndSubtypesString)
++                .append(")");
+     }
+ 
+     protected void constructFilterQuery(StringBuilder solrQuery, AtlasStructType type, FilterCriteria filterCriteria, Set<String> solrAttributes) {
+         if (filterCriteria != null) {
+             LOG.debug("Processing Filters");
+ 
+-            String filterQuery = toSolrQuery(type, filterCriteria, solrAttributes, 0);
++            String filterQuery = toSolrQuery(type, filterCriteria, solrAttributes);
+ 
+             if (StringUtils.isNotEmpty(filterQuery)) {
+-                if (solrQuery.length() > 0) {
+-                    solrQuery.append(AND_STR);
+-                }
+-
+-                solrQuery.append(filterQuery);
++                solrQuery.append(AND_STR).append(filterQuery);
+             }
+         }
++
++        if (type instanceof AtlasEntityType && context.getSearchParameters().getExcludeDeletedEntities()) {
++            solrQuery.append(AND_STR).append("v.\"__state\":").append("ACTIVE");
++        }
+     }
+ 
+-    private String toSolrQuery(AtlasStructType type, FilterCriteria criteria, Set<String> solrAttributes, int level) {
+-        return toSolrQuery(type, criteria, solrAttributes, new StringBuilder(), level);
++    private String toSolrQuery(AtlasStructType type, FilterCriteria criteria, Set<String> solrAttributes) {
++        return toSolrQuery(type, criteria, solrAttributes, new StringBuilder());
+     }
+ 
+-    private String toSolrQuery(AtlasStructType type, FilterCriteria criteria, Set<String> solrAttributes, StringBuilder sb, int level) {
++    private String toSolrQuery(AtlasStructType type, FilterCriteria criteria, Set<String> solrAttributes, StringBuilder sb) {
+         if (criteria.getCondition() != null && CollectionUtils.isNotEmpty(criteria.getCriterion())) {
+             StringBuilder nestedExpression = new StringBuilder();
+ 
+             for (FilterCriteria filterCriteria : criteria.getCriterion()) {
+-                String nestedQuery = toSolrQuery(type, filterCriteria, solrAttributes, level + 1);
++                String nestedQuery = toSolrQuery(type, filterCriteria, solrAttributes);
+ 
+                 if (StringUtils.isNotEmpty(nestedQuery)) {
+                     if (nestedExpression.length() > 0) {
+                         nestedExpression.append(SPACE_STRING).append(criteria.getCondition()).append(SPACE_STRING);
+                     }
+-                    // todo: when a neq operation is nested and occurs in the beginning of the query, solr has issues
++
+                     nestedExpression.append(nestedQuery);
+                 }
+             }
+ 
+-            if (level == 0) {
+-                return nestedExpression.length() > 0 ? sb.append(nestedExpression).toString() : EMPTY_STRING;
+-            } else {
+-                return nestedExpression.length() > 0 ? sb.append(BRACE_OPEN_STR).append(nestedExpression).append(BRACE_CLOSE_STR).toString() : EMPTY_STRING;
+-            }
++            return nestedExpression.length() > 0 ? sb.append(BRACE_OPEN_STR).append(nestedExpression.toString()).append(BRACE_CLOSE_STR).toString() : EMPTY_STRING;
+         } else if (solrAttributes.contains(criteria.getAttributeName())){
+             return toSolrExpression(type, criteria.getAttributeName(), criteria.getOperator(), criteria.getAttributeValue());
+         } else {
+@@ -255,10 +228,10 @@ public abstract class SearchProcessor {
+         String ret = EMPTY_STRING;
+ 
+         try {
+-            if (OPERATOR_MAP.get(op) != null) {
+-                String qualifiedName = type.getQualifiedAttributeName(attrName);
++            String qualifiedName = type.getQualifiedAttributeName(attrName);
+ 
+-                ret = String.format(OPERATOR_MAP.get(op), qualifiedName, escapeIndexQueryValue(attrVal));
++            if (OPERATOR_MAP.get(op) != null) {
++                ret = String.format(OPERATOR_MAP.get(op), qualifiedName, attrVal);
+             }
+         } catch (AtlasBaseException ex) {
+             LOG.warn(ex.getMessage());
+@@ -352,28 +325,32 @@ public abstract class SearchProcessor {
+ 
+     private String getLikeRegex(String attributeValue) { return ".*" + attributeValue + ".*"; }
+ 
+-    protected List<AtlasVertex> getVerticesFromIndexQueryResult(Iterator<AtlasIndexQuery.Result> idxQueryResult, List<AtlasVertex> vertices) {
++    protected List<AtlasVertex> getVerticesFromIndexQueryResult(Iterator<AtlasIndexQuery.Result> idxQueryResult) {
++        List<AtlasVertex> ret = new ArrayList<>();
++
+         if (idxQueryResult != null) {
+             while (idxQueryResult.hasNext()) {
+                 AtlasVertex vertex = idxQueryResult.next().getVertex();
+ 
+-                vertices.add(vertex);
++                ret.add(vertex);
+             }
+         }
+ 
+-        return vertices;
++        return ret;
+     }
+ 
+-    protected List<AtlasVertex> getVertices(Iterator<AtlasVertex> iterator, List<AtlasVertex> vertices) {
+-        if (iterator != null) {
+-            while (iterator.hasNext()) {
+-                AtlasVertex vertex = iterator.next();
++    protected List<AtlasVertex> getVertices(Iterator<AtlasVertex> vertices) {
++        List<AtlasVertex> ret = new ArrayList<>();
+ 
+-                vertices.add(vertex);
++        if (vertices != null) {
++            while (vertices.hasNext()) {
++                AtlasVertex vertex = vertices.next();
++
++                ret.add(vertex);
+             }
+         }
+ 
+-        return vertices;
++        return ret;
+     }
+ 
+     protected Set<String> getGuids(List<AtlasVertex> vertices) {
+@@ -401,25 +378,4 @@ public abstract class SearchProcessor {
+ 
+         return defaultValue;
+     }
+-
+-    private String escapeIndexQueryValue(String value) {
+-        String ret = value;
+-
+-        if (StringUtils.containsAny(value, OFFENDING_CHARS)) {
+-            boolean isQuoteAtStart = value.charAt(0) == DOUBLE_QUOTE;
+-            boolean isQuoteAtEnd   = value.charAt(value.length() - 1) == DOUBLE_QUOTE;
+-
+-            if (!isQuoteAtStart) {
+-                if (!isQuoteAtEnd) {
+-                    ret = DOUBLE_QUOTE + value + DOUBLE_QUOTE;
+-                } else {
+-                    ret = DOUBLE_QUOTE + value;
+-                }
+-            } else if (!isQuoteAtEnd) {
+-                ret = value + DOUBLE_QUOTE;
+-            }
+-        }
+-
+-        return ret;
+-    }
+ }

@@ -1,0 +1,135 @@
+diff --git a/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java b/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java
+index e849ae3543..f55199f603 100644
+--- a/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java
++++ b/server/base/src/main/java/org/apache/accumulo/server/Accumulo.java
+@@ -16,13 +16,13 @@
+  */
+ package org.apache.accumulo.server;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.io.File;
+ import java.io.FileInputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.net.InetAddress;
+ import java.net.UnknownHostException;
+ import java.util.Arrays;
+ import java.util.Map.Entry;
+@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
+ 
+ import org.apache.accumulo.core.Constants;
+ import org.apache.accumulo.core.client.AccumuloException;
++import org.apache.accumulo.core.client.Instance;
+ import org.apache.accumulo.core.conf.AccumuloConfiguration;
+ import org.apache.accumulo.core.conf.Property;
+ import org.apache.accumulo.core.util.AddressUtil;
+@@ -44,13 +45,18 @@ import org.apache.accumulo.server.client.HdfsZooInstance;
+ import org.apache.accumulo.server.conf.ServerConfigurationFactory;
+ import org.apache.accumulo.server.fs.VolumeManager;
+ import org.apache.accumulo.server.util.time.SimpleTimer;
++import org.apache.accumulo.server.watcher.Log4jConfiguration;
++import org.apache.accumulo.server.watcher.MonitorLog4jWatcher;
+ import org.apache.accumulo.server.zookeeper.ZooReaderWriter;
+ import org.apache.hadoop.fs.FileStatus;
+ import org.apache.hadoop.fs.FileSystem;
+ import org.apache.hadoop.fs.Path;
+ import org.apache.log4j.Logger;
++import org.apache.log4j.helpers.LogLog;
+ import org.apache.zookeeper.KeeperException;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class Accumulo {
+ 
+   private static final Logger log = Logger.getLogger(Accumulo.class);
+@@ -102,8 +108,68 @@ public class Accumulo {
+     return ServerConstants.getInstanceIdLocation(v);
+   }
+ 
++  /**
++   * Finds the best log4j configuration file. A generic file is used only if an application-specific file is not available. An XML file is preferred over a
++   * properties file, if possible.
++   *
++   * @param confDir
++   *          directory where configuration files should reside
++   * @param application
++   *          application name for configuration file name
++   * @return configuration file name
++   */
++  static String locateLogConfig(String confDir, String application) {
++    String explicitConfigFile = System.getProperty("log4j.configuration");
++    if (explicitConfigFile != null) {
++      return explicitConfigFile;
++    }
++    String[] configFiles = {String.format("%s/%s_logger.xml", confDir, application), String.format("%s/%s_logger.properties", confDir, application),
++        String.format("%s/generic_logger.xml", confDir), String.format("%s/generic_logger.properties", confDir)};
++    String defaultConfigFile = configFiles[2]; // generic_logger.xml
++    for (String f : configFiles) {
++      if (new File(f).exists()) {
++        return f;
++      }
++    }
++    return defaultConfigFile;
++  }
++
++  public static void setupLogging(String application) throws UnknownHostException {
++    System.setProperty("org.apache.accumulo.core.application", application);
++
++    if (System.getenv("ACCUMULO_LOG_DIR") != null)
++      System.setProperty("org.apache.accumulo.core.dir.log", System.getenv("ACCUMULO_LOG_DIR"));
++    else
++      System.setProperty("org.apache.accumulo.core.dir.log", System.getenv("ACCUMULO_HOME") + "/logs/");
++
++    String localhost = InetAddress.getLocalHost().getHostName();
++    System.setProperty("org.apache.accumulo.core.ip.localhost.hostname", localhost);
++
++    // Use a specific log config, if it exists
++    String logConfigFile = locateLogConfig(System.getenv("ACCUMULO_CONF_DIR"), application);
++    // Turn off messages about not being able to reach the remote logger... we protect against that.
++    LogLog.setQuietMode(true);
++
++    // Set up local file-based logging right away
++    Log4jConfiguration logConf = new Log4jConfiguration(logConfigFile);
++    logConf.resetLogger();
++  }
++
+   public static void init(VolumeManager fs, ServerConfigurationFactory serverConfig, String application) throws IOException {
+     final AccumuloConfiguration conf = serverConfig.getConfiguration();
++    final Instance instance = serverConfig.getInstance();
++
++    // Use a specific log config, if it exists
++    final String logConfigFile = locateLogConfig(System.getenv("ACCUMULO_CONF_DIR"), application);
++
++    // Set up polling log4j updates and log-forwarding using information advertised in zookeeper by the monitor
++    MonitorLog4jWatcher logConfigWatcher = new MonitorLog4jWatcher(instance.getInstanceID(), logConfigFile);
++    logConfigWatcher.setDelay(5000L);
++    logConfigWatcher.start();
++
++    // Makes sure the log-forwarding to the monitor is configured
++    int logPort = conf.getPort(Property.MONITOR_LOG4J_PORT);
++    System.setProperty("org.apache.accumulo.core.host.log.port", Integer.toString(logPort));
+ 
+     log.info(application + " starting");
+     log.info("Instance " + serverConfig.getInstance().getInstanceID());
+@@ -116,7 +182,7 @@ public class Accumulo {
+       throw new RuntimeException("This version of accumulo (" + codeVersion + ") is not compatible with files stored using data version " + dataVersion);
+     }
+ 
+-    TreeMap<String,String> sortedProps = new TreeMap<>();
++    TreeMap<String,String> sortedProps = new TreeMap<String,String>();
+     for (Entry<String,String> entry : conf)
+       sortedProps.put(entry.getKey(), entry.getValue());
+ 
+@@ -247,8 +313,8 @@ public class Accumulo {
+    */
+   public static void abortIfFateTransactions() {
+     try {
+-      final ReadOnlyTStore<Accumulo> fate = new ReadOnlyStore<>(new ZooStore<Accumulo>(ZooUtil.getRoot(HdfsZooInstance.getInstance()) + Constants.ZFATE,
+-          ZooReaderWriter.getInstance()));
++      final ReadOnlyTStore<Accumulo> fate = new ReadOnlyStore<Accumulo>(new ZooStore<Accumulo>(
++          ZooUtil.getRoot(HdfsZooInstance.getInstance()) + Constants.ZFATE, ZooReaderWriter.getInstance()));
+       if (!(fate.list().isEmpty())) {
+         throw new AccumuloException("Aborting upgrade because there are outstanding FATE transactions from a previous Accumulo version. "
+             + "Please see the README document for instructions on what to do under your previous version.");

@@ -1,0 +1,78 @@
+diff --git a/activemq-protocols/activemq-openwire-protocol/src/main/java/org/apache/activemq/core/protocol/openwire/OpenWireConnection.java b/activemq-protocols/activemq-openwire-protocol/src/main/java/org/apache/activemq/core/protocol/openwire/OpenWireConnection.java
+index b0963817e6..db14e0a80a 100644
+--- a/activemq-protocols/activemq-openwire-protocol/src/main/java/org/apache/activemq/core/protocol/openwire/OpenWireConnection.java
++++ b/activemq-protocols/activemq-openwire-protocol/src/main/java/org/apache/activemq/core/protocol/openwire/OpenWireConnection.java
+@@ -16,9 +16,6 @@
+  */
+ package org.apache.activemq.core.protocol.openwire;
+ 
+-import javax.jms.InvalidDestinationException;
+-import javax.jms.JMSSecurityException;
+-import javax.jms.ResourceAllocationException;
+ import java.io.IOException;
+ import java.util.ArrayList;
+ import java.util.Collections;
+@@ -34,12 +31,15 @@ import java.util.concurrent.CountDownLatch;
+ import java.util.concurrent.atomic.AtomicBoolean;
+ import java.util.concurrent.locks.ReentrantReadWriteLock;
+ 
++import javax.jms.InvalidDestinationException;
++import javax.jms.JMSSecurityException;
++import javax.jms.ResourceAllocationException;
++
+ import org.apache.activemq.api.core.ActiveMQBuffer;
+ import org.apache.activemq.api.core.ActiveMQBuffers;
+ import org.apache.activemq.api.core.ActiveMQException;
+ import org.apache.activemq.api.core.ActiveMQNonExistentQueueException;
+ import org.apache.activemq.api.core.ActiveMQSecurityException;
+-import org.apache.activemq.api.core.SimpleString;
+ import org.apache.activemq.command.ActiveMQDestination;
+ import org.apache.activemq.command.ActiveMQMessage;
+ import org.apache.activemq.command.BrokerInfo;
+@@ -74,6 +74,18 @@ import org.apache.activemq.command.ShutdownInfo;
+ import org.apache.activemq.command.TransactionId;
+ import org.apache.activemq.command.TransactionInfo;
+ import org.apache.activemq.command.WireFormatInfo;
++import org.apache.activemq.openwire.OpenWireFormat;
++import org.apache.activemq.state.CommandVisitor;
++import org.apache.activemq.state.ConnectionState;
++import org.apache.activemq.state.ConsumerState;
++import org.apache.activemq.state.ProducerState;
++import org.apache.activemq.state.SessionState;
++import org.apache.activemq.thread.TaskRunner;
++import org.apache.activemq.thread.TaskRunnerFactory;
++import org.apache.activemq.transport.TransmitCallback;
++import org.apache.activemq.util.ByteSequence;
++import org.apache.activemq.wireformat.WireFormat;
++import org.apache.activemq.api.core.SimpleString;
+ import org.apache.activemq.core.protocol.openwire.amq.AMQBrokerStoppedException;
+ import org.apache.activemq.core.protocol.openwire.amq.AMQConnectionContext;
+ import org.apache.activemq.core.protocol.openwire.amq.AMQConsumerBrokerExchange;
+@@ -88,21 +100,10 @@ import org.apache.activemq.core.protocol.openwire.amq.AMQTransportConnectionStat
+ import org.apache.activemq.core.remoting.CloseListener;
+ import org.apache.activemq.core.remoting.FailureListener;
+ import org.apache.activemq.core.server.ActiveMQServerLogger;
+-import org.apache.activemq.openwire.OpenWireFormat;
+ import org.apache.activemq.spi.core.protocol.RemotingConnection;
+ import org.apache.activemq.spi.core.remoting.Acceptor;
+ import org.apache.activemq.spi.core.remoting.Connection;
+-import org.apache.activemq.state.CommandVisitor;
+-import org.apache.activemq.state.ConnectionState;
+-import org.apache.activemq.state.ConsumerState;
+-import org.apache.activemq.state.ProducerState;
+-import org.apache.activemq.state.SessionState;
+-import org.apache.activemq.thread.TaskRunner;
+-import org.apache.activemq.thread.TaskRunnerFactory;
+-import org.apache.activemq.transport.TransmitCallback;
+-import org.apache.activemq.util.ByteSequence;
+ import org.apache.activemq.utils.ConcurrentHashSet;
+-import org.apache.activemq.wireformat.WireFormat;
+ 
+ /**
+  * Represents an activemq connection.
+@@ -1784,5 +1785,4 @@ public class OpenWireConnection implements RemotingConnection, CommandVisitor
+    {
+       return this.state.getContext();
+    }
+-
+ }

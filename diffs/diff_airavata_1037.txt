@@ -1,0 +1,416 @@
+diff --git a/modules/gfac/gfac-core/src/main/java/org/apache/airavata/gfac/cpi/GFacImpl.java b/modules/gfac/gfac-core/src/main/java/org/apache/airavata/gfac/cpi/GFacImpl.java
+index 642d6598f..b728868d3 100644
+--- a/modules/gfac/gfac-core/src/main/java/org/apache/airavata/gfac/cpi/GFacImpl.java
++++ b/modules/gfac/gfac-core/src/main/java/org/apache/airavata/gfac/cpi/GFacImpl.java
+@@ -20,50 +20,54 @@
+ */
+ package org.apache.airavata.gfac.cpi;
+ 
+-import java.io.File;
+-import java.io.IOException;
+-import java.net.URL;
+-import java.util.ArrayList;
+-import java.util.List;
+-import java.util.Map;
+-import java.util.Properties;
+-
+ import org.apache.airavata.client.api.AiravataAPI;
+ import org.apache.airavata.common.utils.ServerSettings;
+ import org.apache.airavata.commons.gfac.type.ApplicationDescription;
+ import org.apache.airavata.commons.gfac.type.HostDescription;
+ import org.apache.airavata.commons.gfac.type.ServiceDescription;
+-import org.apache.airavata.gfac.Constants;
+-import org.apache.airavata.gfac.GFacConfiguration;
+-import org.apache.airavata.gfac.GFacException;
+-import org.apache.airavata.gfac.Scheduler;
++import org.apache.airavata.credential.store.store.CredentialReader;
++import org.apache.airavata.credential.store.store.CredentialReaderFactory;
++import org.apache.airavata.credential.store.store.impl.CredentialReaderImpl;
++import org.apache.airavata.gfac.*;
+ import org.apache.airavata.gfac.context.ApplicationContext;
+ import org.apache.airavata.gfac.context.JobExecutionContext;
+ import org.apache.airavata.gfac.context.MessageContext;
++import org.apache.airavata.gfac.context.security.GSISecurityContext;
++import org.apache.airavata.gfac.context.security.SSHSecurityContext;
+ import org.apache.airavata.gfac.handler.GFacHandler;
+ import org.apache.airavata.gfac.handler.GFacHandlerConfig;
+ import org.apache.airavata.gfac.handler.GFacHandlerException;
+-import org.apache.airavata.gfac.handler.ThreadedHandler;
+ import org.apache.airavata.gfac.notification.events.ExecutionFailEvent;
+ import org.apache.airavata.gfac.notification.listeners.LoggingListener;
+ import org.apache.airavata.gfac.notification.listeners.WorkflowTrackingListener;
+ import org.apache.airavata.gfac.provider.GFacProvider;
+ import org.apache.airavata.gfac.scheduler.HostScheduler;
+ import org.apache.airavata.gfac.utils.GFacUtils;
++import org.apache.airavata.gsi.ssh.api.Cluster;
++import org.apache.airavata.gsi.ssh.api.SSHApiException;
++import org.apache.airavata.gsi.ssh.api.ServerInfo;
++import org.apache.airavata.gsi.ssh.api.authentication.AuthenticationInfo;
++import org.apache.airavata.gsi.ssh.api.authentication.GSIAuthenticationInfo;
++import org.apache.airavata.gsi.ssh.impl.PBSCluster;
++import org.apache.airavata.gsi.ssh.impl.authentication.DefaultPasswordAuthenticationInfo;
++import org.apache.airavata.gsi.ssh.impl.authentication.DefaultPublicKeyFileAuthentication;
++import org.apache.airavata.gsi.ssh.impl.authentication.MyProxyAuthenticationInfo;
++import org.apache.airavata.model.experiment.ConfigurationData;
+ import org.apache.airavata.model.workspace.experiment.DataObjectType;
+-import org.apache.airavata.model.workspace.experiment.Experiment;
+ import org.apache.airavata.model.workspace.experiment.TaskDetails;
+-import org.apache.airavata.model.workspace.experiment.WorkflowNodeDetails;
+ import org.apache.airavata.registry.api.AiravataRegistry2;
+ import org.apache.airavata.registry.cpi.DataType;
+ import org.apache.airavata.registry.cpi.Registry;
++import org.apache.airavata.schemas.gfac.*;
++import org.apache.airavata.schemas.wec.ContextHeaderDocument;
++import org.apache.airavata.schemas.wec.SecurityContextDocument;
++import org.apache.airavata.workflow.model.exceptions.WorkflowException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import org.xml.sax.SAXException;
+-
+-import javax.xml.parsers.ParserConfigurationException;
+-import javax.xml.xpath.XPathExpressionException;
++import java.io.File;
++import java.net.URL;
++import java.util.*;
+ 
+ /**
+  * This is the GFac CPI class for external usage, this simply have a single method to submit a job to
+@@ -78,10 +82,7 @@ public class GFacImpl implements GFac {
+     private AiravataAPI airavataAPI;
+ 
+     private AiravataRegistry2 airavataRegistry2;
+-    
+-    private static List<ThreadedHandler> daemonHandlers;
+ 
+-    private File gfacConfigFile;
+     /**
+      * Constructor for GFac
+      *
+@@ -93,59 +94,13 @@ public class GFacImpl implements GFac {
+         this.registry = registry;
+         this.airavataAPI = airavataAPI;
+         this.airavataRegistry2 = airavataRegistry2;
+-        daemonHandlers = new ArrayList<ThreadedHandler>();
+-        startDaemonHandlers();
+-    }
+-
+-    private void startDaemonHandlers()  {
+-        List<GFacHandlerConfig> daemonHandlerConfig = null;
+-        URL resource = GFacImpl.class.getClassLoader().getResource(org.apache.airavata.common.utils.Constants.GFAC_CONFIG_XML);
+-        gfacConfigFile = new File(resource.getPath());
+-        try {
+-            daemonHandlerConfig = GFacConfiguration.getDaemonHandlers(gfacConfigFile);
+-        } catch (ParserConfigurationException e) {
+-            log.error("Error parsing gfac-config.xml, double check the xml configuration",e);
+-        } catch (IOException e) {
+-            log.error("Error parsing gfac-config.xml, double check the xml configuration", e);
+-        } catch (SAXException e) {
+-            log.error("Error parsing gfac-config.xml, double check the xml configuration", e);
+-        } catch (XPathExpressionException e) {
+-            log.error("Error parsing gfac-config.xml, double check the xml configuration", e);
+-        }
+-
+-        for(GFacHandlerConfig handlerConfig:daemonHandlerConfig){
+-            String className = handlerConfig.getClassName();
+-            try {
+-                Class<?> aClass = Class.forName(className).asSubclass(ThreadedHandler.class);
+-                ThreadedHandler threadedHandler = (ThreadedHandler) aClass.newInstance();
+-                threadedHandler.initProperties(handlerConfig.getProperties());
+-                daemonHandlers.add(threadedHandler);
+-            }catch (ClassNotFoundException e){
+-                log.error("Error initializing the handler: " + className);
+-                log.error(className + " class has to implement " + ThreadedHandler.class);
+-            } catch (InstantiationException e) {
+-                log.error("Error initializing the handler: " + className);
+-                log.error(className + " class has to implement " + ThreadedHandler.class);
+-            } catch (IllegalAccessException e) {
+-                log.error("Error initializing the handler: " + className);
+-                log.error(className + " class has to implement " + ThreadedHandler.class);
+-            } catch (GFacHandlerException e) {
+-                log.error("Error initializing the handler " + className);
+-            } catch (GFacException e) {
+-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+-            }
+-        }
+-        for(ThreadedHandler tHandler:daemonHandlers){
+-            tHandler.run();
+-        }
+     }
+ 
+     /**
+      * This can be used to submit jobs for testing purposes just by filling parameters by hand (JobExecutionContext)
+      */
+     public GFacImpl() {
+-        daemonHandlers = new ArrayList<ThreadedHandler>();
+-        startDaemonHandlers();
++
+     }
+ 
+     /**
+@@ -161,17 +116,16 @@ public class GFacImpl implements GFac {
+         try {
+             jobExecutionContext = createJEC(experimentID, taskID);
+ 
+-            return  submitJob(jobExecutionContext);
++            submitJob(jobExecutionContext);
+         } catch (Exception e) {
+             log.error("Error inovoking the job with experiment ID: " + experimentID);
+             throw new GFacException(e);
+         }
++        return jobExecutionContext;
+     }
+ 
+     private JobExecutionContext createJEC(String experimentID, String taskID) throws Exception {
+-        JobExecutionContext jobExecutionContext;
+-        TaskDetails taskData = (TaskDetails) registry.get(DataType.TASK_DETAIL, taskID);
+-
++        JobExecutionContext jobExecutionContext;TaskDetails taskData = (TaskDetails) registry.get(DataType.TASK_DETAIL, taskID);
+         // this is wear our new model and old model is mapping (so serviceName in ExperimentData and service name in ServiceDescriptor
+         // has to be same.
+ 
+@@ -191,32 +145,15 @@ public class GFacImpl implements GFac {
+         HostDescription hostDescription = hostScheduler.schedule(registeredHosts);
+ 
+         ServiceDescription serviceDescription = airavataRegistry2.getServiceDescriptor(serviceName);
+-        String hostName;
+-        if(taskData.getTaskScheduling().getResourceHostId() != null){
+-            hostName = taskData.getTaskScheduling().getResourceHostId();
+-        }else{
+-            hostName = hostDescription.getType().getHostName();
+-        }
+ 
+-        ApplicationDescription applicationDescription = airavataRegistry2.getApplicationDescriptors(serviceName, hostName);
++        ApplicationDescription applicationDescription = airavataRegistry2.getApplicationDescriptors(serviceName, hostDescription.getType().getHostName());
+         URL resource = GFacImpl.class.getClassLoader().getResource(org.apache.airavata.common.utils.Constants.GFAC_CONFIG_XML);
+         Properties configurationProperties = ServerSettings.getProperties();
+         GFacConfiguration gFacConfiguration = GFacConfiguration.create(new File(resource.getPath()), airavataAPI, configurationProperties);
+ 
+-
+-        // start constructing jobexecutioncontext
+         jobExecutionContext = new JobExecutionContext(gFacConfiguration, serviceName);
+-        Experiment experiment = (Experiment) registry.get(DataType.EXPERIMENT, experimentID);
+-        jobExecutionContext.setExperiment(experiment);
+-        jobExecutionContext.setExperimentID(experimentID);
+-
+         jobExecutionContext.setTaskData(taskData);
+ 
+-
+-
+-
+-        jobExecutionContext.setRegistry(registry);
+-
+         ApplicationContext applicationContext = new ApplicationContext();
+         applicationContext.setApplicationDeploymentDescription(applicationDescription);
+         applicationContext.setHostDescription(hostDescription);
+@@ -227,16 +164,17 @@ public class GFacImpl implements GFac {
+         jobExecutionContext.setInMessageContext(new MessageContext(GFacUtils.getMessageContext(experimentInputs,
+                 serviceDescription.getType().getInputParametersArray())));
+ 
+-        List<DataObjectType> outputData = taskData.getApplicationOutputs();
+-        jobExecutionContext.setOutMessageContext(new MessageContext(GFacUtils.getMessageContext(outputData,
+-                serviceDescription.getType().getOutputParametersArray())));
++        HashMap<String, Object> outputData = new HashMap<String, Object>();
++        jobExecutionContext.setOutMessageContext(new MessageContext(outputData));
+ 
+         jobExecutionContext.setProperty(Constants.PROP_TOPIC, experimentID);
++        jobExecutionContext.setExperimentID(experimentID);
+ 
++        addSecurityContext(hostDescription, configurationProperties, jobExecutionContext);
+         return jobExecutionContext;
+     }
+ 
+-    public JobExecutionContext submitJob(JobExecutionContext jobExecutionContext) throws GFacException {
++    public void submitJob(JobExecutionContext jobExecutionContext) throws GFacException {
+         // We need to check whether this job is submitted as a part of a large workflow. If yes,
+         // we need to setup workflow tracking listerner.
+         String workflowInstanceID = null;
+@@ -248,7 +186,6 @@ public class GFacImpl implements GFac {
+         // Register log event listener. This is required in all scenarios.
+         jobExecutionContext.getNotificationService().registerListener(new LoggingListener());
+         schedule(jobExecutionContext);
+-        return jobExecutionContext;
+     }
+ 
+     private void schedule(JobExecutionContext jobExecutionContext) throws GFacException {
+@@ -272,9 +209,9 @@ public class GFacImpl implements GFac {
+                 executeProvider(provider, jobExecutionContext);
+                 disposeProvider(provider, jobExecutionContext);
+             }
+-            if(GFacUtils.isSynchronousMode(jobExecutionContext)){
+-                invokeOutFlowHandlers(jobExecutionContext);
+-            }
++//            if (experimentID != null){
++//                registry2.changeStatus(jobExecutionContext.getExperimentID(),AiravataJobState.State.OUTHANDLERSDONE);
++//            }
+         } catch (Exception e) {
+             jobExecutionContext.setProperty(ERROR_SENT, "true");
+             jobExecutionContext.getNotifier().publish(new ExecutionFailEvent(e.getCause()));
+@@ -292,7 +229,7 @@ public class GFacImpl implements GFac {
+ 
+     private void executeProvider(GFacProvider provider, JobExecutionContext jobExecutionContext) throws GFacException {
+         try {
+-             provider.execute(jobExecutionContext);
++            provider.execute(jobExecutionContext);
+         } catch (Exception e) {
+             throw new GFacException("Error while executing provider " + provider.getClass().getName() + " functionality.", e);
+         }
+@@ -339,20 +276,16 @@ public class GFacImpl implements GFac {
+         }
+     }
+ 
+-    public void invokeOutFlowHandlers(JobExecutionContext jobExecutionContext) throws GFacException {
+-        GFacConfiguration gFacConfiguration = jobExecutionContext.getGFacConfiguration();
+-        List<GFacHandlerConfig> handlers = null;
+-        if(gFacConfiguration != null){
+-         handlers = jobExecutionContext.getGFacConfiguration().getOutHandlers();
+-        }else {
+-            try {
+-                jobExecutionContext = createJEC(jobExecutionContext.getExperimentID(), jobExecutionContext.getTaskData().getTaskID());
+-            } catch (Exception e) {
+-                log.error("Error constructing job execution context during outhandler invocation");
+-                throw new GFacException(e);
+-            }
+-            schedule(jobExecutionContext);
++    public void invokeOutFlowHandlers(String experimentID,String taskID) throws GFacException {
++        JobExecutionContext jobExecutionContext = null;
++        try {
++            jobExecutionContext = createJEC(experimentID, taskID);
++            Scheduler.schedule(jobExecutionContext);
++        } catch (Exception e) {
++            throw new GFacException(e);
+         }
++        List<GFacHandlerConfig> handlers = jobExecutionContext.getGFacConfiguration().getOutHandlers();
++
+         for (GFacHandlerConfig handlerClassName : handlers) {
+             Class<? extends GFacHandler> handlerClass;
+             GFacHandler handler;
+@@ -379,26 +312,113 @@ public class GFacImpl implements GFac {
+         }
+     }
+ 
++    private void addSecurityContext(HostDescription registeredHost, Properties configurationProperties,
++                                    JobExecutionContext jobExecutionContext) throws GFacException {
++        RequestData requestData;
++        if (registeredHost.getType() instanceof GlobusHostType || registeredHost.getType() instanceof UnicoreHostType
++                || registeredHost.getType() instanceof GsisshHostType) {
++
++            //todo implement a way to get credential management service from configurationData
++            SecurityContextDocument.SecurityContext.CredentialManagementService credentialManagementService = null;
++            GSISecurityContext context = null;
++
++            /*
++            if (credentialManagementService != null) {
++                String gatewayId = credentialManagementService.getGatewayId();
++                String tokenId
++                        = credentialManagementService.getTokenId();
++                String portalUser = credentialManagementService.getPortalUser();
++
++                requestData = new RequestData(tokenId, portalUser, gatewayId);
++            } else {
++                requestData = new RequestData("default");
++            }
+ 
+-    public AiravataAPI getAiravataAPI() {
+-        return airavataAPI;
+-    }
++            try {
++                context = new GSISecurityContext(CredentialReaderFactory.createCredentialStoreReader(), requestData);
++            } catch (Exception e) {
++                   throw new WorkflowException("An error occurred while creating GSI security context", e);
++            }
+ 
+-    public AiravataRegistry2 getAiravataRegistry2() {
+-        return airavataRegistry2;
+-    }
++            if (registeredHost.getType() instanceof GsisshHostType) {
++                GSIAuthenticationInfo authenticationInfo
++                        = new MyProxyAuthenticationInfo(requestData.getMyProxyUserName(), requestData.getMyProxyPassword(), requestData.getMyProxyServerUrl(),
++                        requestData.getMyProxyPort(), requestData.getMyProxyLifeTime(), System.getProperty(Constants.TRUSTED_CERTIFICATE_SYSTEM_PROPERTY));
++                ServerInfo serverInfo = new ServerInfo(requestData.getMyProxyUserName(), registeredHost.getType().getHostAddress());
+ 
+-    public static List<ThreadedHandler> getDaemonHandlers() {
+-        return daemonHandlers;
+-    }
++                Cluster pbsCluster = null;
++                try {
++                    pbsCluster = new PBSCluster(serverInfo, authenticationInfo,
++                            (((HpcApplicationDeploymentType) jobExecutionContext.getApplicationContext().getApplicationDeploymentDescription().getType()).getInstalledParentPath()));
++                } catch (SSHApiException e) {
++                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
++                }
+ 
+-    public static String getErrorSent() {
+-        return ERROR_SENT;
+-    }
++                context.setPbsCluster(pbsCluster);
++            }        */
+ 
+-    public File getGfacConfigFile() {
+-        return gfacConfigFile;
++            requestData = new RequestData("default");
++            try {
++                context = new GSISecurityContext(CredentialReaderFactory.createCredentialStoreReader(), requestData);
++            } catch (Exception e) {
++                throw new GFacException("An error occurred while creating GSI security context", e);
++            }
++            if (registeredHost.getType() instanceof GsisshHostType) {
++                GSIAuthenticationInfo authenticationInfo
++                        = new MyProxyAuthenticationInfo(requestData.getMyProxyUserName(), requestData.getMyProxyPassword(), requestData.getMyProxyServerUrl(),
++                        requestData.getMyProxyPort(), requestData.getMyProxyLifeTime(), System.getProperty(Constants.TRUSTED_CERTIFICATE_SYSTEM_PROPERTY));
++                ServerInfo serverInfo = new ServerInfo(requestData.getMyProxyUserName(), registeredHost.getType().getHostAddress());
++
++                Cluster pbsCluster = null;
++                try {
++                    pbsCluster = new PBSCluster(serverInfo, authenticationInfo,
++                            (((HpcApplicationDeploymentType) jobExecutionContext.getApplicationContext().getApplicationDeploymentDescription().getType()).getInstalledParentPath()));
++                } catch (SSHApiException e) {
++                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
++                }
++
++                context.setPbsCluster(pbsCluster);
++            }
++            jobExecutionContext.addSecurityContext(GSISecurityContext.GSI_SECURITY_CONTEXT, context);
++        } else if (registeredHost.getType() instanceof Ec2HostType) {
++            //todo fixthis amazon securitycontext
++//               if (this.configuration.getAmazonSecurityContext() != null) {
++//                   jobExecutionContext.addSecurityContext(AmazonSecurityContext.AMAZON_SECURITY_CONTEXT,
++//                           this.configuration.getAmazonSecurityContext());
++        } else if (registeredHost.getType() instanceof SSHHostType) {
++            String sshUserName = configurationProperties.getProperty(Constants.SSH_USER_NAME);
++            String sshPrivateKey = configurationProperties.getProperty(Constants.SSH_PRIVATE_KEY);
++            String sshPrivateKeyPass = configurationProperties.getProperty(Constants.SSH_PRIVATE_KEY_PASS);
++            String sshPassword = configurationProperties.getProperty(Constants.SSH_PASSWORD);
++            String sshPublicKey = configurationProperties.getProperty(Constants.SSH_PUBLIC_KEY);
++            SSHSecurityContext sshSecurityContext = new SSHSecurityContext();
++            if (((SSHHostType) registeredHost.getType()).getHpcResource()) {
++                AuthenticationInfo authenticationInfo = null;
++                // we give higher preference to the password over keypair ssh authentication
++                if (sshPassword != null) {
++                    authenticationInfo = new DefaultPasswordAuthenticationInfo(sshPassword);
++                } else {
++                    authenticationInfo = new DefaultPublicKeyFileAuthentication(sshPublicKey, sshPrivateKey, sshPrivateKeyPass);
++                }
++                ServerInfo serverInfo = new ServerInfo(sshUserName, registeredHost.getType().getHostAddress());
++
++                Cluster pbsCluster = null;
++                try {
++                    pbsCluster = new PBSCluster(serverInfo, authenticationInfo,
++                            (((HpcApplicationDeploymentType) jobExecutionContext.getApplicationContext().getApplicationDeploymentDescription().getType()).getInstalledParentPath()));
++                } catch (SSHApiException e) {
++                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
++                }
++                sshSecurityContext.setPbsCluster(pbsCluster);
++                sshSecurityContext.setUsername(sshUserName);
++            } else {
++                sshSecurityContext = new SSHSecurityContext();
++                sshSecurityContext.setUsername(sshUserName);
++                sshSecurityContext.setPrivateKeyLoc(sshPrivateKey);
++                sshSecurityContext.setKeyPass(sshPrivateKeyPass);
++            }
++            jobExecutionContext.addSecurityContext(SSHSecurityContext.SSH_SECURITY_CONTEXT, sshSecurityContext);
++        }
+     }
+ 
+-
+ }

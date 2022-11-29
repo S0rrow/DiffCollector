@@ -1,0 +1,165 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/performance/thrift/NullTserver.java b/test/src/main/java/org/apache/accumulo/test/performance/thrift/NullTserver.java
+index 299b0b842a..ef05f3711e 100644
+--- a/test/src/main/java/org/apache/accumulo/test/performance/thrift/NullTserver.java
++++ b/test/src/main/java/org/apache/accumulo/test/performance/thrift/NullTserver.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.performance.thrift;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.net.InetAddress;
+ import java.nio.ByteBuffer;
+ import java.util.ArrayList;
+@@ -32,7 +30,6 @@ import org.apache.accumulo.core.client.ZooKeeperInstance;
+ import org.apache.accumulo.core.client.impl.Tables;
+ import org.apache.accumulo.core.client.impl.thrift.SecurityErrorCode;
+ import org.apache.accumulo.core.client.impl.thrift.ThriftSecurityException;
+-import org.apache.accumulo.core.client.impl.thrift.ThriftTableOperationException;
+ import org.apache.accumulo.core.conf.DefaultConfiguration;
+ import org.apache.accumulo.core.conf.Property;
+ import org.apache.accumulo.core.data.Range;
+@@ -51,9 +48,6 @@ import org.apache.accumulo.core.data.thrift.TConstraintViolationSummary;
+ import org.apache.accumulo.core.data.thrift.TKeyExtent;
+ import org.apache.accumulo.core.data.thrift.TMutation;
+ import org.apache.accumulo.core.data.thrift.TRange;
+-import org.apache.accumulo.core.data.thrift.TRowRange;
+-import org.apache.accumulo.core.data.thrift.TSummaries;
+-import org.apache.accumulo.core.data.thrift.TSummaryRequest;
+ import org.apache.accumulo.core.data.thrift.UpdateErrors;
+ import org.apache.accumulo.core.master.thrift.TabletServerStatus;
+ import org.apache.accumulo.core.security.thrift.TCredentials;
+@@ -61,8 +55,6 @@ import org.apache.accumulo.core.tabletserver.thrift.ActiveCompaction;
+ import org.apache.accumulo.core.tabletserver.thrift.ActiveScan;
+ import org.apache.accumulo.core.tabletserver.thrift.NoSuchScanIDException;
+ import org.apache.accumulo.core.tabletserver.thrift.TDurability;
+-import org.apache.accumulo.core.tabletserver.thrift.TSamplerConfiguration;
+-import org.apache.accumulo.core.tabletserver.thrift.TUnloadTabletGoal;
+ import org.apache.accumulo.core.tabletserver.thrift.TabletClientService;
+ import org.apache.accumulo.core.tabletserver.thrift.TabletClientService.Iface;
+ import org.apache.accumulo.core.tabletserver.thrift.TabletClientService.Processor;
+@@ -80,10 +72,12 @@ import org.apache.accumulo.server.master.state.TabletLocationState;
+ import org.apache.accumulo.server.rpc.TServerUtils;
+ import org.apache.accumulo.server.rpc.ThriftServerType;
+ import org.apache.accumulo.server.zookeeper.TransactionWatcher;
++import org.apache.hadoop.io.Text;
+ import org.apache.thrift.TException;
+ 
+ import com.beust.jcommander.Parameter;
+ import com.google.common.net.HostAndPort;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ /**
+  * The purpose of this class is to server as fake tserver that is a data sink like /dev/null. NullTserver modifies the metadata location entries for a table to
+@@ -142,15 +136,14 @@ public class NullTserver {
+ 
+     @Override
+     public InitialMultiScan startMultiScan(TInfo tinfo, TCredentials credentials, Map<TKeyExtent,List<TRange>> batch, List<TColumn> columns,
+-        List<IterInfo> ssiList, Map<String,Map<String,String>> ssio, List<ByteBuffer> authorizations, boolean waitForWrites, TSamplerConfiguration tsc, long batchTimeOut,
+-        String context) {
++        List<IterInfo> ssiList, Map<String,Map<String,String>> ssio, List<ByteBuffer> authorizations, boolean waitForWrites, long batchTimeOut) {
+       return null;
+     }
+ 
+     @Override
+     public InitialScan startScan(TInfo tinfo, TCredentials credentials, TKeyExtent extent, TRange range, List<TColumn> columns, int batchSize,
+         List<IterInfo> ssiList, Map<String,Map<String,String>> ssio, List<ByteBuffer> authorizations, boolean waitForWrites, boolean isolated,
+-        long readaheadThreshold, TSamplerConfiguration tsc, long batchTimeOut, String classLoaderContext) {
++        long readaheadThreshold, long batchTimeOut) {
+       return null;
+     }
+ 
+@@ -184,11 +177,11 @@ public class NullTserver {
+     public void loadTablet(TInfo tinfo, TCredentials credentials, String lock, TKeyExtent extent) throws TException {}
+ 
+     @Override
+-    public void unloadTablet(TInfo tinfo, TCredentials credentials, String lock, TKeyExtent extent, TUnloadTabletGoal goal, long requestTime) throws TException {}
++    public void unloadTablet(TInfo tinfo, TCredentials credentials, String lock, TKeyExtent extent, boolean save) throws TException {}
+ 
+     @Override
+     public List<ActiveScan> getActiveScans(TInfo tinfo, TCredentials credentials) throws ThriftSecurityException, TException {
+-      return new ArrayList<>();
++      return new ArrayList<ActiveScan>();
+     }
+ 
+     @Override
+@@ -211,12 +204,12 @@ public class NullTserver {
+ 
+     @Override
+     public List<ActiveCompaction> getActiveCompactions(TInfo tinfo, TCredentials credentials) throws ThriftSecurityException, TException {
+-      return new ArrayList<>();
++      return new ArrayList<ActiveCompaction>();
+     }
+ 
+     @Override
+     public TConditionalSession startConditionalUpdate(TInfo tinfo, TCredentials credentials, List<ByteBuffer> authorizations, String tableID,
+-        TDurability durability, String classLoaderContext) throws ThriftSecurityException, TException {
++        TDurability durability) throws ThriftSecurityException, TException {
+       return null;
+     }
+ 
+@@ -239,29 +232,6 @@ public class NullTserver {
+ 
+     @Override
+     public void removeLogs(TInfo tinfo, TCredentials credentials, List<String> filenames) throws TException { }
+-
+-    @Override
+-    public TSummaries startGetSummaries(TInfo tinfo, TCredentials credentials, TSummaryRequest request)
+-        throws ThriftSecurityException, ThriftTableOperationException, NoSuchScanIDException, TException {
+-      return null;
+-    }
+-
+-    @Override
+-    public TSummaries startGetSummariesForPartition(TInfo tinfo, TCredentials credentials, TSummaryRequest request, int modulus, int remainder)
+-        throws ThriftSecurityException, NoSuchScanIDException, TException {
+-      return null;
+-    }
+-
+-    @Override
+-    public TSummaries startGetSummariesFromFiles(TInfo tinfo, TCredentials credentials, TSummaryRequest request, Map<String,List<TRowRange>> files)
+-        throws ThriftSecurityException, NoSuchScanIDException, TException {
+-      return null;
+-    }
+-
+-    @Override
+-    public TSummaries contiuneGetSummaries(TInfo tinfo, long sessionId) throws NoSuchScanIDException, TException {
+-      return null;
+-    }
+   }
+ 
+   static class Opts extends Help {
+@@ -272,7 +242,7 @@ public class NullTserver {
+     @Parameter(names = "--table", description = "table to adopt", required = true)
+     String tableName = null;
+     @Parameter(names = "--port", description = "port number to use")
+-    int port = DefaultConfiguration.getInstance().getPort(Property.TSERV_CLIENTPORT)[0];
++    int port = DefaultConfiguration.getInstance().getPort(Property.TSERV_CLIENTPORT);
+   }
+ 
+   public static void main(String[] args) throws Exception {
+@@ -285,20 +255,20 @@ public class NullTserver {
+ 
+     TransactionWatcher watcher = new TransactionWatcher();
+     ThriftClientHandler tch = new ThriftClientHandler(new AccumuloServerContext(new ServerConfigurationFactory(HdfsZooInstance.getInstance())), watcher);
+-    Processor<Iface> processor = new Processor<>(tch);
+-    TServerUtils.startTServer(context.getConfiguration(), ThriftServerType.CUSTOM_HS_HA, processor, "NullTServer",
+-        "null tserver", 2, 1, 1000, 10 * 1024 * 1024, null, null, -1, HostAndPort.fromParts("0.0.0.0", opts.port));
++    Processor<Iface> processor = new Processor<Iface>(tch);
++    TServerUtils.startTServer(context.getConfiguration(), HostAndPort.fromParts("0.0.0.0", opts.port), ThriftServerType.CUSTOM_HS_HA, processor, "NullTServer",
++        "null tserver", 2, 1, 1000, 10 * 1024 * 1024, null, null, -1);
+ 
+     HostAndPort addr = HostAndPort.fromParts(InetAddress.getLocalHost().getHostName(), opts.port);
+ 
+     String tableId = Tables.getTableId(zki, opts.tableName);
+ 
+     // read the locations for the table
+-    Range tableRange = new KeyExtent(tableId, null, null).toMetadataRange();
++    Range tableRange = new KeyExtent(new Text(tableId), null, null).toMetadataRange();
+     MetaDataTableScanner s = new MetaDataTableScanner(context, tableRange);
+     long randomSessionID = opts.port;
+     TServerInstance instance = new TServerInstance(addr, randomSessionID);
+-    List<Assignment> assignments = new ArrayList<>();
++    List<Assignment> assignments = new ArrayList<Assignment>();
+     while (s.hasNext()) {
+       TabletLocationState next = s.next();
+       assignments.add(new Assignment(next.extent, instance));

@@ -1,0 +1,51 @@
+diff --git a/src/org/apache/axis/transport/http/HTTPSender.java b/src/org/apache/axis/transport/http/HTTPSender.java
+index b4cf026e7..4c740aa6b 100644
+--- a/src/org/apache/axis/transport/http/HTTPSender.java
++++ b/src/org/apache/axis/transport/http/HTTPSender.java
+@@ -379,31 +379,25 @@ public class HTTPSender extends BasicHandler {
+ 
+         OutputStream out = sock.getOutputStream();
+ 
++        out.write(header.toString()
++                .getBytes(HTTPConstants.HEADER_DEFAULT_CHAR_ENCODING));
++        out.flush();
++        ChunkedOutputStream chunkedOutputStream = null;
+         if (httpChunkStream) {
+-            out.write(header.toString()
+-                    .getBytes(HTTPConstants.HEADER_DEFAULT_CHAR_ENCODING));
+-            out.flush();
+-            ChunkedOutputStream chunkedOutputStream = new ChunkedOutputStream(out);
+-            out = new BufferedOutputStream(chunkedOutputStream, 8 * 1024);
+-            try {
+-                reqMessage.writeTo(out);
+-            } catch (SOAPException e) {
+-                log.error(JavaUtils.getMessage("exception00"), e);
+-            }
++            out = chunkedOutputStream = new ChunkedOutputStream(out);
++        }
++
++        out = new BufferedOutputStream(out, 8 * 1024);
++        try {
++            reqMessage.writeTo(out);
++        } catch (SOAPException e) {
++            log.error(JavaUtils.getMessage("exception00"), e);
++        }
++        if (null != chunkedOutputStream) {
+             out.flush();
+             chunkedOutputStream.eos();
+-        } else {
+-            out = new BufferedOutputStream(out, 8 * 1024);
+-            try {
+-                out.write(header.toString()
+-                        .getBytes(HTTPConstants.HEADER_DEFAULT_CHAR_ENCODING));
+-                reqMessage.writeTo(out);
+-            } catch (SOAPException e) {
+-                log.error(JavaUtils.getMessage("exception00"), e);
+-            }
+-            // Flush ONLY once.
+-            out.flush();
+         }
++        out.flush();
+         if (log.isDebugEnabled()) {
+             log.debug(JavaUtils.getMessage("xmlSent00"));
+             log.debug("---------------------------------------------------");

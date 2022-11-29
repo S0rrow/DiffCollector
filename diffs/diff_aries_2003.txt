@@ -1,0 +1,84 @@
+diff --git a/jpa-blueprint/src/main/java/org/apache/aries/jpa/blueprint/impl/JpaInterceptor.java b/jpa-blueprint/src/main/java/org/apache/aries/jpa/blueprint/impl/JpaInterceptor.java
+index 960e37527..c5c0f627f 100644
+--- a/jpa-blueprint/src/main/java/org/apache/aries/jpa/blueprint/impl/JpaInterceptor.java
++++ b/jpa-blueprint/src/main/java/org/apache/aries/jpa/blueprint/impl/JpaInterceptor.java
+@@ -32,8 +32,8 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ public class JpaInterceptor implements Interceptor {
+-    private static final Logger LOG = LoggerFactory.getLogger(JpaInterceptor.class);
+-    private EntityManager em;
++    private static Logger LOG = LoggerFactory.getLogger(JpaInterceptor.class);
++    EntityManager em;
+     private Boolean cachedIsResourceLocal;
+     private Coordinator coordinator;
+     private BlueprintContainer container;
+@@ -46,17 +46,13 @@ public class JpaInterceptor implements Interceptor {
+         this.emId = emId;
+     }
+ 
+-    @Override
+     public int getRank() {
+         return 0;
+     }
+ 
+-    @Override
+     public Object preCall(ComponentMetadata cm, Method m, Object... parameters) throws Throwable {
+-        synchronized (this) {
+-            if (coordinator == null) {
+-                initServices();
+-            }
++        if (coordinator == null) {
++            initServices();
+         }
+         try {
+             LOG.debug("PreCall for bean {}, method {}", cm.getId(), m.getName());
+@@ -68,7 +64,7 @@ public class JpaInterceptor implements Interceptor {
+             return coordination;
+         } catch (Exception e) {
+             LOG.warn("Exception from EmSupplier.preCall", e);
+-            throw new RuntimeException(e); // NOSONAR
++            throw new RuntimeException(e);
+         }
+     }
+ 
+@@ -77,23 +73,23 @@ public class JpaInterceptor implements Interceptor {
+         em = (EntityManager)container.getComponentInstance(emId);
+     }
+ 
+-    @Override
+     public void postCallWithException(ComponentMetadata cm, Method m, Throwable ex, Object preCallToken) {
+         LOG.debug("PostCallWithException for bean {}, method {}", cm.getId(), m.getName(), ex);
+         if (preCallToken != null) {
+-            ((Coordination)preCallToken).fail(ex);
++            ((Coordination) preCallToken).fail(ex);
+         }
+     }
+ 
+-    @Override
+     public void postCallWithReturn(ComponentMetadata cm, Method m, Object returnType, Object preCallToken)
+         throws Exception {
+         LOG.debug("PostCallWithReturn for bean {}, method {}", cm.getId(), m.getName());
+         if (preCallToken != null) {
+-            ((Coordination)preCallToken).end();
++            ((Coordination) preCallToken).end();
+         }
+     }
+ 
++
++
+     private boolean isResourceLocal(EntityManager em) {
+         if (cachedIsResourceLocal == null) {
+             cachedIsResourceLocal = isResourceLocalInternal(em);
+@@ -108,6 +104,10 @@ public class JpaInterceptor implements Interceptor {
+     private boolean isResourceLocalInternal(EntityManager em) {
+         PersistenceUnitTransactionType transactionType = (PersistenceUnitTransactionType)em.getProperties()
+             .get(PersistenceUnitTransactionType.class.getName());
+-        return transactionType == PersistenceUnitTransactionType.RESOURCE_LOCAL;
++        if (transactionType == PersistenceUnitTransactionType.RESOURCE_LOCAL) {
++            return true;
++        } else {
++            return false;
++        }
+     }
+ }

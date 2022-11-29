@@ -1,0 +1,82 @@
+diff --git a/airavata-services/profile-service/iam-admin-services-core/src/test/java/org/apache/airavata/service/profile/iam/admin/services/core/tests/SetupNewGateway.java b/airavata-services/profile-service/iam-admin-services-core/src/test/java/org/apache/airavata/service/profile/iam/admin/services/core/tests/SetupNewGateway.java
+index 91479bfc1..85578a8ae 100644
+--- a/airavata-services/profile-service/iam-admin-services-core/src/test/java/org/apache/airavata/service/profile/iam/admin/services/core/tests/SetupNewGateway.java
++++ b/airavata-services/profile-service/iam-admin-services-core/src/test/java/org/apache/airavata/service/profile/iam/admin/services/core/tests/SetupNewGateway.java
+@@ -17,7 +17,7 @@ public class SetupNewGateway {
+     private final static Logger logger = LoggerFactory.getLogger(SetupNewGateway.class);
+ 
+     public static void main(String[] args) {
+-        findUser();
++        UserRegistration();
+     }
+ 
+     public static void setUpGateway(){
+@@ -27,7 +27,7 @@ public class SetupNewGateway {
+         testGateway.setIdentityServerUserName("mavenTest");
+         testGateway.setGatewayAdminFirstName("Maven");
+         testGateway.setGatewayAdminLastName("Test");
+-        testGateway.setGatewayAdminEmail("some.man@gmail.com");
++        testGateway.setGatewayAdminEmail("bhandar.anuj@gmail.com");
+         PasswordCredential superAdminCreds = new PasswordCredential();
+         superAdminCreds.setGatewayId(testGateway.getGatewayId());
+         superAdminCreds.setDescription("test credentials for IS admin creation");
+@@ -50,9 +50,9 @@ public class SetupNewGateway {
+      public static void UserRegistration(){
+          UserProfile user = new UserProfile();
+          user.setUserId("testuser");
+-         user.setUserName("Some Man");
++         user.setUserName("Anuj Bhandar");
+          List<String> emails = new ArrayList<>();
+-         emails.add("some.man@outlook.com");
++         emails.add("anuj.bhandar@outlook.com");
+          user.setGatewayId("maven.test.gateway");
+          user.setEmails(emails);
+         PasswordCredential tenantAdminCreds = new PasswordCredential();
+@@ -70,47 +70,4 @@ public class SetupNewGateway {
+              e.printStackTrace();
+          }
+      }
+-
+-     public static void resetPassword(){
+-         UserProfile user = new UserProfile();
+-         user.setUserId("testuser");
+-         List<String> emails = new ArrayList<>();
+-         emails.add("some.man@outlook.com");
+-         user.setGatewayId("maven.test.gateway");
+-         user.setEmails(emails);
+-         TenantManagementKeycloakImpl client = new TenantManagementKeycloakImpl();
+-         try {
+-             PasswordCredential tenantAdminCreds = new PasswordCredential();
+-             tenantAdminCreds.setGatewayId(user.getGatewayId());
+-             tenantAdminCreds.setDescription("test credentials for tenant admin creation");
+-             tenantAdminCreds.setLoginUserName("mavenTest");
+-             tenantAdminCreds.setPassword("Test@1234");
+-             tenantAdminCreds.setPortalUserName("TenantAdmin");
+-             client.resetUserPassword(tenantAdminCreds,user,"test@123");
+-         } catch (IamAdminServicesException e) {
+-             e.printStackTrace();
+-         }
+-     }
+-
+-     public static void findUser(){
+-         UserProfile user = new UserProfile();
+-
+-         List<String> emails = new ArrayList<>();
+-         emails.add("some.man@outlook.com");
+-         user.setGatewayId("maven.test.gateway");
+-         user.setEmails(emails);
+-         TenantManagementKeycloakImpl client = new TenantManagementKeycloakImpl();
+-         try {
+-             PasswordCredential tenantAdminCreds = new PasswordCredential();
+-             tenantAdminCreds.setGatewayId(user.getGatewayId());
+-             tenantAdminCreds.setDescription("test credentials for tenant admin creation");
+-             tenantAdminCreds.setLoginUserName("mavenTest");
+-             tenantAdminCreds.setPassword("Test@1234");
+-             tenantAdminCreds.setPortalUserName("TenantAdmin");
+-             List<UserProfile> list = client.findUser(tenantAdminCreds,"maven.test.gateway","some.man@outlook.com",null);
+-             System.out.println(list.get(0).getUserId());
+-         } catch (IamAdminServicesException e) {
+-             e.printStackTrace();
+-         }
+-     }
+ }

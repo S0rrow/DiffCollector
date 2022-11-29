@@ -1,0 +1,27 @@
+diff --git a/repository/src/main/java/org/apache/hadoop/metadata/services/DefaultMetadataService.java b/repository/src/main/java/org/apache/hadoop/metadata/services/DefaultMetadataService.java
+index 28442dff2..ee225100a 100755
+--- a/repository/src/main/java/org/apache/hadoop/metadata/services/DefaultMetadataService.java
++++ b/repository/src/main/java/org/apache/hadoop/metadata/services/DefaultMetadataService.java
+@@ -220,19 +220,14 @@ public class DefaultMetadataService implements MetadataService {
+     private ITypedReferenceableInstance deserializeClassInstance(
+             String entityInstanceDefinition) throws MetadataException {
+ 
+-        final Referenceable entityInstance;
+-        try {
+-            entityInstance = InstanceSerialization.fromJsonReferenceable(
+-                    entityInstanceDefinition, true);
+-        } catch (Exception e) {  // exception from deserializer
+-            LOG.error("Unable to deserialize json={}", entityInstanceDefinition, e);
+-            throw new IllegalArgumentException("Unable to deserialize json");
+-        }
++        final Referenceable entityInstance = InstanceSerialization.fromJsonReferenceable(
++            entityInstanceDefinition, true);
+         final String entityTypeName = entityInstance.getTypeName();
+         ParamChecker.notEmpty(entityTypeName, "Entity type cannot be null");
+ 
+         ClassType entityType = typeSystem.getDataType(ClassType.class, entityTypeName);
+         return entityType.convert(entityInstance, Multiplicity.REQUIRED);
++
+     }
+ 
+     /**

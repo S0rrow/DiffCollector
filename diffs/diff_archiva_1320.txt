@@ -1,0 +1,108 @@
+diff --git a/archiva-base/archiva-model/src/main/java/org/apache/maven/archiva/model/ArchivaModelCloner.java b/archiva-base/archiva-model/src/main/java/org/apache/maven/archiva/model/ArchivaModelCloner.java
+index cdad4f850..8b50de846 100644
+--- a/archiva-base/archiva-model/src/main/java/org/apache/maven/archiva/model/ArchivaModelCloner.java
++++ b/archiva-base/archiva-model/src/main/java/org/apache/maven/archiva/model/ArchivaModelCloner.java
+@@ -45,7 +45,7 @@ public static ArchivaProjectModel clone( ArchivaProjectModel model )
+         cloned.setGroupId( model.getGroupId() );
+         cloned.setArtifactId( model.getArtifactId() );
+         cloned.setVersion( model.getVersion() );
+-
++        
+         cloned.setParentProject( clone( model.getParentProject() ) );
+ 
+         cloned.setName( model.getName() );
+@@ -75,15 +75,15 @@ public static ArtifactReference clone( ArtifactReference artifactReference )
+         {
+             return null;
+         }
+-
++        
+         ArtifactReference cloned = new ArtifactReference();
+-
++        
+         cloned.setGroupId( artifactReference.getGroupId() );
+         cloned.setArtifactId( artifactReference.getArtifactId() );
+         cloned.setVersion( artifactReference.getVersion() );
+         cloned.setClassifier( artifactReference.getClassifier() );
+         cloned.setType( artifactReference.getType() );
+-
++        
+         return cloned;
+     }
+ 
+@@ -102,30 +102,6 @@ public static CiManagement clone( CiManagement ciManagement )
+         return cloned;
+     }
+ 
+-    public static Dependency clone( Dependency dependency )
+-    {
+-        if ( dependency == null )
+-        {
+-            return null;
+-        }
+-
+-        Dependency cloned = new Dependency();
+-
+-        cloned.setGroupId( dependency.getGroupId() );
+-        cloned.setArtifactId( dependency.getArtifactId() );
+-        cloned.setVersion( dependency.getVersion() );
+-
+-        cloned.setClassifier( dependency.getClassifier() );
+-        cloned.setType( dependency.getType() );
+-        cloned.setScope( dependency.getScope() );
+-        cloned.setOptional( dependency.isOptional() );
+-        cloned.setSystemPath( dependency.getSystemPath() );
+-        cloned.setUrl( dependency.getUrl() );
+-        cloned.setExclusions( cloneExclusions( dependency.getExclusions() ) );
+-
+-        return cloned;
+-    }
+-
+     public static IssueManagement clone( IssueManagement issueManagement )
+     {
+         if ( issueManagement == null )
+@@ -199,13 +175,13 @@ public static VersionedReference clone( VersionedReference versionedReference )
+         {
+             return null;
+         }
+-
++        
+         VersionedReference cloned = new VersionedReference();
+-
++        
+         cloned.setGroupId( versionedReference.getGroupId() );
+         cloned.setArtifactId( versionedReference.getArtifactId() );
+         cloned.setVersion( versionedReference.getVersion() );
+-
++        
+         return cloned;
+     }
+ 
+@@ -241,13 +217,21 @@ public static List cloneDependencies( List dependencies )
+         while ( it.hasNext() )
+         {
+             Dependency dep = (Dependency) it.next();
++            Dependency cloned = new Dependency();
++            
++            cloned.setGroupId( dep.getGroupId() );
++            cloned.setArtifactId( dep.getArtifactId() );
++            cloned.setVersion( dep.getVersion() );
++            
++            cloned.setClassifier( dep.getClassifier() );
++            cloned.setType( dep.getType() );
++            cloned.setScope( dep.getScope() );
++            cloned.setOptional( dep.isOptional() );
++            cloned.setSystemPath( dep.getSystemPath() );
++            cloned.setUrl( dep.getUrl() );
++            cloned.setExclusions( cloneExclusions( dep.getExclusions() ) );
+ 
+-            Dependency cloned = clone( dep );
+-
+-            if ( cloned != null )
+-            {
+-                ret.add( cloned );
+-            }
++            ret.add( cloned );
+         }
+ 
+         return ret;

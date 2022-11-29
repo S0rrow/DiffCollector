@@ -1,0 +1,171 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/config/impl/ConfigurationImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/config/impl/ConfigurationImpl.java
+index a59d1a2175..dce0998434 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/config/impl/ConfigurationImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/config/impl/ConfigurationImpl.java
+@@ -57,7 +57,6 @@ import org.apache.activemq.artemis.core.config.ha.ReplicatedPolicyConfiguration;
+ import org.apache.activemq.artemis.core.security.Role;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+ import org.apache.activemq.artemis.core.server.JournalType;
+-import org.apache.activemq.artemis.core.server.NetworkHealthCheck;
+ import org.apache.activemq.artemis.core.server.SecuritySettingPlugin;
+ import org.apache.activemq.artemis.core.server.group.impl.GroupingHandlerConfiguration;
+ import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+@@ -262,20 +261,6 @@ public class ConfigurationImpl implements Configuration, Serializable {
+ 
+    private String systemPropertyPrefix = ActiveMQDefaultConfiguration.getDefaultSystemPropertyPrefix();
+ 
+-   private String networkCheckList = ActiveMQDefaultConfiguration.getDefaultNetworkCheckList();
+-
+-   private String networkURLList = ActiveMQDefaultConfiguration.getDefaultNetworkCheckURLList();
+-
+-   private long networkCheckPeriod = ActiveMQDefaultConfiguration.getDefaultNetworkCheckPeriod();
+-
+-   private int networkCheckTimeout = ActiveMQDefaultConfiguration.getDefaultNetworkCheckTimeout();
+-
+-   private String networkCheckNIC = ActiveMQDefaultConfiguration.getDefaultNetworkCheckNic();
+-
+-   private String networkCheckPingCommand = NetworkHealthCheck.IPV4_DEFAULT_COMMAND;
+-
+-   private String networkCheckPing6Command = NetworkHealthCheck.IPV6_DEFAULT_COMMAND;
+-
+    /**
+     * Parent folder for all data folders.
+     */
+@@ -294,6 +279,7 @@ public class ConfigurationImpl implements Configuration, Serializable {
+       return systemPropertyPrefix;
+    }
+ 
++
+    @Override
+    public Configuration parseSystemProperties() throws Exception {
+       parseSystemProperties(System.getProperties());
+@@ -302,25 +288,26 @@ public class ConfigurationImpl implements Configuration, Serializable {
+ 
+    @Override
+    public Configuration parseSystemProperties(Properties properties) throws Exception {
+-      synchronized (properties) {
+-         Map<String, Object> beanProperties = new HashMap<>();
+-
+-         for (Map.Entry<Object, Object> entry : properties.entrySet()) {
+-            if (entry.getKey().toString().startsWith(systemPropertyPrefix)) {
+-               String key = entry.getKey().toString().substring(systemPropertyPrefix.length());
+-               logger.debug("Setting up config, " + key + "=" + entry.getValue());
+-               beanProperties.put(key, entry.getValue());
+-            }
+-         }
+ 
+-         if (!beanProperties.isEmpty()) {
+-            BeanSupport.setData(this, beanProperties);
++      Map<String, Object> beanProperties = new HashMap<>();
++
++
++      for (Map.Entry<Object, Object> entry : properties.entrySet()) {
++         if (entry.getKey().toString().startsWith(systemPropertyPrefix)) {
++            String key = entry.getKey().toString().substring(systemPropertyPrefix.length());
++            logger.debug("Setting up config, " + key + "=" + entry.getValue());
++            beanProperties.put(key, entry.getValue());
+          }
++      }
+ 
+-         return this;
++      if (!beanProperties.isEmpty()) {
++         BeanSupport.setData(this, beanProperties);
+       }
++
++      return this;
+    }
+ 
++
+    @Override
+    public boolean isClustered() {
+       return !getClusterConfigurations().isEmpty();
+@@ -1887,89 +1874,6 @@ public class ConfigurationImpl implements Configuration, Serializable {
+       return this;
+    }
+ 
+-   @Override
+-   public ConfigurationImpl setNetworkCheckList(String list) {
+-      this.networkCheckList = list;
+-      return this;
+-   }
+-
+-   @Override
+-   public String getNetworkCheckList() {
+-      return networkCheckList;
+-   }
+-
+-   @Override
+-   public ConfigurationImpl setNetworkCheckURLList(String urls) {
+-      this.networkURLList = urls;
+-      return this;
+-   }
+-
+-   @Override
+-   public String getNetworkCheckURLList() {
+-      return networkURLList;
+-   }
+-
+-   /**
+-    * The interval on which we will perform network checks.
+-    */
+-   @Override
+-   public ConfigurationImpl setNetworkCheckPeriod(long period) {
+-      this.networkCheckPeriod = period;
+-      return this;
+-   }
+-
+-   @Override
+-   public long getNetworkCheckPeriod() {
+-      return this.networkCheckPeriod;
+-   }
+-
+-   /**
+-    * Time in ms for how long we should wait for a ping to finish.
+-    */
+-   @Override
+-   public ConfigurationImpl setNetworkCheckTimeout(int timeout) {
+-      this.networkCheckTimeout = timeout;
+-      return this;
+-   }
+-
+-   @Override
+-   public int getNetworkCheckTimeout() {
+-      return this.networkCheckTimeout;
+-   }
+-
+-   @Override
+-   public Configuration setNetworCheckNIC(String nic) {
+-      this.networkCheckNIC = nic;
+-      return this;
+-   }
+-
+-   @Override
+-   public String getNetworkCheckNIC() {
+-      return networkCheckNIC;
+-   }
+-
+-   @Override
+-   public String getNetworkCheckPingCommand() {
+-      return networkCheckPingCommand;
+-   }
+-
+-   @Override
+-   public ConfigurationImpl setNetworkCheckPingCommand(String command) {
+-      this.networkCheckPingCommand = command;
+-      return this;
+-   }
+-
+-   @Override
+-   public String getNetworkCheckPing6Command() {
+-      return networkCheckPing6Command;
+-   }
+-
+-   @Override
+-   public Configuration setNetworkCheckPing6Command(String command) {
+-      this.networkCheckPing6Command = command;
+-      return this;
+-   }
+-
+    /**
+     * It will find the right location of a subFolder, related to artemisInstance
+     */

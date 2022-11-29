@@ -1,0 +1,280 @@
+diff --git a/artemis-protocols/artemis-proton-plug/src/main/java/org/proton/plug/context/server/ProtonServerSenderContext.java b/artemis-protocols/artemis-proton-plug/src/main/java/org/proton/plug/context/server/ProtonServerSenderContext.java
+index 2d91f3767a..13b50e5964 100644
+--- a/artemis-protocols/artemis-proton-plug/src/main/java/org/proton/plug/context/server/ProtonServerSenderContext.java
++++ b/artemis-protocols/artemis-proton-plug/src/main/java/org/proton/plug/context/server/ProtonServerSenderContext.java
+@@ -17,24 +17,17 @@
+ package org.proton.plug.context.server;
+ 
+ import java.util.Map;
+-import java.util.Objects;
+ 
+-import org.apache.activemq.artemis.api.core.SimpleString;
+-import org.apache.activemq.artemis.core.server.QueueQueryResult;
+-import org.apache.activemq.artemis.jms.client.ActiveMQConnection;
+ import org.apache.activemq.artemis.selector.filter.FilterException;
+ import org.apache.activemq.artemis.selector.impl.SelectorParser;
+ import org.apache.qpid.proton.amqp.DescribedType;
+ import org.apache.qpid.proton.amqp.Symbol;
+ import org.apache.qpid.proton.amqp.messaging.Accepted;
+ import org.apache.qpid.proton.amqp.messaging.Modified;
+-import org.apache.qpid.proton.amqp.messaging.Outcome;
+ import org.apache.qpid.proton.amqp.messaging.Rejected;
+ import org.apache.qpid.proton.amqp.messaging.Released;
+-import org.apache.qpid.proton.amqp.messaging.Source;
+ import org.apache.qpid.proton.amqp.messaging.TerminusDurability;
+ import org.apache.qpid.proton.amqp.messaging.TerminusExpiryPolicy;
+-import org.apache.qpid.proton.amqp.transaction.TransactionalState;
+ import org.apache.qpid.proton.amqp.transport.AmqpError;
+ import org.apache.qpid.proton.amqp.transport.DeliveryState;
+ import org.apache.qpid.proton.amqp.transport.ErrorCondition;
+@@ -42,26 +35,21 @@ import org.apache.qpid.proton.amqp.transport.SenderSettleMode;
+ import org.apache.qpid.proton.engine.Delivery;
+ import org.apache.qpid.proton.engine.Sender;
+ import org.apache.qpid.proton.message.ProtonJMessage;
+-import org.jboss.logging.Logger;
+ import org.proton.plug.AMQPSessionCallback;
+-import org.proton.plug.AmqpSupport;
+ import org.proton.plug.context.AbstractConnectionContext;
+ import org.proton.plug.context.AbstractProtonContextSender;
+ import org.proton.plug.context.AbstractProtonSessionContext;
+-import org.proton.plug.context.ProtonPlugSender;
+ import org.proton.plug.exceptions.ActiveMQAMQPException;
+-import org.proton.plug.exceptions.ActiveMQAMQPIllegalStateException;
+ import org.proton.plug.exceptions.ActiveMQAMQPInternalErrorException;
+-import org.proton.plug.exceptions.ActiveMQAMQPNotFoundException;
+ import org.proton.plug.logger.ActiveMQAMQPProtocolMessageBundle;
++import org.proton.plug.context.ProtonPlugSender;
++import org.apache.qpid.proton.amqp.messaging.Source;
+ 
+ import static org.proton.plug.AmqpSupport.JMS_SELECTOR_FILTER_IDS;
+ import static org.proton.plug.AmqpSupport.findFilter;
+ 
+ public class ProtonServerSenderContext extends AbstractProtonContextSender implements ProtonPlugSender {
+ 
+-   private static final Logger log = Logger.getLogger(ProtonServerSenderContext.class);
+-
+    private static final Symbol SELECTOR = Symbol.getSymbol("jms-selector");
+    private static final Symbol COPY = Symbol.valueOf("copy");
+    private static final Symbol TOPIC = Symbol.valueOf("topic");
+@@ -144,25 +132,17 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+       * */
+       boolean isPubSub = hasCapabilities(TOPIC, source) || isPubSub(source);
+ 
+-      if (isPubSub) {
+-         if (findFilter(source.getFilter(), AmqpSupport.NO_LOCAL_FILTER_IDS) != null) {
+-            String remoteContainerId = sender.getSession().getConnection().getRemoteContainer();
+-            String noLocalFilter = ActiveMQConnection.CONNECTION_ID_PROPERTY_NAME.toString() + "<>'" + remoteContainerId + "'";
+-            if (selector != null) {
+-               selector += " AND " + noLocalFilter;
+-            }
+-            else {
+-               selector = noLocalFilter;
+-            }
+-         }
+-      }
++      //filter = findFilter(source.getFilter(), NO_LOCAL_FILTER_IDS);
+ 
++      //if (filter != null) {
++         //todo implement nolocal filter
++      //}
+       if (source == null) {
+          // Attempt to recover a previous subscription happens when a link reattach happens on a subscription queue
+          String clientId = connection.getRemoteContainer();
+          String pubId = sender.getName();
+          queue = clientId + ":" + pubId;
+-         boolean exists = sessionSPI.queueQuery(queue, false).isExists();
++         boolean exists = sessionSPI.queueQuery(queue);
+ 
+          /*
+          * If it exists then we know it is a subscription so we set the capabilities on the source so we can delete on a
+@@ -178,7 +158,8 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+             sender.setSource(source);
+          }
+          else {
+-            throw new ActiveMQAMQPNotFoundException("Unknown subscription link: " + sender.getName());
++            sender.setCondition(new ErrorCondition(AmqpError.NOT_FOUND, "Unknown subscription link: " + sender.getName()));
++            sender.close();
+          }
+       }
+       else {
+@@ -198,6 +179,8 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+          else {
+             //if not dynamic then we use the targets address as the address to forward the messages to, however there has to
+             //be a queue bound to it so we nee to check this.
++
++
+             if (isPubSub) {
+                // if we are a subscription and durable create a durable queue using the container id and link name
+                if (TerminusDurability.UNSETTLED_STATE.equals(source.getDurable()) ||
+@@ -205,39 +188,23 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+                   String clientId = connection.getRemoteContainer();
+                   String pubId = sender.getName();
+                   queue = clientId + ":" + pubId;
+-                  QueueQueryResult result = sessionSPI.queueQuery(queue, false);
+-
+-                  if (result.isExists()) {
+-                     // If a client reattaches to a durable subscription with a different no-local filter value, selector
+-                     // or address then we must recreate the queue (JMS semantics).
+-
+-                     if (!Objects.equals(result.getFilterString(), SimpleString.toSimpleString(selector)) ||
+-                        (sender.getSource() != null && !sender.getSource().getAddress().equals(result.getAddress().toString()))) {
+-                        if (result.getConsumerCount() == 0) {
+-                           sessionSPI.deleteQueue(queue);
+-                           sessionSPI.createDurableQueue(source.getAddress(), queue, selector);
+-                        }
+-                        else {
+-                           throw new ActiveMQAMQPIllegalStateException("Unable to recreate subscription, consumers already exist");
+-                        }
+-                     }
++                  boolean exists = sessionSPI.queueQuery(queue);
++                  if (!exists) {
++                     sessionSPI.createDurableQueue(source.getAddress(), queue);
+                   }
+-                  else {
+-                     sessionSPI.createDurableQueue(source.getAddress(), queue, selector);
+-                  }
+-                  source.setAddress(queue);
+                }
+                //otherwise we are a volatile subscription
+                else {
+                   queue = java.util.UUID.randomUUID().toString();
+                   try {
+-                     sessionSPI.createTemporaryQueue(source.getAddress(), queue, selector);
++                     sessionSPI.createTemporaryQueue(source.getAddress(), queue);
+                   }
+                   catch (Exception e) {
+                      throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.errorCreatingTemporaryQueue(e.getMessage());
+                   }
+                   source.setAddress(queue);
+                }
++
+             }
+             else {
+                queue = source.getAddress();
+@@ -247,13 +214,10 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+             }
+ 
+             try {
+-               if (!sessionSPI.queueQuery(queue, !isPubSub).isExists()) {
++               if (!sessionSPI.queueQuery(queue)) {
+                   throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.sourceAddressDoesntExist();
+                }
+             }
+-            catch (ActiveMQAMQPNotFoundException e) {
+-               throw e;
+-            }
+             catch (Exception e) {
+                throw new ActiveMQAMQPInternalErrorException(e.getMessage(), e);
+             }
+@@ -261,7 +225,7 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+ 
+          boolean browseOnly = !isPubSub && source.getDistributionMode() != null && source.getDistributionMode().equals(COPY);
+          try {
+-            brokerConsumer = sessionSPI.createSender(this, queue, isPubSub ? null : selector, browseOnly);
++            brokerConsumer = sessionSPI.createSender(this, queue, selector, browseOnly);
+          }
+          catch (Exception e) {
+             throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.errorCreatingConsumer(e.getMessage());
+@@ -274,6 +238,7 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+       return source != null && pubSubPrefix != null && source.getAddress() != null && source.getAddress().startsWith(pubSubPrefix);
+    }
+ 
++
+    /*
+    * close the session
+    * */
+@@ -284,7 +249,7 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+          sessionSPI.closeSender(brokerConsumer);
+       }
+       catch (Exception e) {
+-         log.warn(e.getMessage(), e);
++         e.printStackTrace();
+          throw new ActiveMQAMQPInternalErrorException(e.getMessage());
+       }
+    }
+@@ -295,35 +260,24 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+    @Override
+    public void close(boolean remoteLinkClose) throws ActiveMQAMQPException {
+       super.close(remoteLinkClose);
++
+       try {
+          sessionSPI.closeSender(brokerConsumer);
+          //if this is a link close rather than a connection close or detach, we need to delete any durable resources for
+          // say pub subs
+-         if (remoteLinkClose) {
+-            Source source = (Source) sender.getSource();
++         if (remoteLinkClose ) {
++            Source source = (Source)sender.getSource();
+             if (source != null && source.getAddress() != null && hasCapabilities(TOPIC, source)) {
+-               String queueName = source.getAddress();
+-               QueueQueryResult result = sessionSPI.queueQuery(queueName, false);
+-               if (result.isExists() && source.getDynamic()) {
+-                  sessionSPI.deleteQueue(queueName);
+-               }
+-               else {
+-                  String clientId = connection.getRemoteContainer();
+-                  String pubId = sender.getName();
+-                  String queue = clientId + ":" + pubId;
+-                  result = sessionSPI.queueQuery(queue, false);
+-                  if (result.isExists()) {
+-                     if (result.getConsumerCount() > 0) {
+-                        System.out.println("error");
+-                     }
+-                     sessionSPI.deleteQueue(queue);
+-                  }
++               String address = source.getAddress();
++               boolean exists = sessionSPI.queueQuery(address);
++               if (exists) {
++                  sessionSPI.deleteQueue(address);
+                }
+             }
+          }
+       }
+       catch (Exception e) {
+-         log.warn(e.getMessage(), e);
++         e.printStackTrace();
+          throw new ActiveMQAMQPInternalErrorException(e.getMessage());
+       }
+    }
+@@ -337,31 +291,7 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+       DeliveryState remoteState = delivery.getRemoteState();
+ 
+       if (remoteState != null) {
+-         // If we are transactional then we need ack if the msg has been accepted
+-         if (remoteState instanceof TransactionalState) {
+-            TransactionalState txState = (TransactionalState) remoteState;
+-            if (txState.getOutcome() != null) {
+-               Outcome outcome = txState.getOutcome();
+-               if (outcome instanceof Accepted) {
+-                  if (!delivery.remotelySettled()) {
+-                     TransactionalState txAccepted = new TransactionalState();
+-                     txAccepted.setOutcome(Accepted.getInstance());
+-                     txAccepted.setTxnId(txState.getTxnId());
+-
+-                     delivery.disposition(txAccepted);
+-                  }
+-                  //we have to individual ack as we can't guarantee we will get the delivery updates (including acks) in order
+-                  // from dealer, a perf hit but a must
+-                  try {
+-                     sessionSPI.ack(brokerConsumer, message);
+-                  }
+-                  catch (Exception e) {
+-                     throw ActiveMQAMQPProtocolMessageBundle.BUNDLE.errorAcknowledgingMessage(message.toString(), e.getMessage());
+-                  }
+-               }
+-            }
+-         }
+-         else if (remoteState instanceof Accepted) {
++         if (remoteState instanceof Accepted) {
+             //we have to individual ack as we can't guarantee we will get the delivery updates (including acks) in order
+             // from dealer, a perf hit but a must
+             try {
+@@ -426,7 +356,7 @@ public class ProtonServerSenderContext extends AbstractProtonContextSender imple
+          serverMessage = sessionSPI.encodeMessage(message, deliveryCount);
+       }
+       catch (Throwable e) {
+-         log.warn(e.getMessage(), e);
++         e.printStackTrace();
+          throw new ActiveMQAMQPInternalErrorException(e.getMessage(), e);
+       }
+ 

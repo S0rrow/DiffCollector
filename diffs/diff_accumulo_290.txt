@@ -1,0 +1,94 @@
+diff --git a/server/base/src/main/java/org/apache/accumulo/server/util/MetadataTableUtil.java b/server/base/src/main/java/org/apache/accumulo/server/util/MetadataTableUtil.java
+index 4b88c5b5fa..bcfbbc85a4 100644
+--- a/server/base/src/main/java/org/apache/accumulo/server/util/MetadataTableUtil.java
++++ b/server/base/src/main/java/org/apache/accumulo/server/util/MetadataTableUtil.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.server.util;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ import static org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection.ServerColumnFamily.DIRECTORY_COLUMN;
+ import static org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection.ServerColumnFamily.TIME_COLUMN;
+@@ -95,8 +94,8 @@ import org.apache.zookeeper.KeeperException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+-import com.google.common.annotations.VisibleForTesting;
+ import com.google.common.base.Optional;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ /**
+  * provides a reference to the metadata table for updates by tablet servers
+@@ -131,7 +130,7 @@ public class MetadataTableUtil {
+     return rootTable;
+   }
+ 
+-  public static void putLockID(ZooLock zooLock, Mutation m) {
++  private static void putLockID(ZooLock zooLock, Mutation m) {
+     TabletsSection.ServerColumnFamily.LOCK_COLUMN.put(m, new Value(zooLock.getLockID().serialize(ZooUtil.getRoot(HdfsZooInstance.getInstance()) + "/")
+         .getBytes(UTF_8)));
+   }
+@@ -707,7 +706,10 @@ public class MetadataTableUtil {
+     return m;
+   }
+ 
+-  private static Scanner createCloneScanner(String tableName, String tableId, Connector conn) throws TableNotFoundException {
++  private static Scanner createCloneScanner(String tableId, Connector conn) throws TableNotFoundException {
++    String tableName = MetadataTable.NAME;
++    if (tableId.equals(MetadataTable.ID))
++      tableName = RootTable.NAME;
+     Scanner mscanner = new IsolatedScanner(conn.createScanner(tableName, Authorizations.EMPTY));
+     mscanner.setRange(new KeyExtent(new Text(tableId), null, null).toMetadataRange());
+     mscanner.fetchColumnFamily(DataFileColumnFamily.NAME);
+@@ -719,14 +721,12 @@ public class MetadataTableUtil {
+     return mscanner;
+   }
+ 
+-  @VisibleForTesting
+-  public static void initializeClone(String tableName, String srcTableId, String tableId, Connector conn, BatchWriter bw) throws TableNotFoundException,
+-      MutationsRejectedException {
++  static void initializeClone(String srcTableId, String tableId, Connector conn, BatchWriter bw) throws TableNotFoundException, MutationsRejectedException {
+     TabletIterator ti;
+     if (srcTableId.equals(MetadataTable.ID))
+-      ti = new TabletIterator(createCloneScanner(tableName, srcTableId, conn), new Range(), true, true);
++      ti = new TabletIterator(createCloneScanner(srcTableId, conn), new Range(), true, true);
+     else
+-      ti = new TabletIterator(createCloneScanner(tableName, srcTableId, conn), new KeyExtent(new Text(srcTableId), null, null).toMetadataRange(), true, true);
++      ti = new TabletIterator(createCloneScanner(srcTableId, conn), new KeyExtent(new Text(srcTableId), null, null).toMetadataRange(), true, true);
+ 
+     if (!ti.hasNext())
+       throw new RuntimeException(" table deleted during clone?  srcTableId = " + srcTableId);
+@@ -741,13 +741,10 @@ public class MetadataTableUtil {
+     return new KeyExtent(new Text("0"), endRow1, null).compareTo(new KeyExtent(new Text("0"), endRow2, null));
+   }
+ 
+-  @VisibleForTesting
+-  public static int checkClone(String tableName, String srcTableId, String tableId, Connector conn, BatchWriter bw) throws TableNotFoundException,
+-      MutationsRejectedException {
+-    TabletIterator srcIter = new TabletIterator(createCloneScanner(tableName, srcTableId, conn),
+-        new KeyExtent(new Text(srcTableId), null, null).toMetadataRange(), true, true);
+-    TabletIterator cloneIter = new TabletIterator(createCloneScanner(tableName, tableId, conn), new KeyExtent(new Text(tableId), null, null).toMetadataRange(),
+-        true, true);
++  static int checkClone(String srcTableId, String tableId, Connector conn, BatchWriter bw) throws TableNotFoundException, MutationsRejectedException {
++    TabletIterator srcIter = new TabletIterator(createCloneScanner(srcTableId, conn), new KeyExtent(new Text(srcTableId), null, null).toMetadataRange(), true,
++        true);
++    TabletIterator cloneIter = new TabletIterator(createCloneScanner(tableId, conn), new KeyExtent(new Text(tableId), null, null).toMetadataRange(), true, true);
+ 
+     if (!cloneIter.hasNext() || !srcIter.hasNext())
+       throw new RuntimeException(" table deleted during clone?  srcTableId = " + srcTableId + " tableId=" + tableId);
+@@ -834,12 +831,12 @@ public class MetadataTableUtil {
+     while (true) {
+ 
+       try {
+-        initializeClone(MetadataTable.NAME, srcTableId, tableId, conn, bw);
++        initializeClone(srcTableId, tableId, conn, bw);
+ 
+         // the following loop looks changes in the file that occurred during the copy.. if files were dereferenced then they could have been GCed
+ 
+         while (true) {
+-          int rewrites = checkClone(MetadataTable.NAME, srcTableId, tableId, conn, bw);
++          int rewrites = checkClone(srcTableId, tableId, conn, bw);
+ 
+           if (rewrites == 0)
+             break;

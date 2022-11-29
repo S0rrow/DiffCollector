@@ -1,0 +1,428 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/impl/PagingManagerImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/impl/PagingManagerImpl.java
+index 878f918760..15f01f696b 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/impl/PagingManagerImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/paging/impl/PagingManagerImpl.java
+@@ -16,16 +16,11 @@
+  */
+ package org.apache.activemq.artemis.core.paging.impl;
+ 
+-import java.nio.file.FileStore;
+-import java.util.Iterator;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.ConcurrentMap;
+-import java.util.concurrent.Executor;
+-import java.util.concurrent.TimeUnit;
+-import java.util.concurrent.atomic.AtomicLong;
+ import java.util.concurrent.locks.ReentrantReadWriteLock;
+ 
+ import org.apache.activemq.artemis.api.core.SimpleString;
+@@ -33,20 +28,12 @@ import org.apache.activemq.artemis.core.paging.PageTransactionInfo;
+ import org.apache.activemq.artemis.core.paging.PagingManager;
+ import org.apache.activemq.artemis.core.paging.PagingStore;
+ import org.apache.activemq.artemis.core.paging.PagingStoreFactory;
+-import org.apache.activemq.artemis.core.server.ActiveMQScheduledComponent;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+-import org.apache.activemq.artemis.core.server.files.FileStoreMonitor;
+ import org.apache.activemq.artemis.core.settings.HierarchicalRepository;
+ import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+-import org.apache.activemq.artemis.utils.collections.ConcurrentHashSet;
+-import org.jboss.logging.Logger;
+ 
+ public final class PagingManagerImpl implements PagingManager {
+ 
+-   private static final int ARTEMIS_DEBUG_PAGING_INTERVAL = Integer.valueOf(System.getProperty("artemis.debug.paging.interval", "0"));
+-
+-   private static final Logger logger = Logger.getLogger(PagingManagerImpl.class);
+-
+    private volatile boolean started = false;
+ 
+    /**
+@@ -57,196 +44,43 @@ public final class PagingManagerImpl implements PagingManager {
+     */
+    private final ReentrantReadWriteLock syncLock = new ReentrantReadWriteLock();
+ 
+-   private final Set<Blockable> blockedStored = new ConcurrentHashSet<>();
+-
+-   private final ConcurrentMap<SimpleString, PagingStore> stores = new ConcurrentHashMap<>();
++   private final ConcurrentMap<SimpleString, PagingStore> stores = new ConcurrentHashMap<SimpleString, PagingStore>();
+ 
+    private final HierarchicalRepository<AddressSettings> addressSettingsRepository;
+ 
+-   private PagingStoreFactory pagingStoreFactory;
+-
+-   private final AtomicLong globalSizeBytes = new AtomicLong(0);
+-
+-   private final AtomicLong numberOfMessages = new AtomicLong(0);
+-
+-   private final long maxSize;
++   private final PagingStoreFactory pagingStoreFactory;
+ 
+    private volatile boolean cleanupEnabled = true;
+ 
+-   private volatile boolean diskFull = false;
+-
+-   private final ConcurrentMap</*TransactionID*/Long, PageTransactionInfo> transactions = new ConcurrentHashMap<>();
++   private final ConcurrentMap</*TransactionID*/Long, PageTransactionInfo> transactions = new ConcurrentHashMap<Long, PageTransactionInfo>();
+ 
+-   private ActiveMQScheduledComponent scheduledComponent = null;
+-
+-   private final PagingManager.MemoryFreedRunnablesExecutor memoryFreedRunnablesExecutor = new PagingManager.MemoryFreedRunnablesExecutor();
+-
+-   private final Executor executor;
+    // Static
+    // --------------------------------------------------------------------------------------------------------------------------
+ 
++   private static boolean isTrace = ActiveMQServerLogger.LOGGER.isTraceEnabled();
++
+    // Constructors
+    // --------------------------------------------------------------------------------------------------------------------
+ 
+-
+-   // for tests.. not part of the API
+-   public void replacePageStoreFactory(PagingStoreFactory factory) {
+-      this.pagingStoreFactory = factory;
+-   }
+-
+-   // for tests.. not part of the API
+-   public PagingStoreFactory getPagingStoreFactory() {
+-      return pagingStoreFactory;
+-   }
+-
+    public PagingManagerImpl(final PagingStoreFactory pagingSPI,
+-                            final HierarchicalRepository<AddressSettings> addressSettingsRepository,
+-                            final long maxSize) {
++                            final HierarchicalRepository<AddressSettings> addressSettingsRepository) {
+       pagingStoreFactory = pagingSPI;
+       this.addressSettingsRepository = addressSettingsRepository;
+       addressSettingsRepository.registerListener(this);
+-      this.maxSize = maxSize;
+-      executor = pagingStoreFactory.newExecutor();
+-   }
+-
+-   public PagingManagerImpl(final PagingStoreFactory pagingSPI,
+-                            final HierarchicalRepository<AddressSettings> addressSettingsRepository) {
+-      this(pagingSPI, addressSettingsRepository, -1);
+-   }
+-
+-   @Override
+-   public void addBlockedStore(Blockable store) {
+-      blockedStored.add(store);
+    }
+ 
+    @Override
+    public void onChange() {
+-      reapplySettings();
++      reaplySettings();
+    }
+ 
+-   private void reapplySettings() {
++   private void reaplySettings() {
+       for (PagingStore store : stores.values()) {
+          AddressSettings settings = this.addressSettingsRepository.getMatch(store.getAddress().toString());
+          store.applySetting(settings);
+       }
+    }
+ 
+-   @Override
+-   public PagingManagerImpl addSize(int size) {
+-
+-      if (size > 0) {
+-         numberOfMessages.incrementAndGet();
+-      } else {
+-         numberOfMessages.decrementAndGet();
+-      }
+-
+-      long newSize = globalSizeBytes.addAndGet(size);
+-
+-      if (newSize < 0) {
+-         ActiveMQServerLogger.LOGGER.negativeGlobalAddressSize(newSize);
+-      }
+-
+-      if (size < 0) {
+-         checkMemoryRelease();
+-      }
+-      return this;
+-   }
+-
+-   @Override
+-   public long getGlobalSize() {
+-      return globalSizeBytes.get();
+-   }
+-
+-   @Override
+-   public boolean checkMemory(final Runnable runWhenAvailable) {
+-      if (isGlobalFull()) {
+-         OverSizedRunnable ourRunnable = new OverSizedRunnable(runWhenAvailable);
+-
+-         memoryFreedRunnablesExecutor.addRunnable(ourRunnable);
+-         addBlockedStore(() -> {
+-            if (!isGlobalFull()) {
+-               if (!memoryFreedRunnablesExecutor.isEmpty()) {
+-                  executor.execute(memoryFreedRunnablesExecutor);
+-                  ActiveMQServerLogger.LOGGER.unblockingGlobalMessageProduction(getGlobalSize());
+-                  return true;
+-               }
+-            }
+-            return false;
+-         });
+-
+-         if (isDiskFull()) {
+-            ActiveMQServerLogger.LOGGER.blockingGlobalDiskFull();
+-         } else {
+-            ActiveMQServerLogger.LOGGER.blockingGlobalMessageProduction(getGlobalSize());
+-         }
+-
+-         return true;
+-      }
+-
+-      runWhenAvailable.run();
+-
+-      return true;
+-   }
+-
+-   protected void checkMemoryRelease() {
+-      if (!diskFull && (maxSize < 0 || globalSizeBytes.get() < maxSize) && !blockedStored.isEmpty()) {
+-         Iterator<Blockable> storeIterator = blockedStored.iterator();
+-         while (storeIterator.hasNext()) {
+-            Blockable store = storeIterator.next();
+-            if (store.checkReleasedMemory()) {
+-               storeIterator.remove();
+-            }
+-         }
+-      }
+-   }
+-
+-   @Override
+-   public void injectMonitor(FileStoreMonitor monitor) throws Exception {
+-      pagingStoreFactory.injectMonitor(monitor);
+-      monitor.addCallback(new LocalMonitor());
+-   }
+-
+-   class LocalMonitor implements FileStoreMonitor.Callback {
+-
+-      @Override
+-      public void tick(FileStore store, double usage) {
+-         logger.tracef("Tick from store:: %s, usage at %f", store, usage);
+-      }
+-
+-      @Override
+-      public void over(FileStore store, double usage) {
+-         if (!diskFull) {
+-            ActiveMQServerLogger.LOGGER.diskBeyondCapacity();
+-            diskFull = true;
+-         }
+-      }
+-
+-      @Override
+-      public void under(FileStore store, double usage) {
+-         if (diskFull) {
+-            ActiveMQServerLogger.LOGGER.diskCapacityRestored();
+-            diskFull = false;
+-            checkMemoryRelease();
+-         }
+-      }
+-   }
+-
+-   @Override
+-   public boolean isDiskFull() {
+-      return diskFull;
+-   }
+-
+-   @Override
+-   public boolean isUsingGlobalSize() {
+-      return maxSize > 0;
+-   }
+-
+-   @Override
+-   public boolean isGlobalFull() {
+-      return diskFull || maxSize > 0 && globalSizeBytes.get() > maxSize;
+-   }
+-
+-   @Override
+    public void disableCleanup() {
+       if (!cleanupEnabled) {
+          return;
+@@ -258,12 +92,12 @@ public final class PagingManagerImpl implements PagingManager {
+          for (PagingStore store : stores.values()) {
+             store.disableCleanup();
+          }
+-      } finally {
++      }
++      finally {
+          unlock();
+       }
+    }
+ 
+-   @Override
+    public void resumeCleanup() {
+       if (cleanupEnabled) {
+          return;
+@@ -275,18 +109,17 @@ public final class PagingManagerImpl implements PagingManager {
+          for (PagingStore store : stores.values()) {
+             store.enableCleanup();
+          }
+-      } finally {
++      }
++      finally {
+          unlock();
+       }
+    }
+ 
+-   @Override
+    public SimpleString[] getStoreNames() {
+       Set<SimpleString> names = stores.keySet();
+       return names.toArray(new SimpleString[names.size()]);
+    }
+ 
+-   @Override
+    public void reloadStores() throws Exception {
+       lock();
+       try {
+@@ -303,13 +136,13 @@ public final class PagingManagerImpl implements PagingManager {
+             store.start();
+             stores.put(store.getStoreName(), store);
+          }
+-      } finally {
++      }
++      finally {
+          unlock();
+       }
+ 
+    }
+ 
+-   @Override
+    public void deletePageStore(final SimpleString storeName) throws Exception {
+       syncLock.readLock().lock();
+       try {
+@@ -317,7 +150,8 @@ public final class PagingManagerImpl implements PagingManager {
+          if (store != null) {
+             store.stop();
+          }
+-      } finally {
++      }
++      finally {
+          syncLock.readLock().unlock();
+       }
+    }
+@@ -325,7 +159,6 @@ public final class PagingManagerImpl implements PagingManager {
+    /**
+     * stores is a ConcurrentHashMap, so we don't need to synchronize this method
+     */
+-   @Override
+    public PagingStore getPageStore(final SimpleString storeName) throws Exception {
+       PagingStore store = stores.get(storeName);
+ 
+@@ -335,26 +168,23 @@ public final class PagingManagerImpl implements PagingManager {
+       return newStore(storeName);
+    }
+ 
+-   @Override
+    public void addTransaction(final PageTransactionInfo pageTransaction) {
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("Adding pageTransaction " + pageTransaction.getTransactionID());
++      if (isTrace) {
++         ActiveMQServerLogger.LOGGER.trace("Adding pageTransaction " + pageTransaction.getTransactionID());
+       }
+       transactions.put(pageTransaction.getTransactionID(), pageTransaction);
+    }
+ 
+-   @Override
+    public void removeTransaction(final long id) {
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("Removing pageTransaction " + id);
++      if (isTrace) {
++         ActiveMQServerLogger.LOGGER.trace("Removing pageTransaction " + id);
+       }
+       transactions.remove(id);
+    }
+ 
+-   @Override
+    public PageTransactionInfo getTransaction(final long id) {
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("looking up pageTX = " + id);
++      if (isTrace) {
++         ActiveMQServerLogger.LOGGER.trace("looking up pageTX = " + id);
+       }
+       return transactions.get(id);
+    }
+@@ -381,40 +211,19 @@ public final class PagingManagerImpl implements PagingManager {
+ 
+          reloadStores();
+ 
+-         if (ARTEMIS_DEBUG_PAGING_INTERVAL > 0) {
+-            this.scheduledComponent = new ActiveMQScheduledComponent(pagingStoreFactory.getScheduledExecutor(), pagingStoreFactory.newExecutor(), ARTEMIS_DEBUG_PAGING_INTERVAL, TimeUnit.SECONDS, false) {
+-               @Override
+-               public void run() {
+-                  debug();
+-               }
+-            };
+-
+-            this.scheduledComponent.start();
+-
+-         }
+-
+          started = true;
+-      } finally {
++      }
++      finally {
+          unlock();
+       }
+    }
+ 
+-   public void debug() {
+-      logger.info("size = " + globalSizeBytes + " bytes, messages = " + numberOfMessages);
+-   }
+-
+-   @Override
+    public synchronized void stop() throws Exception {
+       if (!started) {
+          return;
+       }
+       started = false;
+ 
+-      if (scheduledComponent != null) {
+-         this.scheduledComponent.stop();
+-         this.scheduledComponent = null;
+-      }
+-
+       lock();
+       try {
+ 
+@@ -423,12 +232,12 @@ public final class PagingManagerImpl implements PagingManager {
+          }
+ 
+          pagingStoreFactory.stop();
+-      } finally {
++      }
++      finally {
+          unlock();
+       }
+    }
+ 
+-   @Override
+    public void processReload() throws Exception {
+       for (PagingStore store : stores.values()) {
+          store.processReload();
+@@ -448,17 +257,16 @@ public final class PagingManagerImpl implements PagingManager {
+             stores.put(address, store);
+          }
+          return store;
+-      } finally {
++      }
++      finally {
+          syncLock.readLock().unlock();
+       }
+    }
+ 
+-   @Override
+    public void unlock() {
+       syncLock.writeLock().unlock();
+    }
+ 
+-   @Override
+    public void lock() {
+       syncLock.writeLock().lock();
+    }

@@ -1,0 +1,325 @@
+diff --git a/src/org/apache/axis/message/RPCElement.java b/src/org/apache/axis/message/RPCElement.java
+index 85b9765e7..48743fd00 100644
+--- a/src/org/apache/axis/message/RPCElement.java
++++ b/src/org/apache/axis/message/RPCElement.java
+@@ -1,8 +1,10 @@
++package org.apache.axis.message;
++
+ /*
+  * The Apache Software License, Version 1.1
+  *
+  *
+- * Copyright (c) 2001 The Apache Software Foundation.  All rights
++ * Copyright (c) 2001 The Apache Software Foundation.  All rights 
+  * reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+@@ -53,169 +55,124 @@
+  * <http://www.apache.org/>.
+  */
+ 
+-package org.apache.axis.message;
+-
+-import org.apache.axis.encoding.DeserializationContext;
+-import org.apache.axis.encoding.SerializationContext;
+-import org.apache.axis.Constants;
+-import org.apache.axis.MessageContext;
+-import org.apache.axis.Handler;
+-import org.apache.axis.description.OperationDesc;
+-import org.apache.axis.description.ServiceDesc;
+-import org.apache.axis.handlers.soap.SOAPService;
+-import org.apache.axis.utils.cache.ClassCache;
+-import org.apache.axis.utils.cache.JavaClass;
+-import org.apache.axis.utils.JavaUtils;
+-import org.xml.sax.Attributes;
+-import org.xml.sax.helpers.AttributesImpl;
+-import org.xml.sax.SAXException;
+-
+-import javax.xml.rpc.namespace.QName;
+-import java.util.Vector;
+-import java.lang.reflect.Method;
+-
++import org.xml.sax.*;
++import org.xml.sax.helpers.DefaultHandler;
++import org.apache.axis.encoding.*;
++import org.apache.axis.utils.QName;
++import java.util.*;
++import java.io.*;
++
++/** An RPC body element.
++ * 
++ * Assumes all sub-elements are parameters (see RPCParam).
++ * 
++ * @author Glen Daniels (gdaniels@macromedia.com)
++ */
+ public class RPCElement extends SOAPBodyElement
+ {
+-    protected Vector params = new Vector();
+-    protected boolean needDeser = false;
+-    protected boolean elementIsFirstParam = false;
+-
+-    public RPCElement(String namespace,
+-                      String localName,
+-                      String prefix,
+-                      Attributes attributes,
+-                      DeserializationContext context,
+-                      OperationDesc operation)
++    static class RPCElementFactory implements ElementFactory
+     {
+-        super(namespace, localName, prefix, attributes, context);
+-
+-        encodingStyle = Constants.URI_CURRENT_SOAP_ENC;
++        public MessageElement createElement(String namespace, String localName,
++                                        Attributes attributes, DeserializationContext context)
++        {
++            return new RPCElement(namespace, localName, attributes, context);
++        }
++    }
++    
++    public static ElementFactory getFactory()
++    {
++        return new RPCElementFactory();
++    }
++    
++    class RPCContentHandler extends DefaultHandler
++    {
++        private boolean passedMyStart = false;
+         
+-        // This came from parsing XML, so we need to deserialize it sometime
+-        needDeser = true;
+-
+-        if (operation != null) {
+-            this.name = operation.getName();
+-
+-            // IF we're doc/literal... we can't count on the element name
+-            // being the method name.
+-            elementIsFirstParam = (operation.getStyle() ==
+-                                   ServiceDesc.STYLE_DOCUMENT);
++        public void startElement(String namespace, String name, String qName,
++                                 Attributes attributes)
++        {
++            if (!passedMyStart) {
++                passedMyStart = true;
++                return;
++            }
++            
++            // Start of an arg...
++            RPCParam param = new RPCParam(namespace, name, attributes, context);
++            params.addElement(param);
++            if (param.getType() == null) {
++                // No type inline, so check service description.
++                ServiceDescription serviceDesc = getEnvelope().getServiceDescription();
++                if (serviceDesc != null) {
++                    param.setType(serviceDesc.getParamTypeByName(getEnvelope().getMessageType(),
++                                                                 param.getName()));
++                }
++            } else {
++                /** !!! If we have a service description and this is an
++                 * explicitly-typed param, we might want to check here to
++                 * see if the xsi:type val is indeed a subtype of the type
++                 * we expect from the service description.
++                 */
++                
++            }
++            context.pushElementHandler(param.getContentHandler());
+         }
+     }
++    public ContentHandler getContentHandler() { return new RPCContentHandler(); }
++    
++    ///////////////////////////////////////////////////////////////
++    
++    protected String methodName;    
++    protected Vector params = new Vector();
++    
++    public RPCElement(String namespace, String localName, Attributes attrs,
++                      DeserializationContext context)
++    {
++        super(namespace, localName, attrs, context);
++        this.methodName = localName;
++    }
+     
+-    public RPCElement(String namespace, String methodName, Object [] args)
++    public RPCElement(String methodName, Object [] args)
+     {
+-        this.setNamespaceURI(namespace);
++        this.methodName = methodName;
+         this.name = methodName;
+         
+-        encodingStyle = Constants.URI_CURRENT_SOAP_ENC;
+-
+-        for (int i = 0; args != null && i < args.length; i++) {
++        for (int i = 0; i < args.length; i++) {
+             if (args[i] instanceof RPCParam) {
+                 addParam((RPCParam)args[i]);
+             } else {
+-                String name = null;
+-                if (name == null) name = "arg" + i;
+-                addParam(new RPCParam(name, args[i]));
++                addParam(new RPCParam("arg" + i, args[i]));
+             }
+         }
+     }
+     
+     public RPCElement(String methodName)
+     {
+-        encodingStyle = Constants.URI_CURRENT_SOAP_ENC;
+-
++        this.methodName = methodName;
+         this.name = methodName;
+     }
+     
+-    public String getMethodName()
+-    {
+-        return name;
+-    }
+-    
+-    protected Class  defaultParamTypes[] = null;
+-    
+-    public Class [] getJavaParamTypes()
++    public void output(SerializationContext context)
++        throws IOException
+     {
+-        return defaultParamTypes;
++        context.registerPrefixForURI(prefix, namespaceURI);
++        context.startElement(new QName(this.getNamespaceURI(), this.getName()), attributes);
++        Enumeration e = params.elements();
++        while (e.hasMoreElements()) {
++            ((RPCParam)e.nextElement()).output(context);
++        }
++        context.endElement();
+     }
+     
+-    public void deserialize() throws SAXException
++    public String getMethodName()
+     {
+-        needDeser = false;
+-
+-        MessageContext msgContext = context.getMessageContext();
+-        Handler service    = msgContext.getService();
+-        String clsName = null;
+-
+-        if (service != null) {
+-            clsName = (String)service.getOption("className");
+-        }
+-
+-        if (clsName != null) {
+-            ClassLoader cl       = msgContext.getClassLoader();
+-            ClassCache cache     = msgContext.getAxisEngine().getClassCache();
+-            JavaClass       jc   = null;
+-            try {
+-                jc = cache.lookup(clsName, cl);
+-            } catch (ClassNotFoundException e) {
+-                throw new SAXException(e);
+-            }
+-            
+-            if (log.isDebugEnabled()) {
+-                log.debug(JavaUtils.getMessage(
+-                        "lookup00", name, clsName));
+-            }
+-            
+-            Method[] method = jc.getMethod(name);
+-            int numChildren = (getChildren() == null) ? 0 : getChildren().size();
+-            if (method != null) {
+-                for (int i = 0; i < method.length; i++) {
+-                    defaultParamTypes = method[i].getParameterTypes();
+-                    if (defaultParamTypes.length >= numChildren) {
+-                        try {
+-                            if (elementIsFirstParam) {
+-                                context.pushElementHandler(new RPCHandler(this));
+-                                context.setCurElement(null);
+-                            } else {
+-                                context.pushElementHandler(new EnvelopeHandler(new RPCHandler(this)));
+-                                context.setCurElement(this);
+-                            }
+-
+-                            publishToHandler((org.xml.sax.ContentHandler) context);
+-                        } catch (SAXException e) {
+-                            // If there was a problem, try the next one.
+-                            params = new Vector();
+-                            continue;
+-                        }
+-                        // Succeeded in deserializing!
+-                        return;
+-                    }
+-                }
+-            }
+-        }
+-
+-        if (elementIsFirstParam) {
+-            context.pushElementHandler(new RPCHandler(this));
+-            context.setCurElement(null);
+-        } else {
+-            context.pushElementHandler(new EnvelopeHandler(new RPCHandler(this)));
+-            context.setCurElement(this);
+-        }
+-
+-        publishToHandler((org.xml.sax.ContentHandler)context);
++        return methodName;
+     }
+     
+     /** This gets the FIRST param whose name matches.
+      * !!! Should it return more in the case of duplicates?
+      */
+-    public RPCParam getParam(String name) throws SAXException
++    public RPCParam getParam(String name)
+     {
+-        if (needDeser) {
+-            deserialize();
+-        }
+-        
+         for (int i = 0; i < params.size(); i++) {
+             RPCParam param = (RPCParam)params.elementAt(i);
+             if (param.getName().equals(name))
+@@ -225,50 +182,14 @@ public class RPCElement extends SOAPBodyElement
+         return null;
+     }
+     
+-    public Vector getParams() throws SAXException
++    public Vector getParams()
+     {
+-        if (needDeser) {
+-            deserialize();
+-        }
+-
+         return params;
+     }
+     
+     public void addParam(RPCParam param)
+     {
+-        param.setRPCCall(this);
++        param.setRPCElement(this);
+         params.addElement(param);
+     }
+-
+-    protected void outputImpl(SerializationContext context) throws Exception
+-    {
+-        MessageContext msgContext = context.getMessageContext();
+-        boolean isRPC = true;
+-        if (msgContext != null &&
+-                (msgContext.getOperationStyle() != ServiceDesc.STYLE_RPC) &&
+-                ! msgContext.isPropertyTrue("wrapped")) {
+-                isRPC = false;
+-        }
+-
+-        if (isRPC) {
+-            // Set default namespace if appropriate (to avoid prefix mappings
+-            // in literal style).  Do this only if there is no encodingStyle.
+-            if (encodingStyle.equals("")) {
+-                context.registerPrefixForURI("", getNamespaceURI());
+-            }
+-            context.startElement(new QName(namespaceURI,name), attributes);
+-        }
+-        
+-        for (int i = 0; i < params.size(); i++) {
+-            RPCParam param = (RPCParam)params.elementAt(i);
+-            if (!isRPC && encodingStyle.equals("")) {
+-                context.registerPrefixForURI("", param.getQName().getNamespaceURI());
+-            }
+-            param.serialize(context);
+-        }
+-        
+-        if (isRPC) {
+-            context.endElement();
+-        }
+-    }
+ }

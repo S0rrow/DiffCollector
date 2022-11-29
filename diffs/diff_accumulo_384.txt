@@ -1,0 +1,29 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/CleanWalIT.java b/test/src/main/java/org/apache/accumulo/test/CleanWalIT.java
+index 937ccb8296..91b929f4bc 100644
+--- a/test/src/main/java/org/apache/accumulo/test/CleanWalIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/CleanWalIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ 
+ import java.util.Map.Entry;
+@@ -47,6 +46,7 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class CleanWalIT extends AccumuloClusterHarness {
+   private static final Logger log = LoggerFactory.getLogger(CleanWalIT.class);
+@@ -58,7 +58,7 @@ public class CleanWalIT extends AccumuloClusterHarness {
+ 
+   @Override
+   public void configureMiniCluster(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
+-    cfg.setProperty(Property.INSTANCE_ZK_TIMEOUT, "15s");
++    cfg.setProperty(Property.INSTANCE_ZK_TIMEOUT, "3s");
+     cfg.setNumTservers(1);
+     // use raw local file system so walogs sync and flush will work
+     hadoopCoreSite.set("fs.file.impl", RawLocalFileSystem.class.getName());

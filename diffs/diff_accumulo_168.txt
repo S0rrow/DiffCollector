@@ -1,0 +1,14 @@
+diff --git a/src/core/src/main/java/org/apache/accumulo/core/client/ZooKeeperInstance.java b/src/core/src/main/java/org/apache/accumulo/core/client/ZooKeeperInstance.java
+index 069d217742..1dae7117c5 100644
+--- a/src/core/src/main/java/org/apache/accumulo/core/client/ZooKeeperInstance.java
++++ b/src/core/src/main/java/org/apache/accumulo/core/client/ZooKeeperInstance.java
+@@ -306,8 +306,8 @@ public class ZooKeeperInstance implements Instance {
+         clientInstances.incrementAndGet();
+         throw new AccumuloException("Issues closing ZooKeeper.");
+       }
++      closed = true;
+     }
+-    closed = true;
+   }
+ 
+   @Override

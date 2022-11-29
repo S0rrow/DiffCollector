@@ -1,0 +1,44 @@
+diff --git a/blueprint/blueprint-maven-plugin/src/test/java/org/apache/aries/blueprint/plugin/test/MyBean1.java b/blueprint/blueprint-maven-plugin/src/test/java/org/apache/aries/blueprint/plugin/test/MyBean1.java
+index 45c35ea03..94a4683a5 100644
+--- a/blueprint/blueprint-maven-plugin/src/test/java/org/apache/aries/blueprint/plugin/test/MyBean1.java
++++ b/blueprint/blueprint-maven-plugin/src/test/java/org/apache/aries/blueprint/plugin/test/MyBean1.java
+@@ -18,9 +18,10 @@
+  */
+ package org.apache.aries.blueprint.plugin.test;
+ 
++import javax.annotation.PostConstruct;
++import javax.annotation.PreDestroy;
+ import javax.inject.Singleton;
+ import javax.persistence.EntityManager;
+-import javax.persistence.PersistenceContext;
+ import javax.persistence.PersistenceUnit;
+ import javax.transaction.Transactional;
+ import javax.transaction.Transactional.TxType;
+@@ -29,21 +30,22 @@ import org.springframework.beans.factory.annotation.Autowired;
+ 
+ @Singleton
+ @Transactional(value=TxType.REQUIRED)
+-public class MyBean1 extends ParentBean {
++public class MyBean1 {
+ 
+     @Autowired
+     ServiceA bean2;
+     
+-    @PersistenceContext(unitName="person")
+-    EntityManager em;
+-    
+     @PersistenceUnit(unitName="person")
+-    EntityManager emf;
++    EntityManager em;
+     
++    @PostConstruct
+     public void init() {
++        
+     }
+     
++    @PreDestroy
+     public void destroy() {
++        
+     }
+ 
+     public void saveData() {

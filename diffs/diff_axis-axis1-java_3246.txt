@@ -1,0 +1,777 @@
+diff --git a/src/org/apache/axis/message/MessageElement.java b/src/org/apache/axis/message/MessageElement.java
+index d8a7cb53b..29c936cca 100644
+--- a/src/org/apache/axis/message/MessageElement.java
++++ b/src/org/apache/axis/message/MessageElement.java
+@@ -57,46 +57,35 @@ package org.apache.axis.message;
+ 
+ import org.apache.axis.Constants;
+ import org.apache.axis.MessageContext;
+-import org.apache.axis.soap.SOAPConstants;
++import org.apache.axis.configuration.NullProvider;
+ import org.apache.axis.encoding.DeserializationContext;
+ import org.apache.axis.encoding.Deserializer;
++import org.apache.axis.encoding.SOAPTypeMappingRegistry;
+ import org.apache.axis.encoding.SerializationContext;
+-import org.apache.axis.encoding.SerializationContextImpl;
++import org.apache.axis.encoding.TypeMappingRegistry;
+ import org.apache.axis.utils.Mapping;
+ import org.apache.axis.utils.JavaUtils;
+ import org.apache.axis.utils.XMLUtils;
+-
+-import org.apache.commons.logging.Log;
+-import org.apache.commons.logging.LogFactory;
+-
++import org.apache.log4j.Category;
+ import org.w3c.dom.Document;
+ import org.w3c.dom.Element;
+-import org.w3c.dom.Text;
+ import org.xml.sax.Attributes;
+ import org.xml.sax.ContentHandler;
+ import org.xml.sax.InputSource;
+ import org.xml.sax.SAXException;
+ import org.xml.sax.helpers.AttributesImpl;
+ 
+-import javax.xml.soap.SOAPElement;
+-import javax.xml.soap.SOAPException;
+-import javax.xml.soap.Name;
+ import javax.xml.rpc.namespace.QName;
+ import java.io.Reader;
+ import java.io.StringReader;
+ import java.io.StringWriter;
+ import java.util.ArrayList;
+ import java.util.Vector;
+-import java.util.Iterator;
+ 
+-public class MessageElement implements SOAPElement
++public class MessageElement
+ {
+-    protected static Log log =
+-        LogFactory.getLog(MessageElement.class.getName());
+-
+-    private static final Mapping encMapping =
+-            new Mapping(Constants.NS_URI_CURRENT_SOAP_ENC,
+-                        "SOAP-ENC");
++    static Category category =
++            Category.getInstance(MessageElement.class.getName());
+ 
+     protected String    name ;
+     protected String    prefix ;
+@@ -122,18 +111,12 @@ public class MessageElement implements SOAPElement
+ 
+     // ...or as DOM
+     protected Element elementRep = null;
+-    protected Text textRep = null;
+ 
+     protected MessageElement parent = null;
++    // Do we need links to our children too?
+ 
+     public ArrayList namespaces = null;
+ 
+-    /** Our encoding style, if any */
+-    protected String encodingStyle = null;
+-
+-    /** Object value, possibly supplied by subclass */
+-    private Object objectValue = null;
+-
+     /** No-arg constructor for building messages?
+      */
+     public MessageElement()
+@@ -146,39 +129,20 @@ public class MessageElement implements SOAPElement
+         name = localPart;
+     }
+ 
+-    MessageElement(Name eltName)
+-    {
+-        this(eltName.getURI(), eltName.getLocalName());
+-        prefix = eltName.getPrefix();
+-    }
+-
+-    MessageElement(String namespace, String localPart, Object value)
+-    {
+-        this(namespace, localPart);
+-        objectValue = value;
+-    }
+-
+     MessageElement(Element elem)
+     {
+         elementRep = elem;
+         namespaceURI = elem.getNamespaceURI();
+-        name = elem.getLocalName();
+-    }
+-
+-    MessageElement(Text text)
+-    {
+-        textRep = text;
+-        namespaceURI = text.getNamespaceURI();
+-        name = text.getLocalName();
++        name = elem.getTagName();
+     }
+ 
+     public MessageElement(String namespace, String localPart, String qName,
+                    Attributes attributes, DeserializationContext context)
+     {
+-        if (log.isDebugEnabled()) {
+-            log.debug(JavaUtils.getMessage("newElem00", super.toString(), "" + qName));
++        if (category.isDebugEnabled()) {
++            category.debug(JavaUtils.getMessage("newElem00", super.toString(), "" + qName));
+             for (int i = 0; attributes != null && i < attributes.getLength(); i++) {
+-                log.debug("  " + attributes.getQName(i) + " = '" + attributes.getValue(i) + "'");
++                category.debug("  " + attributes.getQName(i) + " = '" + attributes.getValue(i) + "'");
+             }
+         }
+         this.namespaceURI = namespace;
+@@ -199,12 +163,7 @@ public class MessageElement implements SOAPElement
+             this.attributes = new AttributesImpl();
+         } else {
+             this.attributes = new AttributesImpl(attributes);
+-
+-            typeQName = context.getTypeFromAttributes(namespace,
+-                                                      localPart,
+-                                                      attributes);
+-
+-            String rootVal = attributes.getValue(Constants.NS_URI_CURRENT_SOAP_ENC, Constants.ATTR_ROOT);
++            String rootVal = attributes.getValue(Constants.URI_SOAP_ENC, Constants.ATTR_ROOT);
+             if (rootVal != null)
+                 _isRoot = rootVal.equals("1");
+ 
+@@ -212,23 +171,13 @@ public class MessageElement implements SOAPElement
+             // Register this ID with the context.....
+             if (id != null) {
+                 context.registerElementByID(id, this);
+-                if (recorder == null) {
+-                    recorder = new SAX2EventRecorder();
+-                    context.setRecorder(recorder);
+-                }
+             }
+ 
+             href = attributes.getValue(Constants.ATTR_HREF);
+ 
+             // If there's an arrayType attribute, we can pretty well guess that we're an Array???
+-            if (attributes.getValue(Constants.NS_URI_CURRENT_SOAP_ENC, Constants.ATTR_ARRAY_TYPE) != null)
+-                typeQName = Constants.SOAP_ARRAY;
+-
+-            // Set the encoding style to the attribute value.  If null,
+-            // we just automatically use our parent's (see getEncodingStyle)
+-            encodingStyle =
+-                    attributes.getValue(Constants.NS_URI_CURRENT_SOAP_ENC,
+-                                        Constants.ATTR_ENCODING_STYLE);
++            if (attributes.getValue(Constants.URI_SOAP_ENC, Constants.ATTR_ARRAY_TYPE) != null)
++                typeQName = SOAPTypeMappingRegistry.SOAP_ARRAY;
+         }
+     }
+ 
+@@ -250,7 +199,6 @@ public class MessageElement implements SOAPElement
+     public void setEndIndex(int endIndex)
+     {
+         endEventIndex = endIndex;
+-        //context.setRecorder(null);
+     }
+ 
+     public boolean isDirty() { return _isDirty; }
+@@ -259,31 +207,6 @@ public class MessageElement implements SOAPElement
+     public boolean isRoot() { return _isRoot; }
+     public String getID() { return id; }
+ 
+-    public String getHref() { return href; }
+-
+-    public Attributes getAttributes() { return attributes; }
+-
+-    /**
+-     * Obtain an Attributes collection consisting of all attributes
+-     * for this MessageElement, including namespace declarations.
+-     *
+-     * @return
+-     */
+-    public Attributes getCompleteAttributes() {
+-        if (namespaces == null)
+-            return attributes;
+-
+-        AttributesImpl attrs = new AttributesImpl(attributes);
+-        for (Iterator iterator = namespaces.iterator(); iterator.hasNext();) {
+-            Mapping mapping = (Mapping) iterator.next();
+-            String prefix = mapping.getPrefix();
+-            String nsURI = mapping.getNamespaceURI();
+-            attrs.addAttribute(Constants.NS_URI_XMLNS, prefix,
+-                               "xmlns:" + prefix, nsURI, "CDATA");
+-        }
+-        return attrs;
+-    }
+-
+     public String getName() { return( name ); }
+     public void setName(String name) { this.name = name; }
+ 
+@@ -293,98 +216,35 @@ public class MessageElement implements SOAPElement
+     public String getNamespaceURI() { return( namespaceURI ); }
+     public void setNamespaceURI(String nsURI) { namespaceURI = nsURI; }
+ 
+-    public QName getType() {
+-        // Try to get the type from our target if we're a reference...
+-        if (typeQName == null && href != null && context != null) {
+-            MessageElement referent = context.getElementByID(href);
+-            if (referent != null) {
+-                typeQName = referent.getType();
+-            }
+-        }
+-        return typeQName;
+-    }
++    public QName getType() { return typeQName; }
+     public void setType(QName qName) { typeQName = qName; }
+ 
+     public SAX2EventRecorder getRecorder() { return recorder; }
+     public void setRecorder(SAX2EventRecorder rec) { recorder = rec; }
+ 
+-    /**
+-     * Get the encoding style.  If ours is null, walk up the hierarchy
+-     * and use our parent's.  Default if we're the root is "".
+-     *
+-     * @return the currently in-scope encoding style
+-     */
+-    public String getEncodingStyle() {
+-        if (encodingStyle == null) {
+-            if (parent == null)
+-                return "";
+-            return parent.getEncodingStyle();
+-        }
+-        return encodingStyle;
+-    }
+-
+-    /**
+-     * Set the encoding style.  Calling this means you are absolutely
+-     * setting it to SOMETHING valid.  The semantics of a null value,
+-     * as above in getEncodingStyle() are to just use the parent's value,
+-     * but null here means set to "".
+-     */
+-    public void setEncodingStyle(String encodingStyle) throws SOAPException {
+-        if (encodingStyle == null) encodingStyle = "";
+-        this.encodingStyle = encodingStyle;
+-
+-        // Wherever we set the encoding style, map the SOAP-ENC prefix
+-        // just for fun.
+-        if (encodingStyle.equals(Constants.NS_URI_CURRENT_SOAP_ENC)) {
+-            addMapping(encMapping);
+-        }
+-    }
+-
+-    private MessageElement getParent() { return parent; }
+-    private void setParent(MessageElement parent) throws SOAPException
+-    {
++    public MessageElement getParent() { return parent; }
++    public void setParent(MessageElement parent) 
++    { 
+         this.parent = parent;
+         if (parent != null) {
+             parent.addChild(this);
+         }
+     }
+-
++    
+     private ArrayList children = null;
+-
+-    /**
+-     * Note that this method will log a error and no-op if there is
+-     * a value (set using setObjectValue) in the MessageElement.
+-     */
+-    public void addChild(MessageElement el) throws SOAPException
++    
++    public void addChild(MessageElement el)
+     {
+-        if (objectValue != null) {
+-            SOAPException exc = new SOAPException(JavaUtils.
+-                                                  getMessage("valuePresent"));
+-            log.error(JavaUtils.getMessage("valuePresent"), exc);
+-            throw exc;
+-        }
+         if (children == null)
+             children = new ArrayList();
+         children.add(el);
+-        el.parent = this;
+     }
+-
+-    /**
+-     * Remove a child element.
+-     */
+-    private void removeChild(MessageElement child) {
+-        // Remove all occurrences in case it has been added multiple times.
+-        int i;
+-        while ((i = children.indexOf(child)) != -1) {
+-            children.remove(i);
+-        }
+-    }
+-
++    
+     public ArrayList getChildren()
+     {
+         return children;
+     }
+-
++    
+     public void setContentsIndex(int index)
+     {
+         startContentsIndex = index;
+@@ -437,72 +297,26 @@ public class MessageElement implements SOAPElement
+         if (parent != null)
+             return parent.getNamespaceURI(prefix);
+ 
+-        if (log.isDebugEnabled()) {
+-            log.debug(JavaUtils.getMessage("noPrefix00", "" + this, prefix));
++        if (category.isDebugEnabled()) {
++            category.debug(JavaUtils.getMessage("noPrefix00", "" + this, prefix));
+         }
+ 
+         return null;
+     }
+ 
+-    /**
+-     * Returns value of the node as an object of registered type.
+-     * @return Object of proper type, or null if no mapping could be found.
+-     */
+-    public Object getObjectValue(){
+-        if (objectValue == null) {
+-            try {
+-                objectValue = getValueAsType(getType());
+-            } catch (Exception e) {
+-                log.debug("getValue()", e);
+-            }
+-        }
+-        return objectValue;
+-    }
+-
+-    /**
+-     * Sets value of this node to an Object.
+-     * A serializer needs to be registered for this object class for proper
+-     * operation.
+-     * <p>
+-     * Note that this method will log an error and no-op if there are
+-     * any children in the MessageElement or if the MessageElement was
+-     * constructed from XML.
+-     * @param newValue node's value or null.
+-     */
+-    public void setObjectValue(Object newValue) throws SOAPException {
+-        if (children != null && !children.isEmpty()) {
+-            SOAPException exc = new SOAPException(JavaUtils.
+-                                                  getMessage("childPresent"));
+-            log.error(JavaUtils.getMessage("childPresent"), exc);
+-            throw exc;
+-        }
+-        if (elementRep != null) {
+-            SOAPException exc = new SOAPException(JavaUtils.
+-                                                  getMessage("xmlPresent"));
+-            log.error(JavaUtils.getMessage("xmlPresent"), exc);
+-            throw exc;
+-        }
+-        if (textRep != null) {
+-            SOAPException exc = new SOAPException(JavaUtils.
+-                                                  getMessage("xmlPresent"));
+-            log.error(JavaUtils.getMessage("xmlPresent"), exc);
+-            throw exc;
+-        }
+-        this.objectValue = newValue;
+-    }
+-
+     public Object getValueAsType(QName type) throws Exception
+     {
+         if (context == null)
+             throw new Exception(JavaUtils.getMessage("noContext00"));
+ 
+-        Deserializer dser = context.getDeserializerForType(type);
++        TypeMappingRegistry tmr = context.getTypeMappingRegistry();
++        Deserializer dser = tmr.getDeserializer(type);
+         if (dser == null)
+             throw new Exception(JavaUtils.getMessage("noDeser00", "" + type));
+ 
+-        context.pushElementHandler(new EnvelopeHandler((SOAPHandler)dser));
++        context.pushElementHandler(new EnvelopeHandler(dser));
+ 
+-        publishToHandler((org.xml.sax.ContentHandler) context);
++        publishToHandler(context);
+ 
+         return dser.getValue();
+     }
+@@ -536,32 +350,6 @@ public class MessageElement implements SOAPElement
+                                 value);
+     }
+ 
+-    /**
+-     * Set an attribute, adding the attribute if it isn't already present
+-     * in this element, and changing the value if it is.  Passing null as the
+-     * value will cause any pre-existing attribute by this name to go away.
+-     */
+-    public void setAttribute(String namespace, String localName,
+-                             String value)
+-    {
+-        if (attributes != null) {
+-            int idx = attributes.getIndex(namespace, localName);
+-            if (idx > -1) {
+-                // Got it, so replace it's value.
+-                if (value != null) {
+-                    attributes.setValue(idx, value);
+-                } else {
+-                    attributes.removeAttribute(idx);
+-                }
+-                return;
+-            }
+-        } else if (value != null) {
+-            attributes = new AttributesImpl();
+-        }
+-
+-        addAttribute(namespace, localName, value);
+-    }
+-
+     public String getAttributeValue(String localName)
+     {
+         if (attributes == null) {
+@@ -594,38 +382,21 @@ public class MessageElement implements SOAPElement
+         return (MessageElement)obj;
+     }
+ 
+-    public Document getAsDocument() throws Exception
++    public Element getAsDOM() throws Exception
+     {
+-        String elementString = getAsString();
+-
+-        Reader reader = new StringReader(elementString);
+-        Document doc = XMLUtils.newDocument(new InputSource(reader));
+-        if (doc == null)
+-            throw new Exception(
+-                    JavaUtils.getMessage("noDoc00", elementString));
+-        return doc;
+-    }
++        MessageContext msgContext = context.getMessageContext();
+ 
+-    private String getAsString() throws Exception {
+-        SerializationContext serializeContext = null;
+         StringWriter writer = new StringWriter();
+-        MessageContext msgContext;
+-        if (context != null) {
+-            msgContext = context.getMessageContext();
+-        } else {
+-            msgContext = MessageContext.getCurrentContext();
+-        }
+-        serializeContext = new SerializationContextImpl(writer, msgContext);
+-        serializeContext.setSendDecl(false);
+-        output(serializeContext);
++        output(new SerializationContext(writer, msgContext));
+         writer.close();
+ 
+-        return writer.getBuffer().toString();
+-    }
++        Reader reader = new StringReader(writer.getBuffer().toString());
++        Document doc = XMLUtils.newDocument(new InputSource(reader));
++        if (doc == null)
++            throw new Exception(
++                    JavaUtils.getMessage("noDoc00", writer.getBuffer().toString()));
+ 
+-    public Element getAsDOM() throws Exception
+-    {
+-        return getAsDocument().getDocumentElement();
++        return doc.getDocumentElement();
+     }
+ 
+     public void publishToHandler(ContentHandler handler) throws SAXException
+@@ -654,9 +425,7 @@ public class MessageElement implements SOAPElement
+     public final void output(SerializationContext context) throws Exception
+     {
+         if ((recorder != null) && (!_isDirty)) {
+-            recorder.replay(startEventIndex,
+-                            endEventIndex,
+-                            new SAXOutputter(context));
++            recorder.replay(startEventIndex, endEventIndex, new SAXOutputter(context));
+             return;
+         }
+ 
+@@ -672,29 +441,6 @@ public class MessageElement implements SOAPElement
+             qNameAttrs = null;
+         }
+ 
+-        /**
+-         * Write the encoding style attribute IF it's different from
+-         * whatever encoding style is in scope....
+-         */
+-        if (encodingStyle != null) {
+-            MessageContext mc = context.getMessageContext();
+-            SOAPConstants soapConstants = (mc != null) ?
+-                                            mc.getSOAPConstants() :
+-                                            SOAPConstants.SOAP11_CONSTANTS;
+-            if (parent == null) {
+-                // don't emit an encoding style if its "" (literal)
+-                if (!encodingStyle.equals("")) {
+-                    setAttribute(soapConstants.getEnvelopeURI(),
+-                                 Constants.ATTR_ENCODING_STYLE,
+-                                 encodingStyle);
+-                }
+-            } else if (!encodingStyle.equals(parent.getEncodingStyle())) {
+-                setAttribute(soapConstants.getEnvelopeURI(),
+-                             Constants.ATTR_ENCODING_STYLE,
+-                             encodingStyle);
+-            }
+-        }
+-
+         outputImpl(context);
+     }
+ 
+@@ -710,257 +456,25 @@ public class MessageElement implements SOAPElement
+             return;
+         }
+ 
+-        if (textRep != null) {
+-            boolean oldPretty = context.getPretty();
+-            context.setPretty(false);
+-            context.writeSafeString(((Text)textRep).getData());
+-            context.setPretty(oldPretty);
+-            return;
+-        }
+-
+         if (prefix != null)
+             context.registerPrefixForURI(prefix, namespaceURI);
+ 
+-        if (objectValue != null) {
+-            context.serialize(new QName(namespaceURI, name),
+-                              attributes,
+-                              objectValue,
+-                              objectValue.getClass());
+-            return;
+-        }
+-
+         context.startElement(new QName(namespaceURI, name), attributes);
+-        if (children != null) {
+-            for (Iterator it = children.iterator(); it.hasNext();) {
+-                ((MessageElement)it.next()).output(context);
+-            }
+-        }
+         context.endElement();
+     }
+ 
+     public String toString() {
+         try {
+-            return getAsString();
++            StringWriter  writer = new StringWriter();
++            SerializationContext serContext = new SerializationContext(writer, 
++                                                                       null);
++            serContext.setSendDecl(false);
++            this.output(serContext);
++            return( writer.toString() );
+         }
+         catch( Exception exp ) {
+-            log.error(JavaUtils.getMessage("exception00"), exp);
+-            return null;
+-        }
+-    }
+-
+-    public void addMapping(Mapping map) {
+-        if (namespaces == null) namespaces = new ArrayList();
+-        namespaces.add(map);
+-    }
+-
+-    // JAXM Node methods...
+-
+-    /**
+-     * Text nodes are not supported.
+-     */
+-    public String getValue() {
+-        return null;
+-    }
+-
+-    public void setParentElement(SOAPElement parent) throws SOAPException {
+-        try {
+-            setParent((MessageElement)parent);
+-        } catch (Throwable t) {
+-            throw new SOAPException(t);
+-        }
+-    }
+-
+-    public SOAPElement getParentElement() {
+-        return getParent();
+-    }
+-
+-    /**
+-     * Break the relationship between this element and its parent, if any.
+-     */
+-    public void detachNode() {
+-        if (parent != null) {
+-            parent.removeChild(this);
+-            parent = null;
++            exp.printStackTrace();
++            return( null );
+         }
+     }
+-
+-    /**
+-     * No-opped - Axis does not recycle nodes.
+-     */
+-    public void recycleNode() {}
+-
+-    // JAXM SOAPElement methods...
+-
+-    public SOAPElement addChildElement(Name name) throws SOAPException {
+-        MessageElement child = new MessageElement(name.getURI(),
+-                                                  name.getLocalName());
+-        addChild(child);
+-        return child;
+-    }
+-
+-    public SOAPElement addChildElement(String localName) throws SOAPException {
+-        // Inherit parent's namespace
+-        MessageElement child = new MessageElement(getNamespaceURI(),
+-                                                  localName);
+-        addChild(child);
+-        return child;
+-    }
+-
+-    public SOAPElement addChildElement(String localName,
+-                                       String prefix) throws SOAPException {
+-        MessageElement child = new MessageElement(getNamespaceURI(prefix),
+-                                                  localName);
+-        addChild(child);
+-        return child;
+-    }
+-
+-    public SOAPElement addChildElement(String localName,
+-                                       String prefix,
+-                                       String uri) throws SOAPException {
+-            MessageElement child = new MessageElement(uri, localName);
+-            child.addNamespaceDeclaration(prefix, uri);
+-            addChild(child);
+-            return child;
+-    }
+-
+-    /**
+-     * The added child must be an instance of MessageElement rather than
+-     * an abitrary SOAPElement otherwise a (wrapped) ClassCastException
+-     * will be thrown.
+-     */
+-    public SOAPElement addChildElement(SOAPElement element)
+-        throws SOAPException {
+-        try {
+-            addChild((MessageElement)element);
+-            return element;
+-        } catch (ClassCastException e) {
+-            throw new SOAPException(e);
+-        }
+-    }
+-
+-    /**
+-     * Text nodes are not supported.
+-     */
+-    public SOAPElement addTextNode(String s) throws SOAPException {
+-        org.apache.axis.message.Text text = new org.apache.axis.message.Text(s);
+-        try {
+-            addChild((MessageElement)text);
+-            return text;
+-        } catch (ClassCastException e) {
+-            throw new SOAPException(e);
+-        }
+-    }
+-
+-    public SOAPElement addAttribute(Name name, String value)
+-        throws SOAPException {
+-        try {
+-            addAttribute(name.getURI(), name.getLocalName(), value);
+-        } catch (RuntimeException t) {
+-            throw new SOAPException(t);
+-        }
+-        return this;
+-    }
+-
+-    public SOAPElement addNamespaceDeclaration(String prefix,
+-                                               String uri)
+-        throws SOAPException {
+-        try {
+-            Mapping map = new Mapping(uri, prefix);
+-            addMapping(map);
+-        } catch (RuntimeException t) {
+-            throw new SOAPException(t);
+-        }
+-        return this;
+-    }
+-
+-    public String getAttributeValue(Name name) {
+-        return attributes.getValue(name.getURI(), name.getLocalName());
+-    }
+-
+-    public Iterator getAllAttributes() {
+-        int num = attributes.getLength();
+-        Vector attrs = new Vector(num);
+-        for (int i = 0; i < num; i++) {
+-            String q = attributes.getQName(i);
+-            String prefix = "";
+-            if (q != null) {
+-                int idx = q.indexOf(":");
+-                if (idx > 0)
+-                    prefix = q.substring(0, idx);
+-            }
+-
+-            attrs.add(new PrefixedQName(attributes.getURI(i),
+-                                        attributes.getLocalName(i),
+-                                        prefix));
+-        }
+-        return attrs.iterator();
+-    }
+-
+-    // getNamespaceURI implemented above
+-
+-    public Iterator getNamespacePrefixes() {
+-        int num = namespaces.size();
+-        Vector prefixes = new Vector(num);
+-        for (int i = 0; i < num; i++) {
+-            prefixes.add(((Mapping)namespaces.get(i)).getPrefix());
+-        }
+-        return prefixes.iterator();
+-    }
+-
+-    public Name getElementName() {
+-        return new PrefixedQName(getNamespaceURI(), getName(), getPrefix());
+-    }
+-
+-    public boolean removeAttribute(Name name) {
+-        boolean removed = false;
+-
+-        for (int i = 0; i < attributes.getLength() && !removed; i++) {
+-            if (attributes.getURI(i).equals(name.getURI()) &&
+-                attributes.getLocalName(i).equals(name.getLocalName())) {
+-                attributes.removeAttribute(i);
+-                removed = true;
+-            }
+-        }
+-        return removed;
+-    }
+-
+-    public boolean removeNamespaceDeclaration(String prefix) {
+-        boolean removed = false;
+-
+-        for (int i = 0; i < namespaces.size() && !removed; i++) {
+-            if (((Mapping)namespaces.get(i)).getPrefix().equals(prefix)) {
+-                namespaces.remove(i);
+-                removed = true;
+-            }
+-        }
+-        return removed;
+-    }
+-
+-    public Iterator getChildElements() {
+-        if (children == null)
+-            children = new ArrayList();
+-        return children.iterator();
+-    }
+-
+-    public Iterator getChildElements(Name name) {
+-        if (children == null)
+-            children = new ArrayList();
+-        int num = children.size();
+-
+-        Vector c = new Vector(num);
+-        for (int i = 0; i < num; i++) {
+-            MessageElement child = (MessageElement)children.get(i);
+-            Name cname = child.getElementName();
+-            if (cname.getURI().equals(name.getURI()) &&
+-                cname.getLocalName().equals(name.getLocalName())) {
+-                c.add(child);
+-            }
+-        }
+-        return c.iterator();
+-    }
+-
+-    // setEncodingStyle implemented above
+-
+-    // getEncodingStyle() implemented above
+-
+ }

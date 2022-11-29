@@ -1,0 +1,472 @@
+diff --git a/proxy/src/test/java/org/apache/accumulo/proxy/SimpleProxyIT.java b/proxy/src/test/java/org/apache/accumulo/proxy/SimpleProxyIT.java
+index 50e53a9dfe..dd4f7a86ae 100644
+--- a/proxy/src/test/java/org/apache/accumulo/proxy/SimpleProxyIT.java
++++ b/proxy/src/test/java/org/apache/accumulo/proxy/SimpleProxyIT.java
+@@ -34,7 +34,6 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+-import java.util.Map.Entry;
+ import java.util.Properties;
+ import java.util.Random;
+ import java.util.Set;
+@@ -42,8 +41,6 @@ import java.util.TreeMap;
+ import java.util.UUID;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+-import org.apache.accumulo.core.client.Connector;
+-import org.apache.accumulo.core.client.ZooKeeperInstance;
+ import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+ import org.apache.accumulo.core.conf.DefaultConfiguration;
+ import org.apache.accumulo.core.conf.Property;
+@@ -55,7 +52,6 @@ import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
+ import org.apache.accumulo.core.iterators.user.SummingCombiner;
+ import org.apache.accumulo.core.iterators.user.VersioningIterator;
+ import org.apache.accumulo.core.metadata.MetadataTable;
+-import org.apache.accumulo.core.security.Authorizations;
+ import org.apache.accumulo.core.util.ByteBufferUtil;
+ import org.apache.accumulo.core.util.UtilWaitThread;
+ import org.apache.accumulo.examples.simple.constraints.NumericValueConstraint;
+@@ -112,7 +108,6 @@ import org.junit.Rule;
+ import org.junit.Test;
+ import org.junit.rules.TemporaryFolder;
+ import org.junit.rules.TestName;
+-import org.junit.rules.Timeout;
+ 
+ /**
+  * Call every method on the proxy and try to verify that it works.
+@@ -163,18 +158,6 @@ public class SimpleProxyIT {
+   @Rule
+   public TestName testName = new TestName();
+ 
+-  @Rule
+-  public Timeout testsShouldTimeout() {
+-    int waitLonger;
+-    try {
+-      waitLonger = Integer.parseInt(System.getProperty("timeout.factor"));
+-    } catch (NumberFormatException e) {
+-      waitLonger = 1;
+-    }
+-
+-    return new Timeout(waitLonger * 60 * 1000);
+-  }
+-
+   @BeforeClass
+   public static void setupMiniCluster() throws Exception {
+     FileUtils.deleteQuietly(macTestFolder);
+@@ -182,15 +165,10 @@ public class SimpleProxyIT {
+     MiniAccumuloConfig config = new MiniAccumuloConfig(macTestFolder, secret).setNumTservers(1);
+     accumulo = new MiniAccumuloCluster(config);
+     accumulo.start();
+-    // wait for accumulo to be up and functional
+-    ZooKeeperInstance zoo = new ZooKeeperInstance(accumulo.getInstanceName(), accumulo.getZooKeepers());
+-    Connector c = zoo.getConnector("root", new PasswordToken(secret.getBytes()));
+-    for (@SuppressWarnings("unused") Entry<org.apache.accumulo.core.data.Key,Value> entry : c.createScanner(MetadataTable.NAME, Authorizations.EMPTY))
+-        ;
+ 
+     Properties props = new Properties();
+     props.put("instance", accumulo.getConfig().getInstanceName());
+-    props.put("zookeepers", accumulo.getZooKeepers());
++    props.put("zookeepers", accumulo.getConfig().getZooKeepers());
+     props.put("tokenClass", PasswordToken.class.getName());
+ 
+     protocolClass = getRandomProtocol();
+@@ -211,18 +189,7 @@ public class SimpleProxyIT {
+     creds = client.login(principal, properties);
+   }
+ 
+-  @AfterClass
+-  public static void tearDownMiniCluster() throws Exception {
+-    if (null != proxyServer) {
+-      proxyServer.stop();
+-      thread.interrupt();
+-      thread.join(5000);
+-    }
+-    accumulo.stop();
+-    FileUtils.deleteQuietly(macTestFolder);
+-  }
+-
+-  @Test
++  @Test(timeout = 10000)
+   public void security() throws Exception {
+     client.createLocalUser(creds, "user", s2bb(secret));
+     ByteBuffer badLogin = client.login("user", properties);
+@@ -497,7 +464,7 @@ public class SimpleProxyIT {
+     } catch (AccumuloSecurityException ex) {}
+   }
+ 
+-  @Test
++  @Test(timeout = 10000)
+   public void tableNotFound() throws Exception {
+     final String doesNotExist = "doesNotExists";
+     try {
+@@ -657,7 +624,7 @@ public class SimpleProxyIT {
+     } catch (TableNotFoundException ex) {}
+   }
+ 
+-  @Test
++  @Test(timeout = 10000)
+   public void testExists() throws Exception {
+     client.createTable(creds, "ett1", false, TimeType.MILLIS);
+     client.createTable(creds, "ett2", false, TimeType.MILLIS);
+@@ -675,7 +642,7 @@ public class SimpleProxyIT {
+     } catch (TableExistsException tee) {}
+   }
+ 
+-  @Test
++  @Test(timeout = 10000)
+   public void testUnknownScanner() throws Exception {
+     final String TABLE_TEST = makeTableName();
+ 
+@@ -713,7 +680,7 @@ public class SimpleProxyIT {
+     } catch (UnknownScanner us) {}
+   }
+ 
+-  @Test
++  @Test(timeout = 10000)
+   public void testUnknownWriter() throws Exception {
+     final String TABLE_TEST = makeTableName();
+ 
+@@ -746,14 +713,17 @@ public class SimpleProxyIT {
+     } catch (UnknownWriter uw) {}
+   }
+ 
+-  @Test
++  @Test(timeout = 10000)
+   public void testDelete() throws Exception {
+     final String TABLE_TEST = makeTableName();
+ 
+     client.createTable(creds, TABLE_TEST, true, TimeType.MILLIS);
+     client.updateAndFlush(creds, TABLE_TEST, mutation("row0", "cf", "cq", "value"));
+-
+-    assertScan(new String[][] {{"row0", "cf", "cq", "value"}}, TABLE_TEST);
++    String scanner = client.createScanner(creds, TABLE_TEST, null);
++    ScanResult entries = client.nextK(scanner, 10);
++    client.closeScanner(scanner);
++    assertFalse(entries.more);
++    assertEquals(1, entries.results.size());
+ 
+     ColumnUpdate upd = new ColumnUpdate(s2bb("cf"), s2bb("cq"));
+     upd.setDeleteCell(true);
+@@ -761,10 +731,13 @@ public class SimpleProxyIT {
+ 
+     client.updateAndFlush(creds, TABLE_TEST, delete);
+ 
+-    assertScan(new String[][] {}, TABLE_TEST);
++    scanner = client.createScanner(creds, TABLE_TEST, null);
++    entries = client.nextK(scanner, 10);
++    client.closeScanner(scanner);
++    assertEquals(0, entries.results.size());
+   }
+ 
+-  @Test
++  @Test(timeout = 10000)
+   public void testInstanceOperations() throws Exception {
+     int tservers = 0;
+     for (String tserver : client.getTabletServers(creds)) {
+@@ -805,13 +778,12 @@ public class SimpleProxyIT {
+ 
+     // create a table that's very slow, so we can look for scans/compactions
+     client.createTable(creds, "slow", true, TimeType.MILLIS);
+-    IteratorSetting setting = new IteratorSetting(100, "slow", SlowIterator.class.getName(), Collections.singletonMap("sleepTime", "250"));
++    IteratorSetting setting = new IteratorSetting(100, "slow", SlowIterator.class.getName(), Collections.singletonMap("sleepTime", "200"));
+     client.attachIterator(creds, "slow", setting, EnumSet.allOf(IteratorScope.class));
+-
+-    // Should take 10 seconds to read every record
+-    for (int i = 0; i < 40; i++) {
+-      client.updateAndFlush(creds, "slow", mutation("row" + i, "cf", "cq", "value"));
+-    }
++    client.updateAndFlush(creds, "slow", mutation("row", "cf", "cq", "value"));
++    client.updateAndFlush(creds, "slow", mutation("row2", "cf", "cq", "value"));
++    client.updateAndFlush(creds, "slow", mutation("row3", "cf", "cq", "value"));
++    client.updateAndFlush(creds, "slow", mutation("row4", "cf", "cq", "value"));
+ 
+     // scan
+     Thread t = new Thread() {
+@@ -829,44 +801,27 @@ public class SimpleProxyIT {
+       }
+     };
+     t.start();
+-
+-    // look for the scan many times
+-    List<ActiveScan> scans = new ArrayList<ActiveScan>();
+-    for (int i = 0; i < 100 && scans.isEmpty(); i++) {
++    // look for the scan
++    List<ActiveScan> scans = Collections.emptyList();
++    loop: for (int i = 0; i < 100; i++) {
+       for (String tserver : client.getTabletServers(creds)) {
+-        List<ActiveScan> scansForServer = client.getActiveScans(creds, tserver);
+-        for (ActiveScan scan : scansForServer) {
+-          if ("root".equals(scan.getUser())) {
+-            scans.add(scan);
+-          }
+-        }
+-
++        scans = client.getActiveScans(creds, tserver);
+         if (!scans.isEmpty())
+-          break;
+-        UtilWaitThread.sleep(100);
++          break loop;
++        UtilWaitThread.sleep(10);
+       }
+     }
+     t.join();
+-
+     assertFalse(scans.isEmpty());
+-    boolean found = false;
+-    Map<String,String> map = null;
+-    for (int i = 0; i < scans.size() && !found; i++) {
+-      ActiveScan scan = scans.get(i);
+-      if ("root".equals(scan.getUser())) {
+-        assertTrue(ScanState.RUNNING.equals(scan.getState()) || ScanState.QUEUED.equals(scan.getState()));
+-        assertEquals(ScanType.SINGLE, scan.getType());
+-        assertEquals("slow", scan.getTable());
+-
+-        map = client.tableIdMap(creds);
+-        assertEquals(map.get("slow"), scan.getExtent().tableId);
+-        assertTrue(scan.getExtent().endRow == null);
+-        assertTrue(scan.getExtent().prevEndRow == null);
+-        found = true;
+-      }
+-    }
+-
+-    assertTrue("Could not find a scan against the 'slow' table", found);
++    ActiveScan scan = scans.get(0);
++    assertEquals("root", scan.getUser());
++    assertTrue(ScanState.RUNNING.equals(scan.getState()) || ScanState.QUEUED.equals(scan.getState()));
++    assertEquals(ScanType.SINGLE, scan.getType());
++    assertEquals("slow", scan.getTable());
++    Map<String,String> map = client.tableIdMap(creds);
++    assertEquals(map.get("slow"), scan.getExtent().tableId);
++    assertTrue(scan.getExtent().endRow == null);
++    assertTrue(scan.getExtent().prevEndRow == null);
+ 
+     // start a compaction
+     t = new Thread() {
+@@ -882,45 +837,26 @@ public class SimpleProxyIT {
+     };
+     t.start();
+ 
+-    final String desiredTableId = map.get("slow");
+-
+     // try to catch it in the act
+-    List<ActiveCompaction> compactions = new ArrayList<ActiveCompaction>();
+-    for (int i = 0; i < 100 && compactions.isEmpty(); i++) {
+-      // Iterate over the tservers
++    List<ActiveCompaction> compactions = Collections.emptyList();
++    loop2: for (int i = 0; i < 100; i++) {
+       for (String tserver : client.getTabletServers(creds)) {
+-        // And get the compactions on each
+-        List<ActiveCompaction> compactionsOnServer = client.getActiveCompactions(creds, tserver);
+-        for (ActiveCompaction compact : compactionsOnServer) {
+-          // There might be other compactions occurring (e.g. on METADATA) in which
+-          // case we want to prune out those that aren't for our slow table
+-          if (desiredTableId.equals(compact.getExtent().tableId)) {
+-            compactions.add(compact);
+-          }
+-        }
+-
+-        // If we found a compaction for the table we wanted, so we can stop looking
++        compactions = client.getActiveCompactions(creds, tserver);
+         if (!compactions.isEmpty())
+-          break;
++          break loop2;
+       }
+       UtilWaitThread.sleep(10);
+     }
+     t.join();
+-
+     // verify the compaction information
+     assertFalse(compactions.isEmpty());
+-    for (ActiveCompaction c : compactions) {
+-      if (desiredTableId.equals(c.getExtent().tableId)) {
+-        assertTrue(c.inputFiles.isEmpty());
+-        assertEquals(CompactionType.MINOR, c.getType());
+-        assertEquals(CompactionReason.USER, c.getReason());
+-        assertEquals("", c.localityGroup);
+-        assertTrue(c.outputFile.contains("default_tablet"));
+-
+-        return;
+-      }
+-    }
+-    fail("Expection to find running compaction for table 'slow' but did not find one");
++    ActiveCompaction c = compactions.get(0);
++    assertEquals(map.get("slow"), c.getExtent().tableId);
++    assertTrue(c.inputFiles.isEmpty());
++    assertEquals(CompactionType.MINOR, c.getType());
++    assertEquals(CompactionReason.USER, c.getReason());
++    assertEquals("", c.localityGroup);
++    assertTrue(c.outputFile.contains("default_tablet"));
+   }
+ 
+   @Test
+@@ -1033,10 +969,6 @@ public class SimpleProxyIT {
+ 
+     client.removeConstraint(creds, TABLE_TEST, 2);
+ 
+-    assertScan(new String[][] {}, TABLE_TEST);
+-
+-    UtilWaitThread.sleep(2000);
+-
+     writerOptions = new WriterOptions();
+     writerOptions.setLatencyMs(10000);
+     writerOptions.setMaxMemory(3000);
+@@ -1049,7 +981,10 @@ public class SimpleProxyIT {
+     client.flush(batchWriter);
+     client.closeWriter(batchWriter);
+ 
+-    assertScan(new String[][] {{"row1", "cf", "cq", "x"}}, TABLE_TEST);
++    String scanner = client.createScanner(creds, TABLE_TEST, null);
++    ScanResult more = client.nextK(scanner, 2);
++    assertEquals(1, more.getResults().size());
++    client.closeScanner(scanner);
+ 
+     client.deleteTable(creds, TABLE_TEST);
+   }
+@@ -1062,9 +997,6 @@ public class SimpleProxyIT {
+     // constraints
+     client.addConstraint(creds, TABLE_TEST, NumericValueConstraint.class.getName());
+     assertEquals(2, client.listConstraints(creds, TABLE_TEST).size());
+-
+-    UtilWaitThread.sleep(2000);
+-
+     client.updateAndFlush(creds, TABLE_TEST, mutation("row1", "cf", "cq", "123"));
+ 
+     try {
+@@ -1073,13 +1005,14 @@ public class SimpleProxyIT {
+     } catch (MutationsRejectedException ex) {}
+ 
+     client.removeConstraint(creds, TABLE_TEST, 2);
+-
+-    UtilWaitThread.sleep(2000);
+-
+     assertEquals(1, client.listConstraints(creds, TABLE_TEST).size());
+-
+     client.updateAndFlush(creds, TABLE_TEST, mutation("row1", "cf", "cq", "x"));
+-    assertScan(new String[][] {{"row1", "cf", "cq", "x"}}, TABLE_TEST);
++    String scanner = client.createScanner(creds, TABLE_TEST, null);
++    ScanResult more = client.nextK(scanner, 2);
++    client.closeScanner(scanner);
++    assertFalse(more.isMore());
++    assertEquals(1, more.getResults().size());
++    assertEquals(s2bb("x"), more.getResults().get(0).value);
+     // splits, merge
+     client.addSplits(creds, TABLE_TEST, new HashSet<ByteBuffer>(Arrays.asList(s2bb("a"), s2bb("m"), s2bb("z"))));
+     List<ByteBuffer> splits = client.listSplits(creds, TABLE_TEST, 1);
+@@ -1102,24 +1035,31 @@ public class SimpleProxyIT {
+     for (int i = 0; i < 10; i++) {
+       client.updateAndFlush(creds, TABLE_TEST, mutation("row1", "cf", "cq", "1"));
+     }
+-    assertScan(new String[][] {{"row1", "cf", "cq", "10"}}, TABLE_TEST);
++    scanner = client.createScanner(creds, TABLE_TEST, null);
++    more = client.nextK(scanner, 2);
++    client.closeScanner(scanner);
++    assertEquals("10", new String(more.getResults().get(0).getValue()));
+     try {
+       client.checkIteratorConflicts(creds, TABLE_TEST, setting, EnumSet.allOf(IteratorScope.class));
+       fail("checkIteratorConflicts did not throw an exception");
+     } catch (Exception ex) {}
+     client.deleteRows(creds, TABLE_TEST, null, null);
+     client.removeIterator(creds, TABLE_TEST, "test", EnumSet.allOf(IteratorScope.class));
+-    String expected[][] = new String[10][];
+     for (int i = 0; i < 10; i++) {
+       client.updateAndFlush(creds, TABLE_TEST, mutation("row" + i, "cf", "cq", "" + i));
+-      expected[i] = new String[] {"row" + i, "cf", "cq", "" + i};
+       client.flushTable(creds, TABLE_TEST, null, null, true);
+     }
+-    assertScan(expected, TABLE_TEST);
++    scanner = client.createScanner(creds, TABLE_TEST, null);
++    more = client.nextK(scanner, 100);
++    client.closeScanner(scanner);
++    assertEquals(10, more.getResults().size());
+     // clone
+     final String TABLE_TEST2 = makeTableName();
+     client.cloneTable(creds, TABLE_TEST, TABLE_TEST2, true, null, null);
+-    assertScan(expected, TABLE_TEST2);
++    scanner = client.createScanner(creds, TABLE_TEST2, null);
++    more = client.nextK(scanner, 100);
++    client.closeScanner(scanner);
++    assertEquals(10, more.getResults().size());
+     client.deleteTable(creds, TABLE_TEST2);
+ 
+     // don't know how to test this, call it just for fun
+@@ -1128,7 +1068,6 @@ public class SimpleProxyIT {
+     // compact
+     client.compactTable(creds, TABLE_TEST, null, null, null, true, true);
+     assertEquals(1, countFiles(TABLE_TEST));
+-    assertScan(expected, TABLE_TEST);
+ 
+     // get disk usage
+     client.cloneTable(creds, TABLE_TEST, TABLE_TEST2, true, null, null);
+@@ -1168,8 +1107,10 @@ public class SimpleProxyIT {
+     }
+     client.deleteTable(creds, TABLE_TEST);
+     client.importTable(creds, "testify", destDir.getAbsolutePath());
+-    assertScan(expected, "testify");
+-    client.deleteTable(creds, "testify");
++    scanner = client.createScanner(creds, "testify", null);
++    more = client.nextK(scanner, 100);
++    client.closeScanner(scanner);
++    assertEquals(10, more.results.size());
+ 
+     try {
+       // ACCUMULO-1558 a second import from the same dir should fail, the first import moved the files
+@@ -1190,6 +1131,11 @@ public class SimpleProxyIT {
+     Map<String,String> orig = client.getTableProperties(creds, "test");
+     client.setTableProperty(creds, "test", "table.split.threshold", "500M");
+     Map<String,String> update = client.getTableProperties(creds, "test");
++    for (int i = 0; i < 5; i++) {
++      if (update.get("table.split.threshold").equals("500M"))
++        break;
++      UtilWaitThread.sleep(200);
++    }
+     assertEquals(update.get("table.split.threshold"), "500M");
+     client.removeTableProperty(creds, "test", "table.split.threshold");
+     update = client.getTableProperties(creds, "test");
+@@ -1210,8 +1156,8 @@ public class SimpleProxyIT {
+     writer.close();
+     fs.mkdirs(new Path(dir + "/bulk/fail"));
+     client.importDirectory(creds, "bar", dir + "/bulk/import", dir + "/bulk/fail", true);
+-    String scanner = client.createScanner(creds, "bar", null);
+-    ScanResult more = client.nextK(scanner, 100);
++    scanner = client.createScanner(creds, "bar", null);
++    more = client.nextK(scanner, 100);
+     client.closeScanner(scanner);
+     assertEquals(1, more.results.size());
+     ByteBuffer maxRow = client.getMaxRow(creds, "bar", null, null, false, null, false);
+@@ -1533,7 +1479,7 @@ public class SimpleProxyIT {
+     assertEquals(val, ByteBufferUtil.toString(keyValue.value));
+   }
+ 
+-  // scan metadata for file entries for the given table
++  // scan !METADATA table for file entries for the given table
+   private int countFiles(String table) throws Exception {
+     Map<String,String> tableIdMap = client.tableIdMap(creds);
+     String tableId = tableIdMap.get(table);
+@@ -1572,23 +1518,8 @@ public class SimpleProxyIT {
+     return toRet;
+   }
+ 
+-  static private ByteBuffer t2bb(Text t) {
+-    return ByteBuffer.wrap(t.getBytes());
+-  }
+-
+-  @Test
+-  public void testGetRowRange() throws Exception {
+-    Range range = client.getRowRange(s2bb("xyzzy"));
+-    org.apache.accumulo.core.data.Range range2 = new org.apache.accumulo.core.data.Range(new Text("xyzzy"));
+-    assertEquals(0, range.start.row.compareTo(t2bb(range2.getStartKey().getRow())));
+-    assertEquals(0, range.stop.row.compareTo(t2bb(range2.getEndKey().getRow())));
+-    assertEquals(range.startInclusive, range2.isStartKeyInclusive());
+-    assertEquals(range.stopInclusive, range2.isEndKeyInclusive());
+-    assertEquals(0, range.start.colFamily.compareTo(t2bb(range2.getStartKey().getColumnFamily())));
+-    assertEquals(0, range.start.colQualifier.compareTo(t2bb(range2.getStartKey().getColumnQualifier())));
+-    assertEquals(0, range.stop.colFamily.compareTo(t2bb(range2.getEndKey().getColumnFamily())));
+-    assertEquals(0, range.stop.colQualifier.compareTo(t2bb(range2.getEndKey().getColumnQualifier())));
+-    assertEquals(range.start.timestamp, range.start.timestamp);
+-    assertEquals(range.stop.timestamp, range.stop.timestamp);
++  @AfterClass
++  public static void tearDownMiniCluster() throws Exception {
++    accumulo.stop();
+   }
+ }

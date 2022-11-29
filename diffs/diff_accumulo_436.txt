@@ -1,0 +1,21 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/MetadataSplitIT.java b/test/src/main/java/org/apache/accumulo/test/functional/MetadataSplitIT.java
+index fc66c121c1..58480bc021 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/MetadataSplitIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/MetadataSplitIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertTrue;
+ 
+@@ -30,6 +29,8 @@ import org.apache.accumulo.minicluster.impl.MiniAccumuloConfigImpl;
+ import org.apache.hadoop.conf.Configuration;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class MetadataSplitIT extends ConfigurableMacBase {
+ 
+   @Override

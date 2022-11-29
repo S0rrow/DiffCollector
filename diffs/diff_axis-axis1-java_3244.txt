@@ -1,0 +1,314 @@
+diff --git a/src/org/apache/axis/encoding/DeserializerImpl.java b/src/org/apache/axis/encoding/DeserializerImpl.java
+index 356cb4185..347a4acaa 100644
+--- a/src/org/apache/axis/encoding/DeserializerImpl.java
++++ b/src/org/apache/axis/encoding/DeserializerImpl.java
+@@ -62,16 +62,15 @@ import org.apache.axis.message.MessageElement;
+ import org.apache.axis.message.SAX2EventRecorder;
+ import org.apache.axis.message.SAXOutputter;
+ import org.apache.axis.message.SOAPHandler;
+-import org.apache.axis.Part;
+ import org.apache.axis.utils.JavaUtils;
+-import org.apache.commons.logging.Log;
+-import org.apache.commons.logging.LogFactory;
++import org.apache.log4j.Category;
+ import org.xml.sax.Attributes;
+ import org.xml.sax.SAXException;
+ import org.xml.sax.helpers.DefaultHandler;
+ 
+ import org.apache.axis.encoding.Target;
+ import javax.xml.rpc.namespace.QName;
++import javax.xml.rpc.JAXRPCException;
+ 
+ import java.io.StringWriter;
+ import java.util.Enumeration;
+@@ -84,11 +83,10 @@ import java.util.Vector;
+  * @author Rich Scheuerle (sche@us.ibm.com)
+  */
+ 
+-public class DeserializerImpl extends SOAPHandler
+-        implements javax.xml.rpc.encoding.Deserializer, Deserializer
++public class DeserializerImpl extends SOAPHandler implements Deserializer
+ {
+-    protected static Log log =
+-            LogFactory.getLog(DeserializerImpl.class.getName());
++    static Category category =
++            Category.getInstance(DeserializerImpl.class.getName());
+ 
+     protected Object value = null;
+ 
+@@ -97,10 +95,6 @@ public class DeserializerImpl extends SOAPHandler
+ 
+     protected Vector targets = null;
+ 
+-    protected QName defaultType = null;
+-    private boolean componentsReady = true;
+-
+-
+     /** 
+      * JAX-RPC compliant method which returns mechanism type.
+      */
+@@ -118,7 +112,7 @@ public class DeserializerImpl extends SOAPHandler
+     }
+     /** 
+      * Set the deserialized value.
+-     * @param value Object representing deserialized value
++     * @param Object representing deserialized value
+      */
+     public void setValue(Object value)
+     {
+@@ -140,28 +134,12 @@ public class DeserializerImpl extends SOAPHandler
+      * If the deserializer has component values (like ArrayDeserializer)
+      * this method sets the specific component via the hint.
+      * The default implementation does nothing.
+-     * @param hint Object representing deserialized value or null
++     * @param Object representing deserialized value or null
+      */
+     public void setValue(Object value, Object hint) throws SAXException
+     {
+     }
+ 
+-    /**
+-     * In some circumstances an element may not have 
+-     * a type attribute, but a default type qname is known from
+-     * information in the container.  For example,
+-     * an element of an array may not have a type= attribute, 
+-     * so the default qname is the component type of the array.
+-     * This method is used to communicate the default type information 
+-     * to the deserializer.
+-     */
+-    public void setDefaultType(QName qName) {
+-        defaultType = qName;
+-    }
+-    public QName getDefaultType() {
+-        return defaultType;
+-    }
+-
+     /**
+      * For deserializers of non-primitives, the value may not be
+      * known until later (due to multi-referencing).  In such
+@@ -170,7 +148,7 @@ public class DeserializerImpl extends SOAPHandler
+      * each Target registered with the Deserializer.  The Target
+      * object abstracts the function of setting a target with a
+      * value.  See the Target interface for more info.
+-     * @param target
++     * @param Target
+      */
+     public void registerValueTarget(Target target)
+     {
+@@ -189,17 +167,7 @@ public class DeserializerImpl extends SOAPHandler
+     }
+     
+     /**
+-     * Remove the Value Targets of the Deserializer.
+-     */
+-    public void removeValueTargets() {
+-        if (targets != null) {
+-            targets.clear();
+-            targets = null;
+-        }
+-    }
+-
+-    /**
+-     * Move someone else's targets to our own (see DeserializationContext)
++     * Add someone else's targets to our own (see DeserializationContext)
+      *
+      * The DeserializationContext only allows one Deserializer to  
+      * wait for a unknown multi-ref'ed value.  So to ensure
+@@ -207,7 +175,7 @@ public class DeserializerImpl extends SOAPHandler
+      * to copy the Target objects to the waiting Deserializer.
+      * @param other is the Deserializer to copy targets from.
+      */
+-    public void moveValueTargets(Deserializer other)
++    public void copyValueTargets(Deserializer other)
+     {
+         if ((other == null) || (other.getValueTargets() == null))
+             return;
+@@ -219,7 +187,6 @@ public class DeserializerImpl extends SOAPHandler
+         while (e.hasMoreElements()) {
+             targets.addElement(e.nextElement());
+         }
+-        other.removeValueTargets();
+     }
+     
+     /**
+@@ -235,7 +202,7 @@ public class DeserializerImpl extends SOAPHandler
+      * The default (true) is useful for most Deserializers.
+      */
+     public boolean componentsReady() {
+-        return componentsReady;
++        return true; 
+     }
+ 
+     /** 
+@@ -257,13 +224,11 @@ public class DeserializerImpl extends SOAPHandler
+                 while (e.hasMoreElements()) {
+                     Target target = (Target)e.nextElement();
+                     target.set(value);
+-                    if (log.isDebugEnabled()) {
+-                        log.debug(JavaUtils.getMessage("setValueInTarget00",
++                    if (category.isDebugEnabled()) {
++                        category.debug(JavaUtils.getMessage("setValueInTarget00",
+                                                             "" + value, "" + target));
+                     }
+                 }
+-                // Don't need targets any more, so clear them
+-                removeValueTargets();
+             }
+         }
+     }
+@@ -319,13 +284,9 @@ public class DeserializerImpl extends SOAPHandler
+                              DeserializationContext context)
+         throws SAXException
+     {
+-        super.startElement(namespace, localName, qName, attributes, context);
+-
+         // If the xsi:nil attribute, set the value to null and return since
+         // there is nothing to deserialize.
+-        String nil = Constants.getValue(attributes,
+-                                        Constants.URIS_SCHEMA_XSI,
+-                                        "nil");
++        String nil = Constants.getValue(attributes, Constants.URI_CURRENT_SCHEMA_XSI, "nil");
+         if (nil != null && nil.equals("true")) {
+           value = null;
+           isNil = true;
+@@ -338,14 +299,13 @@ public class DeserializerImpl extends SOAPHandler
+         // point will cause an infinite loop during deserialization if the 
+         // current element contains child elements that cause an href back to this id.)
+         // Also note that that endElement() method is responsible for the final
+-        // association of this id with the completed value.
++        // assoication of this id with the completed value.
+         id = attributes.getValue("id");
+         if (id != null) {
+             context.addObjectById(id, value);
+-            if (log.isDebugEnabled()) {
+-                log.debug(JavaUtils.getMessage("deserInitPutValueDebug00", "" + value, id));
+-            }
+-            context.registerFixup("#" + id, this);
++            if (category.isDebugEnabled()) {
++                category.debug(JavaUtils.getMessage("deserInitPutValueDebug00", "" + value, id));
++            }     
+         }
+ 
+         String href = attributes.getValue("href");
+@@ -353,17 +313,15 @@ public class DeserializerImpl extends SOAPHandler
+             isHref = true;
+ 
+             Object ref = context.getObjectByRef(href);            
+-            if (log.isDebugEnabled()) {
+-                log.debug(JavaUtils.getMessage(
++            if (category.isDebugEnabled()) {
++                category.debug(JavaUtils.getMessage(
+                         "gotForID00",
+-                        new String[] {"" + ref, href, (ref == null ? "*null*" : ref.getClass().toString())}));
++                        new String[] {"" + ref, href, "" + ref.getClass()}));
+             }
+             
+             if (ref == null) {
+                 // Nothing yet... register for later interest.
+                 context.registerFixup(href, this);
+-                componentsReady = false;
+-                return;
+             }
+             
+             if (ref instanceof MessageElement) {
+@@ -374,25 +332,13 @@ public class DeserializerImpl extends SOAPHandler
+                 ((MessageElement)ref).publishToHandler((DefaultHandler) context);
+                 context.setRecorder(r);
+             } else {
+-
+-                if( !href.startsWith("#") && defaultType != null && ref instanceof Part ){
+-                    //For attachments this is the end of the road-- invoke deserializer
+-                    Deserializer dser = (Deserializer)context.getDeserializerForType(defaultType );
+-                    if(null != dser){          
+-                      dser.startElement(namespace, localName,
+-                             qName, attributes,
+-                             context);
+-                      ref = dser.getValue();       
+-                             
+-                    }         
+-               }
+-                
+                 // If the ref is not a MessageElement, then it must be an
+                 // element that has already been deserialized.  Use it directly.
+                 value = ref;
+                 valueComplete();
+             }
+             
++            // !!! INSERT DEALING WITH ATTACHMENTS STUFF HERE?
+         } else {
+             isHref = false;
+             onStartElement(namespace, localName, qName, attributes,
+@@ -422,34 +368,22 @@ public class DeserializerImpl extends SOAPHandler
+             QName type = context.getTypeFromAttributes(namespace,
+                                                        localName,
+                                                        attributes);
+-            // If no type is specified, use the defaultType if available.
+-            // xsd:string is used if no type is provided.
+-            if (type == null) {
+-                type = defaultType;
+-                if (type == null) {
+-                    type = Constants.XSD_STRING;
+-                }
+-            }
+             
+-            if (log.isDebugEnabled()) {
+-                log.debug(JavaUtils.getMessage("gotType00", "Deser", "" + type));
++            if (category.isDebugEnabled()) {
++                category.debug(JavaUtils.getMessage("gotType00", "Deser", "" + type));
+             }
+             
+             // We know we're deserializing, but we don't have
+             // a specific deserializer.  So create one using the
+             // attribute type qname.
+             if (type != null) {
+-                Deserializer dser = (Deserializer)context.getDeserializerForType(type);
++                Deserializer dser = context.getDeserializerForType(type);
+                 if (dser != null) {
+-                    // Move the value targets to the new deserializer
+-                    dser.moveValueTargets(this);
+-                    context.replaceElementHandler((SOAPHandler) dser);
++                    dser.copyValueTargets(this);
++                    context.replaceElementHandler((org.apache.axis.message.SOAPHandler) dser);
+                     // And don't forget to give it the start event...
+                     dser.startElement(namespace, localName, qName,
+                                       attributes, context);
+-                } else {
+-                    throw new SAXException(
+-                                           JavaUtils.getMessage("noDeser00", "" + type));
+                 }
+             } else {
+                 startIdx = context.getCurrentRecordPos();
+@@ -504,17 +438,17 @@ public class DeserializerImpl extends SOAPHandler
+         // Time to call valueComplete to copy the value to 
+         // the targets.  First a call is made to componentsReady
+         // to ensure that all components are ready.
+-        if (componentsReady()) {
++
++        if (componentsReady())
+             valueComplete();
+-        }
+ 
+         // If this element has an id, then associate the value with the id.
+         // Subsequent hrefs to the id will obtain the value directly.
+         // This is necessary for proper multi-reference deserialization.
+         if (id != null) {
+             context.addObjectById(id, value);
+-            if (log.isDebugEnabled()) {
+-                log.debug(JavaUtils.getMessage("deserPutValueDebug00", "" + value, id));
++            if (category.isDebugEnabled()) {
++                category.debug(JavaUtils.getMessage("deserPutValueDebug00", "" + value, id));
+             }     
+         }
+     }
+@@ -549,9 +483,8 @@ public class DeserializerImpl extends SOAPHandler
+             SAXOutputter so = null;
+             so = new SAXOutputter(serContext);
+             context.getCurElement().publishContents(so);
+-            if (!isNil) {
+-                value = writer.getBuffer().toString();
+-            }
++            
++            value = writer.getBuffer().toString();
+         }
+     }
+     

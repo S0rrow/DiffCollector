@@ -1,0 +1,230 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphMapper.java b/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphMapper.java
+index a114d252e..48466c14f 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphMapper.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/graph/v2/EntityGraphMapper.java
+@@ -92,7 +92,6 @@ import static org.apache.atlas.repository.graph.GraphHelper.getClassificationEdg
+ import static org.apache.atlas.repository.graph.GraphHelper.getClassificationVertex;
+ import static org.apache.atlas.repository.graph.GraphHelper.getDefaultRemovePropagations;
+ import static org.apache.atlas.repository.graph.GraphHelper.getDelimitedClassificationNames;
+-import static org.apache.atlas.repository.graph.GraphHelper.getLabels;
+ import static org.apache.atlas.repository.graph.GraphHelper.getMapElementsProperty;
+ import static org.apache.atlas.repository.graph.GraphHelper.getStatus;
+ import static org.apache.atlas.repository.graph.GraphHelper.getTraitLabel;
+@@ -332,65 +331,7 @@ public class EntityGraphMapper {
+         }
+     }
+ 
+-    public void setLabels(AtlasVertex vertex, Set<String> labels) throws AtlasBaseException {
+-        final Set<String> currentLabels = getLabels(vertex);
+-        final Set<String> addedLabels;
+-        final Set<String> removedLabels;
+-
+-        if (CollectionUtils.isEmpty(currentLabels)) {
+-            addedLabels   = labels;
+-            removedLabels = null;
+-        } else if (CollectionUtils.isEmpty(labels)) {
+-            addedLabels   = null;
+-            removedLabels = labels;
+-        } else {
+-            addedLabels   = new HashSet<String>(CollectionUtils.subtract(labels, currentLabels));
+-            removedLabels = new HashSet<String>(CollectionUtils.subtract(currentLabels, labels));
+-        }
+-
+-        updateLabels(vertex, labels);
+-
+-        entityChangeNotifier.onLabelsUpdatedFromEntity(GraphHelper.getGuid(vertex), addedLabels, removedLabels);
+-    }
+-
+-    public void addLabels(AtlasVertex vertex, Set<String> labels) throws AtlasBaseException {
+-        if (CollectionUtils.isNotEmpty(labels)) {
+-            final Set<String> existingLabels = GraphHelper.getLabels(vertex);
+-            final Set<String> updatedLabels;
+-
+-            if (CollectionUtils.isEmpty(existingLabels)) {
+-                updatedLabels = labels;
+-            } else {
+-                updatedLabels = new HashSet<>(existingLabels);
+-                updatedLabels.addAll(labels);
+-            }
+-            if (!updatedLabels.equals(existingLabels)) {
+-                updateLabels(vertex, updatedLabels);
+-                updatedLabels.removeAll(existingLabels);
+-                entityChangeNotifier.onLabelsUpdatedFromEntity(GraphHelper.getGuid(vertex), updatedLabels, null);
+-            }
+-        }
+-    }
+-
+-    public void removeLabels(AtlasVertex vertex, Set<String> labels) throws AtlasBaseException {
+-        if (CollectionUtils.isNotEmpty(labels)) {
+-            final Set<String> existingLabels = GraphHelper.getLabels(vertex);
+-            Set<String> updatedLabels;
+-
+-            if (CollectionUtils.isNotEmpty(existingLabels)) {
+-                updatedLabels = new HashSet<>(existingLabels);
+-                updatedLabels.removeAll(labels);
+-
+-                if (!updatedLabels.equals(existingLabels)) {
+-                    updateLabels(vertex, updatedLabels);
+-                    existingLabels.removeAll(updatedLabels);
+-                    entityChangeNotifier.onLabelsUpdatedFromEntity(GraphHelper.getGuid(vertex), null, existingLabels);
+-                }
+-            }
+-        }
+-    }
+-
+-    private void updateLabels(AtlasVertex vertex, Set<String> labels) {
++    public void setLabels(AtlasVertex vertex, Set<String> labels) {
+         if (CollectionUtils.isNotEmpty(labels)) {
+             AtlasGraphUtilsV2.setEncodedProperty(vertex, LABELS_PROPERTY_KEY, getLabelString(labels));
+         } else {
+@@ -398,7 +339,7 @@ public class EntityGraphMapper {
+         }
+     }
+ 
+-    private String getLabelString(Collection<String> labels) {
++    private String getLabelString(Set<String> labels) {
+         String ret = null;
+ 
+         if (!labels.isEmpty()) {
+@@ -685,8 +626,6 @@ public class EntityGraphMapper {
+             }
+         }
+ 
+-        setAssignedGuid(ctx.getValue(), context);
+-
+         return ret;
+     }
+ 
+@@ -947,16 +886,10 @@ public class EntityGraphMapper {
+         AtlasVertex entityVertex = context.getDiscoveryContext().getResolvedEntityVertex(guid);
+ 
+         if (entityVertex == null) {
+-            if (AtlasTypeUtil.isAssignedGuid(guid)) {
+-                entityVertex = context.getVertex(guid);
+-            }
++            AtlasObjectId objId = getObjectId(ctx.getValue());
+ 
+-            if (entityVertex == null) {
+-                AtlasObjectId objId = getObjectId(ctx.getValue());
+-
+-                if (objId != null) {
+-                    entityVertex = context.getDiscoveryContext().getResolvedEntityVertex(objId);
+-                }
++            if (objId != null) {
++                entityVertex = context.getDiscoveryContext().getResolvedEntityVertex(objId);
+             }
+         }
+ 
+@@ -988,21 +921,14 @@ public class EntityGraphMapper {
+             LOG.debug("==> mapObjectIdValueUsingRelationship({})", ctx);
+         }
+ 
+-        String      guid            = getGuid(ctx.getValue());
+-        AtlasVertex attributeVertex = context.getDiscoveryContext().getResolvedEntityVertex(guid);
++        AtlasVertex attributeVertex = context.getDiscoveryContext().getResolvedEntityVertex(getGuid(ctx.getValue()));
+         AtlasVertex entityVertex    = ctx.getReferringVertex();
+         AtlasEdge   ret;
+ 
+         if (attributeVertex == null) {
+-            if (AtlasTypeUtil.isAssignedGuid(guid)) {
+-                attributeVertex = context.getVertex(guid);
+-            }
+-
+-            if (attributeVertex == null) {
+-                AtlasObjectId objectId = getObjectId(ctx.getValue());
++            AtlasObjectId objectId = getObjectId(ctx.getValue());
+ 
+-                attributeVertex = (objectId != null) ? context.getDiscoveryContext().getResolvedEntityVertex(objectId) : null;
+-            }
++            attributeVertex = (objectId != null) ? context.getDiscoveryContext().getResolvedEntityVertex(objectId) : null;
+         }
+ 
+         if (attributeVertex == null) {
+@@ -1078,8 +1004,6 @@ public class EntityGraphMapper {
+             ret = mapObjectIdValue(ctx, context);
+         }
+ 
+-        setAssignedGuid(ctx.getValue(), context);
+-
+         if (LOG.isDebugEnabled()) {
+             LOG.debug("<== mapObjectIdValueUsingRelationship({})", ctx);
+         }
+@@ -1363,59 +1287,6 @@ public class EntityGraphMapper {
+         return null;
+     }
+ 
+-    private static void setAssignedGuid(Object val, EntityMutationContext context) {
+-        if (val != null) {
+-            Map<String, String> guidAssignements = context.getGuidAssignments();
+-
+-            if (val instanceof AtlasObjectId) {
+-                AtlasObjectId objId        = (AtlasObjectId) val;
+-                String        guid         = objId.getGuid();
+-                String        assignedGuid = null;
+-
+-                if (StringUtils.isNotEmpty(guid)) {
+-                    if (!AtlasTypeUtil.isAssignedGuid(guid) && MapUtils.isNotEmpty(guidAssignements)) {
+-                        assignedGuid = guidAssignements.get(guid);
+-                    }
+-                } else {
+-                    AtlasVertex vertex = context.getDiscoveryContext().getResolvedEntityVertex(objId);
+-
+-                    if (vertex != null) {
+-                        assignedGuid = GraphHelper.getGuid(vertex);
+-                    }
+-                }
+-
+-                if (StringUtils.isNotEmpty(assignedGuid)) {
+-                    RequestContext.get().recordEntityGuidUpdate(objId, guid);
+-
+-                    objId.setGuid(assignedGuid);
+-                }
+-            } else if (val instanceof Map) {
+-                Map    mapObjId     = (Map) val;
+-                Object guidVal      = mapObjId.get(AtlasObjectId.KEY_GUID);
+-                String guid         = guidVal != null ? guidVal.toString() : null;
+-                String assignedGuid = null;
+-
+-                if (StringUtils.isNotEmpty(guid) ) {
+-                    if (!AtlasTypeUtil.isAssignedGuid(guid) && MapUtils.isNotEmpty(guidAssignements)) {
+-                        assignedGuid = guidAssignements.get(guid);
+-                    }
+-                } else {
+-                    AtlasVertex vertex = context.getDiscoveryContext().getResolvedEntityVertex(new AtlasObjectId(mapObjId));
+-
+-                    if (vertex != null) {
+-                        assignedGuid = GraphHelper.getGuid(vertex);
+-                    }
+-                }
+-
+-                if (StringUtils.isNotEmpty(assignedGuid)) {
+-                    RequestContext.get().recordEntityGuidUpdate(mapObjId, guid);
+-
+-                    mapObjId.put(AtlasObjectId.KEY_GUID, assignedGuid);
+-                }
+-            }
+-        }
+-    }
+-
+     private static Map<String, Object> getRelationshipAttributes(Object val) throws AtlasBaseException {
+         if (val instanceof AtlasRelatedObjectId) {
+             AtlasStruct relationshipStruct = ((AtlasRelatedObjectId) val).getRelationshipAttributes();
+@@ -2227,14 +2098,12 @@ public class EntityGraphMapper {
+     }
+ 
+     private void recordEntityUpdate(AtlasVertex vertex) throws AtlasBaseException {
+-        if (vertex != null) {
+-            RequestContext req = RequestContext.get();
++        RequestContext req = RequestContext.get();
+ 
+-            if (!req.isUpdatedEntity(GraphHelper.getGuid(vertex))) {
+-                updateModificationMetadata(vertex);
++        if (!req.isUpdatedEntity(GraphHelper.getGuid(vertex))) {
++            updateModificationMetadata(vertex);
+ 
+-                req.recordEntityUpdate(entityRetriever.toAtlasEntityHeader(vertex));
+-            }
++            req.recordEntityUpdate(entityRetriever.toAtlasEntityHeader(vertex));
+         }
+     }
+ 

@@ -1,0 +1,546 @@
+diff --git a/asterix-runtime/src/main/java/edu/uci/ics/asterix/runtime/formats/NonTaggedDataFormat.java b/asterix-runtime/src/main/java/edu/uci/ics/asterix/runtime/formats/NonTaggedDataFormat.java
+index 28ad34b1be..f12ea91438 100644
+--- a/asterix-runtime/src/main/java/edu/uci/ics/asterix/runtime/formats/NonTaggedDataFormat.java
++++ b/asterix-runtime/src/main/java/edu/uci/ics/asterix/runtime/formats/NonTaggedDataFormat.java
+@@ -1,17 +1,3 @@
+-/*
+- * Copyright 2009-2013 by The Regents of the University of California
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * you may obtain a copy of the License from
+- *
+- *     http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+ package edu.uci.ics.asterix.runtime.formats;
+ 
+ import java.io.DataOutput;
+@@ -35,7 +21,6 @@ import edu.uci.ics.asterix.formats.nontagged.AqlBinaryHashFunctionFamilyProvider
+ import edu.uci.ics.asterix.formats.nontagged.AqlBinaryIntegerInspector;
+ import edu.uci.ics.asterix.formats.nontagged.AqlJSONPrinterFactoryProvider;
+ import edu.uci.ics.asterix.formats.nontagged.AqlNormalizedKeyComputerFactoryProvider;
+-import edu.uci.ics.asterix.formats.nontagged.AqlPredicateEvaluatorFactoryProvider;
+ import edu.uci.ics.asterix.formats.nontagged.AqlPrinterFactoryProvider;
+ import edu.uci.ics.asterix.formats.nontagged.AqlSerializerDeserializerProvider;
+ import edu.uci.ics.asterix.formats.nontagged.AqlTypeTraitProvider;
+@@ -50,80 +35,50 @@ import edu.uci.ics.asterix.om.functions.FunctionManagerHolder;
+ import edu.uci.ics.asterix.om.functions.IFunctionDescriptor;
+ import edu.uci.ics.asterix.om.functions.IFunctionDescriptorFactory;
+ import edu.uci.ics.asterix.om.functions.IFunctionManager;
+-import edu.uci.ics.asterix.om.pointables.base.DefaultOpenFieldType;
+ import edu.uci.ics.asterix.om.typecomputer.base.TypeComputerUtilities;
+ import edu.uci.ics.asterix.om.types.AOrderedListType;
+ import edu.uci.ics.asterix.om.types.ARecordType;
+ import edu.uci.ics.asterix.om.types.ATypeTag;
+ import edu.uci.ics.asterix.om.types.AUnionType;
+ import edu.uci.ics.asterix.om.types.AUnorderedListType;
+-import edu.uci.ics.asterix.om.types.AbstractCollectionType;
+ import edu.uci.ics.asterix.om.types.BuiltinType;
+ import edu.uci.ics.asterix.om.types.IAType;
+-import edu.uci.ics.asterix.om.util.NonTaggedFormatUtil;
+ import edu.uci.ics.asterix.runtime.aggregates.collections.ListifyAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarAvgAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarCountAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarMaxAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarMinAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarSqlAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarSqlCountAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarSqlMaxAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarSqlMinAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarSqlSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.scalar.ScalarSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableAvgAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableCountAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableGlobalAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableGlobalSqlAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableIntermediateAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableIntermediateSqlAvgAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableLocalAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableLocalSqlAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableLocalSqlSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableLocalSumAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableSqlAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableSqlCountAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableSqlSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.serializable.std.SerializableSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.AvgAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.CountAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.GlobalAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.GlobalSqlAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.IntermediateAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.IntermediateSqlAvgAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.LocalAvgAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.LocalMaxAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.LocalMinAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.LocalSqlAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.LocalSqlMaxAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.LocalSqlMinAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.LocalSqlSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.LocalSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.MaxAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.MinAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.SqlAvgAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.SqlCountAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.SqlMaxAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.SqlMinAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.aggregates.std.SqlSumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.std.SumAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.stream.EmptyStreamAggregateDescriptor;
+ import edu.uci.ics.asterix.runtime.aggregates.stream.NonEmptyStreamAggregateDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.accessors.CircleCenterAccessor;
+-import edu.uci.ics.asterix.runtime.evaluators.accessors.CircleRadiusAccessor;
+-import edu.uci.ics.asterix.runtime.evaluators.accessors.LineRectanglePolygonAccessor;
+-import edu.uci.ics.asterix.runtime.evaluators.accessors.PointXCoordinateAccessor;
+-import edu.uci.ics.asterix.runtime.evaluators.accessors.PointYCoordinateAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalDayAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalHourAccessor;
+-import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalIntervalEndAccessor;
+-import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalIntervalStartAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalMillisecondAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalMinuteAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalMonthAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalSecondAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.accessors.TemporalYearAccessor;
++import edu.uci.ics.asterix.runtime.evaluators.accessors.CircleCenterAccessor;
++import edu.uci.ics.asterix.runtime.evaluators.accessors.CircleRadiusAccessor;
++import edu.uci.ics.asterix.runtime.evaluators.accessors.LineRectanglePolygonAccessor;
++import edu.uci.ics.asterix.runtime.evaluators.accessors.PointXCoordinateAccessor;
++import edu.uci.ics.asterix.runtime.evaluators.accessors.PointYCoordinateAccessor;
+ import edu.uci.ics.asterix.runtime.evaluators.common.CreateMBREvalFactory;
+ import edu.uci.ics.asterix.runtime.evaluators.common.FieldAccessByIndexEvalFactory;
+ import edu.uci.ics.asterix.runtime.evaluators.common.FunctionManagerImpl;
+@@ -131,7 +86,6 @@ import edu.uci.ics.asterix.runtime.evaluators.constructors.ABooleanConstructorDe
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.ACircleConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.ADateConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.ADateTimeConstructorDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.constructors.ADayTimeDurationConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.ADoubleConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.ADurationConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.AFloatConstructorDescriptor;
+@@ -153,10 +107,8 @@ import edu.uci.ics.asterix.runtime.evaluators.constructors.APolygonConstructorDe
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.ARectangleConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.AStringConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.constructors.ATimeConstructorDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.constructors.AYearMonthDurationConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.AndDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.AnyCollectionMemberDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.CastListDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.CastRecordDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.ClosedRecordConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.CodePointToStringDescriptor;
+@@ -169,9 +121,7 @@ import edu.uci.ics.asterix.runtime.evaluators.functions.CreateMBRDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.CreatePointDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.CreatePolygonDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.CreateRectangleDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.CreateUUIDDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.EditDistanceCheckDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.EditDistanceContainsDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.EditDistanceDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.EditDistanceListIsFilterable;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.EditDistanceStringIsFilterable;
+@@ -179,7 +129,6 @@ import edu.uci.ics.asterix.runtime.evaluators.functions.EmbedTypeDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.EndsWithDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.FieldAccessByIndexDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.FieldAccessByNameDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.FlowRecordDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.FuzzyEqDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.GetItemDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.GramTokensDescriptor;
+@@ -187,14 +136,12 @@ import edu.uci.ics.asterix.runtime.evaluators.functions.HashedGramTokensDescript
+ import edu.uci.ics.asterix.runtime.evaluators.functions.HashedWordTokensDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.InjectFailureDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.IsNullDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.IsSystemNullDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.LenDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.LikeDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NotDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NotNullDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericAbsDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericAddDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.NumericCaretDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericCeilingDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericDivideDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericFloorDescriptor;
+@@ -203,13 +150,12 @@ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericMultiplyDescripto
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericRoundDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericRoundHalfToEven2Descriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericRoundHalfToEvenDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.NumericSubDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.NumericSubtractDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.NumericUnaryMinusDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.OpenRecordConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.OrDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.OrderedListConstructorDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.PrefixLenJaccardDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.RecordMergeDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.RegExpDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.SimilarityJaccardCheckDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.SimilarityJaccardDescriptor;
+@@ -222,6 +168,10 @@ import edu.uci.ics.asterix.runtime.evaluators.functions.SpatialCellDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.SpatialDistanceDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.SpatialIntersectDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.StartsWithDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.SubstringDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.SwitchCaseDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.UnorderedListConstructorDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.WordTokensDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.StringConcatDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.StringEndWithDescrtiptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.StringEqualDescriptor;
+@@ -234,14 +184,12 @@ import edu.uci.ics.asterix.runtime.evaluators.functions.StringReplaceDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.StringReplaceWithFlagsDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.StringStartWithDescrtiptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.StringToCodePointDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.StringUpperCaseDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.Substring2Descriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.SubstringAfterDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.SubstringBeforeDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.SubstringDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.SwitchCaseDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.UnorderedListConstructorDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.WordTokensDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.AddDateDurationDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.AddDatetimeDurationDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.AddTimeDurationDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.AdjustDateTimeForTimeZoneDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.AdjustTimeForTimeZoneDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.CalendarDuartionFromDateDescriptor;
+@@ -253,38 +201,24 @@ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DateFromDatetim
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DateFromUnixTimeInDaysDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DatetimeFromDateAndTimeDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DatetimeFromUnixTimeInMsDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DayOfWeekDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DayTimeDurationComparatorDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DurationEqualDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DurationFromMillisecondsDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.DurationFromMonthsDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.GetDayTimeDurationDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.GetYearMonthDurationDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalAfterDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalBeforeDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalBinDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalCoveredByDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalCoversDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalEndedByDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalEndsDecriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalMeetsDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalMetByDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.OverlapDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalOverlappedByDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalOverlapsDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalStartedByDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.IntervalStartsDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.MillisecondsFromDayTimeDurationDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.MonthsFromYearMonthDurationDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.OverlapDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.ParseDateDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.ParseDateTimeDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.ParseTimeDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.PrintDateDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.PrintDateTimeDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.PrintTimeDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.SubtractDateDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.SubtractDatetimeDescriptor;
++import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.SubtractTimeDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.TimeFromDatetimeDescriptor;
+ import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.TimeFromUnixTimeInMsDescriptor;
+-import edu.uci.ics.asterix.runtime.evaluators.functions.temporal.YearMonthDurationComparatorDecriptor;
+ import edu.uci.ics.asterix.runtime.operators.file.AdmSchemafullRecordParserFactory;
+ import edu.uci.ics.asterix.runtime.operators.file.NtDelimitedDataTupleParserFactory;
+ import edu.uci.ics.asterix.runtime.runningaggregates.std.TidRunningAggregateDescriptor;
+@@ -320,7 +254,6 @@ import edu.uci.ics.hyracks.algebricks.runtime.base.ICopyEvaluatorFactory;
+ import edu.uci.ics.hyracks.algebricks.runtime.evaluators.ColumnAccessEvalFactory;
+ import edu.uci.ics.hyracks.algebricks.runtime.evaluators.ConstantEvalFactory;
+ import edu.uci.ics.hyracks.api.dataflow.value.INullWriterFactory;
+-import edu.uci.ics.hyracks.api.dataflow.value.IPredicateEvaluatorFactoryProvider;
+ import edu.uci.ics.hyracks.api.exceptions.HyracksDataException;
+ import edu.uci.ics.hyracks.data.std.util.ArrayBackedValueStorage;
+ import edu.uci.ics.hyracks.dataflow.common.data.parsers.DoubleParserFactory;
+@@ -393,11 +326,9 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(NumericAddDescriptor.FACTORY);
+         temp.add(NumericDivideDescriptor.FACTORY);
+         temp.add(NumericMultiplyDescriptor.FACTORY);
+-        temp.add(NumericSubDescriptor.FACTORY);
++        temp.add(NumericSubtractDescriptor.FACTORY);
+         temp.add(NumericModuloDescriptor.FACTORY);
+-        temp.add(NumericCaretDescriptor.FACTORY);
+         temp.add(IsNullDescriptor.FACTORY);
+-        temp.add(IsSystemNullDescriptor.FACTORY);
+         temp.add(NotDescriptor.FACTORY);
+         temp.add(LenDescriptor.FACTORY);
+         temp.add(EmptyStreamAggregateDescriptor.FACTORY);
+@@ -416,7 +347,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(StringEndWithDescrtiptor.FACTORY);
+         temp.add(StringMatchesDescriptor.FACTORY);
+         temp.add(StringLowerCaseDescriptor.FACTORY);
+-        temp.add(StringUpperCaseDescriptor.FACTORY);
+         temp.add(StringMatchesWithFlagDescriptor.FACTORY);
+         temp.add(StringReplaceDescriptor.FACTORY);
+         temp.add(StringReplaceWithFlagsDescriptor.FACTORY);
+@@ -434,7 +364,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(CountAggregateDescriptor.FACTORY);
+         temp.add(AvgAggregateDescriptor.FACTORY);
+         temp.add(LocalAvgAggregateDescriptor.FACTORY);
+-        temp.add(IntermediateAvgAggregateDescriptor.FACTORY);
+         temp.add(GlobalAvgAggregateDescriptor.FACTORY);
+         temp.add(SumAggregateDescriptor.FACTORY);
+         temp.add(LocalSumAggregateDescriptor.FACTORY);
+@@ -447,7 +376,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(SerializableCountAggregateDescriptor.FACTORY);
+         temp.add(SerializableAvgAggregateDescriptor.FACTORY);
+         temp.add(SerializableLocalAvgAggregateDescriptor.FACTORY);
+-        temp.add(SerializableIntermediateAvgAggregateDescriptor.FACTORY);
+         temp.add(SerializableGlobalAvgAggregateDescriptor.FACTORY);
+         temp.add(SerializableSumAggregateDescriptor.FACTORY);
+         temp.add(SerializableLocalSumAggregateDescriptor.FACTORY);
+@@ -459,35 +387,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(ScalarMaxAggregateDescriptor.FACTORY);
+         temp.add(ScalarMinAggregateDescriptor.FACTORY);
+ 
+-        // SQL aggregates
+-        temp.add(SqlCountAggregateDescriptor.FACTORY);
+-        temp.add(SqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(LocalSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(IntermediateSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(GlobalSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(SqlSumAggregateDescriptor.FACTORY);
+-        temp.add(LocalSqlSumAggregateDescriptor.FACTORY);
+-        temp.add(SqlMaxAggregateDescriptor.FACTORY);
+-        temp.add(LocalSqlMaxAggregateDescriptor.FACTORY);
+-        temp.add(SqlMinAggregateDescriptor.FACTORY);
+-        temp.add(LocalSqlMinAggregateDescriptor.FACTORY);
+-
+-        // SQL serializable aggregates
+-        temp.add(SerializableSqlCountAggregateDescriptor.FACTORY);
+-        temp.add(SerializableSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(SerializableLocalSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(SerializableIntermediateSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(SerializableGlobalSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(SerializableSqlSumAggregateDescriptor.FACTORY);
+-        temp.add(SerializableLocalSqlSumAggregateDescriptor.FACTORY);
+-
+-        // SQL scalar aggregates
+-        temp.add(ScalarSqlCountAggregateDescriptor.FACTORY);
+-        temp.add(ScalarSqlAvgAggregateDescriptor.FACTORY);
+-        temp.add(ScalarSqlSumAggregateDescriptor.FACTORY);
+-        temp.add(ScalarSqlMaxAggregateDescriptor.FACTORY);
+-        temp.add(ScalarSqlMinAggregateDescriptor.FACTORY);
+-
+         // new functions - constructors
+         temp.add(ABooleanConstructorDescriptor.FACTORY);
+         temp.add(ANullConstructorDescriptor.FACTORY);
+@@ -508,10 +407,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(ADateConstructorDescriptor.FACTORY);
+         temp.add(ADateTimeConstructorDescriptor.FACTORY);
+         temp.add(ADurationConstructorDescriptor.FACTORY);
+-        temp.add(AYearMonthDurationConstructorDescriptor.FACTORY);
+-        temp.add(ADayTimeDurationConstructorDescriptor.FACTORY);
+-
+-        temp.add(CreateUUIDDescriptor.FACTORY);
+ 
+         // Spatial
+         temp.add(CreatePointDescriptor.FACTORY);
+@@ -547,7 +442,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(EditDistanceCheckDescriptor.FACTORY);
+         temp.add(EditDistanceStringIsFilterable.FACTORY);
+         temp.add(EditDistanceListIsFilterable.FACTORY);
+-        temp.add(EditDistanceContainsDescriptor.FACTORY);
+ 
+         temp.add(SimilarityJaccardDescriptor.FACTORY);
+         temp.add(SimilarityJaccardCheckDescriptor.FACTORY);
+@@ -556,13 +450,10 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(SimilarityJaccardPrefixDescriptor.FACTORY);
+         temp.add(SimilarityJaccardPrefixCheckDescriptor.FACTORY);
+ 
+-        temp.add(RecordMergeDescriptor.FACTORY);
+         temp.add(SwitchCaseDescriptor.FACTORY);
+         temp.add(RegExpDescriptor.FACTORY);
+         temp.add(InjectFailureDescriptor.FACTORY);
+-        temp.add(CastListDescriptor.FACTORY);
+         temp.add(CastRecordDescriptor.FACTORY);
+-        temp.add(FlowRecordDescriptor.FACTORY);
+         temp.add(NotNullDescriptor.FACTORY);
+ 
+         // Spatial and temporal type accessors
+@@ -573,16 +464,20 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(TemporalMinuteAccessor.FACTORY);
+         temp.add(TemporalSecondAccessor.FACTORY);
+         temp.add(TemporalMillisecondAccessor.FACTORY);
+-        temp.add(TemporalIntervalStartAccessor.FACTORY);
+-        temp.add(TemporalIntervalEndAccessor.FACTORY);
+ 
+         // Temporal functions
+         temp.add(DateFromUnixTimeInDaysDescriptor.FACTORY);
+         temp.add(DateFromDatetimeDescriptor.FACTORY);
++        temp.add(AddDateDurationDescriptor.FACTORY);
++        temp.add(SubtractDateDescriptor.FACTORY);
+         temp.add(TimeFromUnixTimeInMsDescriptor.FACTORY);
+         temp.add(TimeFromDatetimeDescriptor.FACTORY);
++        temp.add(SubtractTimeDescriptor.FACTORY);
++        temp.add(AddTimeDurationDescriptor.FACTORY);
+         temp.add(DatetimeFromUnixTimeInMsDescriptor.FACTORY);
+         temp.add(DatetimeFromDateAndTimeDescriptor.FACTORY);
++        temp.add(SubtractDatetimeDescriptor.FACTORY);
++        temp.add(AddDatetimeDurationDescriptor.FACTORY);
+         temp.add(CalendarDurationFromDateTimeDescriptor.FACTORY);
+         temp.add(CalendarDuartionFromDateDescriptor.FACTORY);
+         temp.add(AdjustDateTimeForTimeZoneDescriptor.FACTORY);
+@@ -603,25 +498,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+         temp.add(CurrentDateDescriptor.FACTORY);
+         temp.add(CurrentTimeDescriptor.FACTORY);
+         temp.add(CurrentDateTimeDescriptor.FACTORY);
+-        temp.add(DurationFromMillisecondsDescriptor.FACTORY);
+-        temp.add(DurationFromMonthsDescriptor.FACTORY);
+-        temp.add(YearMonthDurationComparatorDecriptor.GREATER_THAN_FACTORY);
+-        temp.add(YearMonthDurationComparatorDecriptor.LESS_THAN_FACTORY);
+-        temp.add(DayTimeDurationComparatorDescriptor.GREATER_THAN_FACTORY);
+-        temp.add(DayTimeDurationComparatorDescriptor.LESS_THAN_FACTORY);
+-        temp.add(MonthsFromYearMonthDurationDescriptor.FACTORY);
+-        temp.add(MillisecondsFromDayTimeDurationDescriptor.FACTORY);
+-        temp.add(DurationEqualDescriptor.FACTORY);
+-        temp.add(GetYearMonthDurationDescriptor.FACTORY);
+-        temp.add(GetDayTimeDurationDescriptor.FACTORY);
+-        temp.add(IntervalBinDescriptor.FACTORY);
+-        temp.add(DayOfWeekDescriptor.FACTORY);
+-        temp.add(ParseDateDescriptor.FACTORY);
+-        temp.add(ParseTimeDescriptor.FACTORY);
+-        temp.add(ParseDateTimeDescriptor.FACTORY);
+-        temp.add(PrintDateDescriptor.FACTORY);
+-        temp.add(PrintTimeDescriptor.FACTORY);
+-        temp.add(PrintDateTimeDescriptor.FACTORY);
+ 
+         // Interval constructor
+         temp.add(AIntervalFromDateConstructorDescriptor.FACTORY);
+@@ -693,12 +569,11 @@ public class NonTaggedDataFormat implements IDataFormat {
+ 
+     @SuppressWarnings("unchecked")
+     @Override
+-    public ICopyEvaluatorFactory[] createMBRFactory(ARecordType recType, String fldName, int recordColumn,
+-            int dimension, String filterFieldName) throws AlgebricksException {
++    public ICopyEvaluatorFactory[] createMBRFactory(ARecordType recType, String fldName, int recordColumn, int dimension)
++            throws AlgebricksException {
+         ICopyEvaluatorFactory evalFactory = getFieldAccessEvaluatorFactory(recType, fldName, recordColumn);
+         int numOfFields = dimension * 2;
+-        ICopyEvaluatorFactory[] evalFactories = new ICopyEvaluatorFactory[numOfFields
+-                + (filterFieldName == null ? 0 : 1)];
++        ICopyEvaluatorFactory[] evalFactories = new ICopyEvaluatorFactory[numOfFields];
+ 
+         ArrayBackedValueStorage abvs1 = new ArrayBackedValueStorage();
+         DataOutput dos1 = abvs1.getDataOutput();
+@@ -725,9 +600,6 @@ public class NonTaggedDataFormat implements IDataFormat {
+ 
+             evalFactories[i] = new CreateMBREvalFactory(evalFactory, dimensionEvalFactory, coordinateEvalFactory);
+         }
+-        if (filterFieldName != null) {
+-            evalFactories[numOfFields] = getFieldAccessEvaluatorFactory(recType, filterFieldName, recordColumn);
+-        }
+         return evalFactories;
+     }
+ 
+@@ -789,45 +661,17 @@ public class NonTaggedDataFormat implements IDataFormat {
+                 ((ListifyAggregateDescriptor) fd).reset(new AOrderedListType(null, null));
+             } else {
+                 IAType itemType = (IAType) context.getType(f.getArguments().get(0).getValue());
++                // Convert UNION types into ANY.
+                 if (itemType instanceof AUnionType) {
+-                    if (((AUnionType) itemType).isNullableType())
+-                        itemType = ((AUnionType) itemType).getUnionList().get(
+-                                NonTaggedFormatUtil.OPTIONAL_TYPE_INDEX_IN_UNION_LIST);
+-                    else
+-                        // Convert UNION types into ANY.
+-                        itemType = BuiltinType.ANY;
++                    itemType = BuiltinType.ANY;
+                 }
+                 ((ListifyAggregateDescriptor) fd).reset(new AOrderedListType(itemType, null));
+             }
+         }
+-        if (fd.getIdentifier().equals(AsterixBuiltinFunctions.RECORD_MERGE)) {
+-            AbstractFunctionCallExpression f = (AbstractFunctionCallExpression) expr;
+-            IAType outType = (IAType) context.getType(expr);
+-            IAType type0 = (IAType) context.getType(f.getArguments().get(0).getValue());
+-            IAType type1 = (IAType) context.getType(f.getArguments().get(1).getValue());
+-            ((RecordMergeDescriptor) fd).reset(outType, type0, type1);
+-        }
+         if (fd.getIdentifier().equals(AsterixBuiltinFunctions.CAST_RECORD)) {
+-            AbstractFunctionCallExpression funcExpr = (AbstractFunctionCallExpression) expr;
+-            ARecordType rt = (ARecordType) TypeComputerUtilities.getRequiredType(funcExpr);
+-            IAType it = (IAType) context.getType(funcExpr.getArguments().get(0).getValue());
+-            if (it.getTypeTag().equals(ATypeTag.ANY)) {
+-                it = DefaultOpenFieldType.NESTED_OPEN_RECORD_TYPE;
+-            }
+-            ((CastRecordDescriptor) fd).reset(rt, (ARecordType) it);
+-        }
+-        if (fd.getIdentifier().equals(AsterixBuiltinFunctions.CAST_LIST)) {
+-            AbstractFunctionCallExpression funcExpr = (AbstractFunctionCallExpression) expr;
+-            AbstractCollectionType rt = (AbstractCollectionType) TypeComputerUtilities.getRequiredType(funcExpr);
+-            IAType it = (IAType) context.getType(funcExpr.getArguments().get(0).getValue());
+-            if (it.getTypeTag().equals(ATypeTag.ANY)) {
+-                it = DefaultOpenFieldType.NESTED_OPEN_AORDERED_LIST_TYPE;
+-            }
+-            ((CastListDescriptor) fd).reset(rt, (AbstractCollectionType) it);
+-        }
+-        if (fd.getIdentifier().equals(AsterixBuiltinFunctions.FLOW_RECORD)) {
++            ARecordType rt = (ARecordType) TypeComputerUtilities.getRequiredType((AbstractFunctionCallExpression) expr);
+             ARecordType it = (ARecordType) TypeComputerUtilities.getInputType((AbstractFunctionCallExpression) expr);
+-            ((FlowRecordDescriptor) fd).reset(it);
++            ((CastRecordDescriptor) fd).reset(rt, it);
+         }
+         if (fd.getIdentifier().equals(AsterixBuiltinFunctions.OPEN_RECORD_CONSTRUCTOR)) {
+             ARecordType rt = (ARecordType) context.getType(expr);
+@@ -935,12 +779,25 @@ public class NonTaggedDataFormat implements IDataFormat {
+ 
+     @Override
+     public ITupleParserFactory createTupleParser(ARecordType recType, IParseFileSplitsDecl decl) {
+-        return createTupleParser(recType, decl.isDelimitedFileFormat(), decl.getDelimChar(), decl.getQuote());
++        if (decl.isDelimitedFileFormat()) {
++            int n = recType.getFieldTypes().length;
++            IValueParserFactory[] fieldParserFactories = new IValueParserFactory[n];
++            for (int i = 0; i < n; i++) {
++                ATypeTag tag = recType.getFieldTypes()[i].getTypeTag();
++                IValueParserFactory vpf = typeToValueParserFactMap.get(tag);
++                if (vpf == null) {
++                    throw new NotImplementedException("No value parser factory for delimited fields of type " + tag);
++                }
++                fieldParserFactories[i] = vpf;
++            }
++            return new NtDelimitedDataTupleParserFactory(recType, fieldParserFactories, decl.getDelimChar());
++        } else {
++            return new AdmSchemafullRecordParserFactory(recType);
++        }
+     }
+ 
+     @Override
+-    public ITupleParserFactory createTupleParser(ARecordType recType, boolean delimitedFormat, char delimiter,
+-            char quote) {
++    public ITupleParserFactory createTupleParser(ARecordType recType, boolean delimitedFormat, Character delimiter) {
+         if (delimitedFormat) {
+             int n = recType.getFieldTypes().length;
+             IValueParserFactory[] fieldParserFactories = new IValueParserFactory[n];
+@@ -952,10 +809,9 @@ public class NonTaggedDataFormat implements IDataFormat {
+                 }
+                 fieldParserFactories[i] = vpf;
+             }
+-            return new NtDelimitedDataTupleParserFactory(recType, fieldParserFactories, delimiter, quote, false, -1,
+-                    null);
++            return new NtDelimitedDataTupleParserFactory(recType, fieldParserFactories, delimiter);
+         } else {
+-            return new AdmSchemafullRecordParserFactory(recType, false, -1, null);
++            return new AdmSchemafullRecordParserFactory(recType);
+         }
+     }
+ 
+@@ -1031,9 +887,4 @@ public class NonTaggedDataFormat implements IDataFormat {
+         return AqlBinaryHashFunctionFamilyProvider.INSTANCE;
+     }
+ 
+-    @Override
+-    public IPredicateEvaluatorFactoryProvider getPredicateEvaluatorFactoryProvider() {
+-        return AqlPredicateEvaluatorFactoryProvider.INSTANCE;
+-    }
+-
+ }

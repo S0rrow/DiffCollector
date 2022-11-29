@@ -1,0 +1,69 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
+index 4810519437..eac0f10a54 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/protocol/amqp/proton/ProtonServerSenderContext.java
+@@ -62,6 +62,7 @@ import org.apache.qpid.proton.amqp.Symbol;
+ import org.apache.qpid.proton.amqp.messaging.Accepted;
+ import org.apache.qpid.proton.amqp.messaging.Modified;
+ import org.apache.qpid.proton.amqp.messaging.Outcome;
++import org.apache.qpid.proton.amqp.messaging.Rejected;
+ import org.apache.qpid.proton.amqp.messaging.Source;
+ import org.apache.qpid.proton.amqp.messaging.TerminusDurability;
+ import org.apache.qpid.proton.amqp.messaging.TerminusExpiryPolicy;
+@@ -836,10 +837,9 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+       void resume() {
+          connection.runNow(this::deliver);
+       }
+-      void deliver() {
+-
+-         int frameSize = protonSession.session.getConnection().getTransport().getOutboundFrameSizeLimit();
++      private static final int BUFFER_LENGTH = 1024;
+ 
++      void deliver() {
+          // Let the Message decide how to present the message bytes
+          LargeBodyReader context = message.getLargeBodyReader();
+          try {
+@@ -851,7 +851,7 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+ 
+                // TODO: it would be nice to use pooled buffer here,
+                //       however I would need a version of ReadableBuffer for Netty
+-               ByteBuffer buf = ByteBuffer.allocate(frameSize);
++               ByteBuffer buf = ByteBuffer.allocate(BUFFER_LENGTH);
+ 
+                for (; position < bodySize; ) {
+                   if (!connection.flowControl(this::resume)) {
+@@ -861,13 +861,11 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+                   buf.clear();
+                   int size = context.readInto(buf);
+ 
+-                  sender.send(new ReadableBuffer.ByteBufferReader(buf));
++                  sender.send(buf.array(), 0, size);
+ 
+-                  position += size;
++                  connection.instantFlush();
+ 
+-                  if (position < bodySize) {
+-                     connection.instantFlush();
+-                  }
++                  position += size;
+                }
+             } finally {
+                context.close();
+@@ -885,7 +883,7 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+                sender.advance();
+             }
+ 
+-            connection.instantFlush();
++            connection.flush();
+ 
+             synchronized (creditsLock) {
+                pending.decrementAndGet();
+@@ -1026,7 +1024,7 @@ public class ProtonServerSenderContext extends ProtonInitializable implements Pr
+    public void reportDrained() {
+       connection.requireInHandler();
+       sender.drained();
+-      connection.instantFlush();
++      connection.flush();
+    }
+ 
+    public AMQPSessionContext getSessionContext() {

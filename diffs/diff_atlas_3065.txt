@@ -1,0 +1,107 @@
+diff --git a/authorization/src/main/java/org/apache/atlas/authorize/AtlasAuthorizationUtils.java b/authorization/src/main/java/org/apache/atlas/authorize/AtlasAuthorizationUtils.java
+index 3f5bd2404..8c57946b9 100644
+--- a/authorization/src/main/java/org/apache/atlas/authorize/AtlasAuthorizationUtils.java
++++ b/authorization/src/main/java/org/apache/atlas/authorize/AtlasAuthorizationUtils.java
+@@ -20,7 +20,6 @@
+ package org.apache.atlas.authorize;
+ 
+ import org.apache.atlas.AtlasErrorCode;
+-import org.apache.atlas.RequestContext;
+ import org.apache.atlas.exception.AtlasBaseException;
+ import org.apache.commons.lang.StringUtils;
+ import org.slf4j.Logger;
+@@ -35,6 +34,7 @@ import java.net.UnknownHostException;
+ import java.util.HashSet;
+ import java.util.Set;
+ 
++
+ public class AtlasAuthorizationUtils {
+     private static final Logger LOG = LoggerFactory.getLogger(AtlasAuthorizationUtils.class);
+ 
+@@ -62,30 +62,6 @@ public class AtlasAuthorizationUtils {
+         }
+     }
+ 
+-    public static void verifyAccess(AtlasRelationshipAccessRequest request, Object... errorMsgParams) throws AtlasBaseException {
+-        if (!isAccessAllowed(request)) {
+-            String message = (errorMsgParams != null && errorMsgParams.length > 0) ? StringUtils.join(errorMsgParams) : "";
+-            throw new AtlasBaseException(AtlasErrorCode.UNAUTHORIZED_ACCESS, request.getUser(), message);
+-        }
+-    }
+-
+-    public static void scrubSearchResults(AtlasSearchResultScrubRequest request) throws AtlasBaseException {
+-        String userName = getCurrentUserName();
+-
+-        if (StringUtils.isNotEmpty(userName)) {
+-            try {
+-                AtlasAuthorizer authorizer = AtlasAuthorizerFactory.getAtlasAuthorizer();
+-
+-                request.setUser(userName, getCurrentUserGroups());
+-                request.setClientIPAddress(RequestContext.get().getClientIPAddress());
+-
+-                authorizer.scrubSearchResults(request);
+-            } catch (AtlasAuthorizationException e) {
+-                LOG.error("Unable to obtain AtlasAuthorizer", e);
+-            }
+-        }
+-    }
+-
+     public static boolean isAccessAllowed(AtlasAdminAccessRequest request) {
+         boolean ret      = false;
+         String  userName = getCurrentUserName();
+@@ -95,7 +71,7 @@ public class AtlasAuthorizationUtils {
+                 AtlasAuthorizer authorizer = AtlasAuthorizerFactory.getAtlasAuthorizer();
+ 
+                 request.setUser(userName, getCurrentUserGroups());
+-                request.setClientIPAddress(RequestContext.get().getClientIPAddress());
++
+                 ret = authorizer.isAccessAllowed(request);
+             } catch (AtlasAuthorizationException e) {
+                 LOG.error("Unable to obtain AtlasAuthorizer", e);
+@@ -116,7 +92,7 @@ public class AtlasAuthorizationUtils {
+                 AtlasAuthorizer authorizer = AtlasAuthorizerFactory.getAtlasAuthorizer();
+ 
+                 request.setUser(getCurrentUserName(), getCurrentUserGroups());
+-                request.setClientIPAddress(RequestContext.get().getClientIPAddress());
++
+                 ret = authorizer.isAccessAllowed(request);
+             } catch (AtlasAuthorizationException e) {
+                 LOG.error("Unable to obtain AtlasAuthorizer", e);
+@@ -137,28 +113,7 @@ public class AtlasAuthorizationUtils {
+                 AtlasAuthorizer authorizer = AtlasAuthorizerFactory.getAtlasAuthorizer();
+ 
+                 request.setUser(getCurrentUserName(), getCurrentUserGroups());
+-                request.setClientIPAddress(RequestContext.get().getClientIPAddress());
+-                ret = authorizer.isAccessAllowed(request);
+-            } catch (AtlasAuthorizationException e) {
+-                LOG.error("Unable to obtain AtlasAuthorizer", e);
+-            }
+-        } else {
+-            ret = true;
+-        }
+-
+-        return ret;
+-    }
+ 
+-    public static boolean isAccessAllowed(AtlasRelationshipAccessRequest request) {
+-        boolean ret      = false;
+-        String  userName = getCurrentUserName();
+-
+-        if (StringUtils.isNotEmpty(userName)) {
+-            try {
+-                AtlasAuthorizer authorizer = AtlasAuthorizerFactory.getAtlasAuthorizer();
+-
+-                request.setUser(getCurrentUserName(), getCurrentUserGroups());
+-                request.setClientIPAddress(RequestContext.get().getClientIPAddress());
+                 ret = authorizer.isAccessAllowed(request);
+             } catch (AtlasAuthorizationException e) {
+                 LOG.error("Unable to obtain AtlasAuthorizer", e);
+@@ -184,8 +139,6 @@ public class AtlasAuthorizationUtils {
+         return ret;
+     }
+ 
+-
+-
+     public static String getCurrentUserName() {
+         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+ 

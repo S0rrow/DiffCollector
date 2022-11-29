@@ -1,0 +1,324 @@
+diff --git a/src/org/apache/axis/wsdl/toJava/Utils.java b/src/org/apache/axis/wsdl/toJava/Utils.java
+index ad6bffe52..db96e0f44 100644
+--- a/src/org/apache/axis/wsdl/toJava/Utils.java
++++ b/src/org/apache/axis/wsdl/toJava/Utils.java
+@@ -54,36 +54,26 @@
+  */
+ package org.apache.axis.wsdl.toJava;
+ 
++import java.net.MalformedURLException;
++import java.net.URL;
++
++import java.util.StringTokenizer;
++import java.util.Vector;
++
++import javax.wsdl.Fault;
++import javax.wsdl.Message;
++import javax.wsdl.QName;
++
+ import org.apache.axis.Constants;
++
+ import org.apache.axis.utils.JavaUtils;
+-import org.apache.axis.wsdl.symbolTable.CollectionType;
+-import org.apache.axis.wsdl.symbolTable.Element;
+-import org.apache.axis.wsdl.symbolTable.MessageEntry;
++
+ import org.apache.axis.wsdl.symbolTable.SymbolTable;
+ import org.apache.axis.wsdl.symbolTable.TypeEntry;
++
+ import org.w3c.dom.Node;
+ import org.w3c.dom.NodeList;
+ 
+-import javax.wsdl.BindingInput;
+-import javax.wsdl.BindingOperation;
+-import javax.wsdl.Fault;
+-import javax.wsdl.Input;
+-import javax.wsdl.Message;
+-import javax.wsdl.Operation;
+-import javax.wsdl.Part;
+-import javax.xml.namespace.QName;
+-import javax.wsdl.extensions.ExtensibilityElement;
+-import javax.wsdl.extensions.soap.SOAPBody;
+-import java.io.File;
+-import java.io.IOException;
+-import java.net.MalformedURLException;
+-import java.net.URL;
+-import java.util.HashMap;
+-import java.util.Iterator;
+-import java.util.Map;
+-import java.util.StringTokenizer;
+-import java.util.Vector;
+-
+ public class Utils extends org.apache.axis.wsdl.symbolTable.Utils {
+     /**
+      * Given a type, return the Java mapping of that type's holder.
+@@ -91,17 +81,19 @@ public class Utils extends org.apache.axis.wsdl.symbolTable.Utils {
+     public static String holder(TypeEntry type, Emitter emitter) {
+         String typeValue = type.getName();
+ 
+-        // byte[] has a reserved holders
++        // byte[] and Byte[] have reserved holders
+         if (typeValue.equals("byte[]")) {
+             return "javax.xml.rpc.holders.ByteArrayHolder";
+         }
++        else if (typeValue.equals("java.lang.Byte[]")) {
++            return "javax.xml.rpc.holders.ByteWrapperArrayHolder";
++        }
+         // Anything else with [] gets its holder from the qname
+         else if (typeValue.endsWith("[]")) {
+             String name = emitter.getJavaName(type.getQName());
+             // This could be a special QName for a indexed property.
+             // If so, change the [] to Array.
+             name = JavaUtils.replace(name, "[]", "Array");
+-            name = addPackageName(name, "holders");
+             return name + "Holder";
+         }
+         // String also has a reserved holder
+@@ -153,33 +145,14 @@ public class Utils extends org.apache.axis.wsdl.symbolTable.Utils {
+         else if (typeValue.equals("java.util.Calendar")) {
+             return "javax.xml.rpc.holders.CalendarHolder";
+         }
+-        else if (typeValue.equals("javax.xml.namespace.QName")) {
++        else if (typeValue.equals("javax.xml.rpc.namespace.QName")) {
+             return "javax.xml.rpc.holders.QNameHolder";
+         }
+-        // For everything else add "holders" package and append
+-        // holder to the class name.
+-        else {
+-            return addPackageName(typeValue, "holders") + "Holder";
+-        }
++        // For everything else simply append Holder
++        else
++            return typeValue + "Holder";
+     } // holder
+ 
+-    /**
+-     * Add package to name
+-     * @param String full name of the class.
+-     * @param String name of the package to append
+-     * @return String name with package name added
+-     */
+-    public static String addPackageName(String className, String newPkg) {
+-        int index = className.lastIndexOf(".");
+-        if (index >= 0) {
+-            return className.substring(0, index)
+-                + "." + newPkg
+-                + className.substring(index);
+-        } else {
+-            return newPkg + "." + className;
+-        }
+-    }
+-
+     /**
+      * Given a fault, return the fully qualified Java class name
+      * of the exception to be generated from this fault
+@@ -191,12 +164,12 @@ public class Utils extends org.apache.axis.wsdl.symbolTable.Utils {
+     public static String getFullExceptionName(
+             Fault fault, Emitter emitter) {
+ 
++        // Upgraded to JSR 101 version 0.8
++
+         // Get the Message referenced in the message attribute of the
+         // fault.
+         Message faultMessage = fault.getMessage();
+-        MessageEntry me = emitter.getSymbolTable().getMessageEntry(
+-            faultMessage.getQName()); 
+-        return (String) me.getDynamicVar(JavaGeneratorFactory.EXCEPTION_CLASS_NAME);
++        return emitter.getJavaName(faultMessage.getQName());
+     } // getFullExceptionName
+ 
+     /**
+@@ -256,8 +229,6 @@ public class Utils extends org.apache.axis.wsdl.symbolTable.Utils {
+                 if (baseEType != null) {
+                     String javaName = baseEType.getName();
+                     if (javaName.equals("java.lang.String") ||
+-                        javaName.equals("java.math.BigInteger") ||
+-                        javaName.equals("java.math.BigDecimal") ||
+                         javaName.equals("int") ||
+                         javaName.equals("long") ||
+                         javaName.equals("short") ||
+@@ -407,184 +378,4 @@ public class Utils extends org.apache.axis.wsdl.symbolTable.Utils {
+         }
+     } // getJavaPackageName
+ 
+-    /**
+-     * Does the given file already exist in the given namespace?
+-     */
+-    public static boolean fileExists(String name, String namespace,
+-            Namespaces namespaces) throws IOException
+-    {
+-        String packageName = namespaces.getAsDir(namespace);
+-        String fullName = packageName + name;
+-        return new File (fullName).exists();
+-    } // fileExists
+-
+-    /**
+-     * A simple map of the primitive types and their holder objects
+-     */
+-    private static HashMap TYPES = new HashMap(7);
+-
+-    static {
+-        TYPES.put("int", "Integer");
+-        TYPES.put("float", "Float");
+-        TYPES.put("boolean", "Boolean");
+-        TYPES.put("double", "Double");
+-        TYPES.put("byte", "Byte");
+-        TYPES.put("short", "Short");
+-        TYPES.put("long", "Long");
+-    }
+-
+-    /**
+-     * Return a string with "var" wrapped as an Object type if needed
+-     */
+-    public static String wrapPrimitiveType(TypeEntry type, String var) {
+-        String objType = type == null ? null : (String) TYPES.get(type.getName());
+-        if (objType != null) {
+-            return "new " + objType + "(" + var + ")";
+-        } else if (type != null && 
+-                   type.getName().equals("byte[]") &&
+-                   type.getQName().getLocalPart().equals("hexBinary")) {
+-            // Need to wrap byte[] in special Hex object to get the correct serialization
+-            return "new org.apache.axis.encoding.Hex(" + var + ")";
+-        } else {
+-            return var;
+-        }
+-    } // wrapPrimitiveType
+-
+-    /**
+-     * Return the Object variable 'var' cast to the appropriate type
+-     * doing the right thing for the primitive types.
+-     */
+-    public static String getResponseString(TypeEntry type, String var) {
+-        if (type == null) {
+-            return ";";
+-        }
+-        else {
+-            String objType = (String) TYPES.get(type.getName());
+-            if (objType != null) {
+-                return "((" + objType + ") " + var + ")." + type.getName() + "Value();";
+-            }
+-            else {
+-                return "(" + type.getName() + ") " + var + ";";
+-            }
+-        }
+-    } // getResponseString
+-
+-    public static boolean isPrimitiveType(TypeEntry type) {
+-        return TYPES.get(type.getName()) != null;
+-    } // isPrimitiveType
+-
+-    /**
+-     * Return the operation QName.  The namespace is determined from
+-     * the soap:body namespace, if it exists, otherwise it is "".
+-     * 
+-     * @param operation the operation
+-     * @return the operation QName
+-     */ 
+-    public static QName getOperationQName(BindingOperation bindingOper) {
+-        Operation operation = bindingOper.getOperation();
+-        String operationName = operation.getName();
+-        String javaOperName = JavaUtils.xmlNameToJava(operation.getName());
+-        QName elementQName = null;
+-
+-        String ns = null;
+-
+-        // Get a namespace from the soap:body tag, if any
+-        // example:
+-        //   <soap:body namespace="this_is_what_we_want" ..>
+-        BindingInput bindInput = bindingOper.getBindingInput();
+-        if (bindInput != null) {
+-            Iterator it = bindInput.getExtensibilityElements().iterator();
+-            while (it.hasNext()) {
+-                ExtensibilityElement elem = (ExtensibilityElement) it.next();
+-                if (elem instanceof SOAPBody) {
+-                    SOAPBody body = (SOAPBody) elem;
+-                    ns = body.getNamespaceURI();
+-                    break;
+-                }
+-            }
+-        }
+-
+-        // If we didn't get a namespace from the soap:body, then
+-        // use "".  We should probably use the targetNamespace,
+-        // but the target namespace of what?  binding?  portType?
+-        // Also, we don't have enough info for to get it.
+-        if (ns == null) {
+-            ns = "";
+-        }
+-
+-        // Get the qname from the first message part, if it is an element
+-        // example:
+-        //   <part name="paramters" element="ns:myelem">
+-        Input input = operation.getInput();
+-        if (input != null) {
+-            Map parts = input.getMessage().getParts();
+-            if (parts != null && !parts.isEmpty()) {
+-                Iterator i = parts.values().iterator();
+-                Part p = (Part) i.next();
+-                elementQName = p.getElementName();
+-            }
+-        }
+-        
+-        // NOTE: it is possible for someone to define a part as an element
+-        // while using rpc/encoded, which is wrong and we might want to catch it
+-        // here.
+-        
+-        // If we didn't find an element declared in the part (assume it's a
+-        // type), so the QName will be the operation name with the
+-        // namespace (if any) from the binding soap:body tag.
+-        if (elementQName == null) {
+-            elementQName = new QName(ns, operationName);
+-        }
+-
+-        return elementQName;
+-    }
+-
+-    /**
+-     * Common code for generating a QName in emitted code.  Note that there's
+-     * no semicolon at the end, so we can use this in a variety of contexts.
+-     */ 
+-    public static String getNewQName(javax.xml.namespace.QName qname)
+-    {
+-        return "new javax.xml.namespace.QName(\"" +
+-                qname.getNamespaceURI() + "\", \"" +
+-                qname.getLocalPart() + "\")";
+-    }
+-
+-    /** 
+-     * Get the QName that could be used in the xsi:type
+-     * when serializing an object for this parameter/return
+-     * @param te is the typeEntry from the Parameters object,
+-     *           which represents the parameter
+-     * @return the QName of the type
+-     */
+-    public static QName getXSIType(TypeEntry te) {
+-        QName xmlType = null;
+-
+-        // If the TypeEntry describes an Element, get
+-        // the referenced Type.
+-        if (te != null &&
+-            te instanceof Element &&
+-            te.getRefType() != null) {
+-            te = te.getRefType();
+-        } 
+-        // If the TypeEntry is a CollectionType, use
+-        // the TypeEntry representing the component Type
+-        // So for example a parameter that takes a 
+-        // collection type for
+-        // <element name="A" type="xsd:string" maxOccurs="unbounded"/>
+-        // will be 
+-        // new ParameterDesc(<QName of A>, IN,
+-        //                   <QName of xsd:string>,
+-        //                   String[])
+-        if (te != null &&
+-            te instanceof CollectionType &&
+-            te.getRefType() != null) {
+-            te = te.getRefType();
+-        }
+-        if (te != null) {
+-            xmlType = te.getQName();
+-        }
+-        return xmlType;
+-    }
+-    
+ } // class Utils

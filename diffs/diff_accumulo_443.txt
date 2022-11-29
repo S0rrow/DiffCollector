@@ -1,0 +1,30 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ShutdownIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ShutdownIT.java
+index ca099bf8e2..9a2e42eef5 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ShutdownIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ShutdownIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertFalse;
+ 
+@@ -33,6 +32,8 @@ import org.apache.accumulo.test.TestRandomDeletes;
+ import org.apache.accumulo.test.VerifyIngest;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class ShutdownIT extends ConfigurableMacBase {
+ 
+   @Override
+@@ -77,7 +78,7 @@ public class ShutdownIT extends ConfigurableMacBase {
+     for (int i = 0; i < 10; i++) {
+       c.tableOperations().create("table" + i);
+     }
+-    final AtomicReference<Exception> ref = new AtomicReference<>();
++    final AtomicReference<Exception> ref = new AtomicReference<Exception>();
+     Thread async = new Thread() {
+       @Override
+       public void run() {

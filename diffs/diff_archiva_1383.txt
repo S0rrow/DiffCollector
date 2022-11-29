@@ -1,0 +1,160 @@
+diff --git a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/project/filters/EffectiveProjectModelFilter.java b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/project/filters/EffectiveProjectModelFilter.java
+index 3469c75f7..a1ce18b9f 100644
+--- a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/project/filters/EffectiveProjectModelFilter.java
++++ b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/project/filters/EffectiveProjectModelFilter.java
+@@ -19,7 +19,6 @@
+  * under the License.
+  */
+ 
+-import org.apache.commons.collections.CollectionUtils;
+ import org.apache.commons.lang.StringUtils;
+ import org.apache.maven.archiva.model.ArchivaModelCloner;
+ import org.apache.maven.archiva.model.ArchivaProjectModel;
+@@ -28,11 +27,10 @@
+ import org.apache.maven.archiva.repository.project.ProjectModelException;
+ import org.apache.maven.archiva.repository.project.ProjectModelFilter;
+ import org.apache.maven.archiva.repository.project.ProjectModelMerge;
+-import org.apache.maven.archiva.repository.project.resolvers.ProjectModelResolverStack;
++import org.apache.maven.archiva.repository.project.ProjectModelResolver;
+ import org.codehaus.plexus.logging.AbstractLogEnabled;
+-import org.codehaus.plexus.logging.Logger;
+-import org.codehaus.plexus.logging.console.ConsoleLogger;
+ 
++import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.Iterator;
+ import java.util.List;
+@@ -50,23 +48,26 @@
+     extends AbstractLogEnabled
+     implements ProjectModelFilter
+ {
+-    private ProjectModelFilter expressionFilter = new ProjectModelExpressionFilter();
++    /**
++     * @plexus.requirement role-hint="expression"
++     */
++    private ProjectModelFilter expressionFilter;
+ 
+-    private ProjectModelResolverStack projectModelResolverStack;
++    private List projectModelResolvers;
+ 
+     public EffectiveProjectModelFilter()
+     {
+-        projectModelResolverStack = new ProjectModelResolverStack();
++        projectModelResolvers = new ArrayList();
+     }
+ 
+-    public void setProjectModelResolverStack( ProjectModelResolverStack resolverStack )
++    public void addProjectModelResolver( ProjectModelResolver resolver )
+     {
+-        this.projectModelResolverStack = resolverStack;
+-    }
++        if ( resolver == null )
++        {
++            return;
++        }
+ 
+-    public ProjectModelResolverStack getProjectModelResolverStack()
+-    {
+-        return this.projectModelResolverStack;
++        this.projectModelResolvers.add( resolver );
+     }
+ 
+     /**
+@@ -89,7 +90,7 @@ public ArchivaProjectModel filter( final ArchivaProjectModel project )
+             return null;
+         }
+ 
+-        if ( this.projectModelResolverStack.isEmpty() )
++        if ( this.projectModelResolvers.isEmpty() )
+         {
+             throw new IllegalStateException( "Unable to build effective pom with no project model resolvers defined." );
+         }
+@@ -112,26 +113,25 @@ public ArchivaProjectModel filter( final ArchivaProjectModel project )
+         return effectiveProject;
+     }
+ 
+-    private Logger logger;
+-
+-    protected Logger getLogger()
++    public void removeResolver( ProjectModelResolver resolver )
+     {
+-        if ( logger == null )
+-        {
+-            logger = super.getLogger();
+-            if ( logger == null )
+-            {
+-                logger = new ConsoleLogger( ConsoleLogger.LEVEL_INFO, this.getClass().getName() );
+-            }
+-        }
++        this.projectModelResolvers.remove( resolver );
++    }
+ 
+-        return logger;
++    public void clearResolvers()
++    {
++        this.projectModelResolvers.clear();
+     }
+ 
+     private void applyDependencyManagement( ArchivaProjectModel pom )
+     {
+-        if ( CollectionUtils.isEmpty( pom.getDependencyManagement() )
+-            || CollectionUtils.isEmpty( pom.getDependencies() ) )
++        if ( ( pom.getDependencyManagement() == null ) || ( pom.getDependencies() == null ) )
++        {
++            // Nothing to do. All done!
++            return;
++        }
++
++        if ( pom.getDependencyManagement().isEmpty() || pom.getDependencies().isEmpty() )
+         {
+             // Nothing to do. All done!
+             return;
+@@ -156,6 +156,39 @@ private void applyDependencyManagement( ArchivaProjectModel pom )
+         }
+     }
+ 
++    private ArchivaProjectModel findProject( VersionedReference projectRef )
++    {
++        getLogger().debug( "Trying to find project: " + projectRef );
++        Iterator it = this.projectModelResolvers.iterator();
++
++        while ( it.hasNext() )
++        {
++            ProjectModelResolver resolver = (ProjectModelResolver) it.next();
++
++            try
++            {
++                getLogger().debug( "Trying to find in " + resolver.getClass().getName() );
++                ArchivaProjectModel model = resolver.resolveProjectModel( projectRef );
++
++                if ( model != null )
++                {
++                    getLogger().debug( "Found it!: " + model );
++                    return model;
++                }
++                getLogger().debug( "Not found." );
++            }
++            catch ( ProjectModelException e )
++            {
++                // TODO: trigger notifier of problem?
++                e.printStackTrace();
++            }
++        }
++
++        // TODO: Document that project was not found. (Use monitor?)
++
++        return null;
++    }
++
+     private ArchivaProjectModel mergeParent( ArchivaProjectModel pom )
+         throws ProjectModelException
+     {
+@@ -171,7 +204,7 @@ private ArchivaProjectModel mergeParent( ArchivaProjectModel pom )
+             getLogger().debug( "Has parent: " + parentRef );
+ 
+             // Find parent using resolvers.
+-            ArchivaProjectModel parentProject = this.projectModelResolverStack.findProject( parentRef );
++            ArchivaProjectModel parentProject = findProject( parentRef );
+ 
+             if ( parentProject != null )
+             {

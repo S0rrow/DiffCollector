@@ -1,0 +1,27 @@
+diff --git a/asterix-app/src/main/java/edu/uci/ics/asterix/aql/translator/AqlTranslator.java b/asterix-app/src/main/java/edu/uci/ics/asterix/aql/translator/AqlTranslator.java
+index 9e628c2f12..9fbb24ac19 100644
+--- a/asterix-app/src/main/java/edu/uci/ics/asterix/aql/translator/AqlTranslator.java
++++ b/asterix-app/src/main/java/edu/uci/ics/asterix/aql/translator/AqlTranslator.java
+@@ -568,20 +568,14 @@ public class AqlTranslator extends AbstractAqlTranslator {
+         if (allNodesNodegroup) {
+             nodegroupName = MetadataConstants.METADATA_DEFAULT_NODEGROUP_NAME;
+         } else {
+-            Set<String> nodeNames = AsterixAppContextInfo.getInstance().getMetadataProperties().getNodeNames();
+-            String metadataNodeName = AsterixAppContextInfo.getInstance().getMetadataProperties().getMetadataNodeName();
+-            List<String> selectedNodes = new ArrayList<String>();
+-            selectedNodes.add(metadataNodeName);
+-            nodeNames.remove(metadataNodeName);
+-            nodegroupCardinality--;
+-
+             Random random = new Random();
++            Set<String> nodeNames = AsterixAppContextInfo.getInstance().getMetadataProperties().getNodeNames();
+             String[] nodes = nodeNames.toArray(new String[] {});
+             int[] b = new int[nodeNames.size()];
+             for (int i = 0; i < b.length; i++) {
+                 b[i] = i;
+             }
+-
++            List<String> selectedNodes = new ArrayList<String>();
+             for (int i = 0; i < nodegroupCardinality; i++) {
+                 int selected = i + random.nextInt(nodeNames.size() - i);
+                 int selNodeIndex = b[selected];

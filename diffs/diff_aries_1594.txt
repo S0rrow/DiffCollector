@@ -1,0 +1,35 @@
+diff --git a/application/application-utils/src/main/java/org/apache/aries/application/impl/DeploymentMetadataFactoryImpl.java b/application/application-utils/src/main/java/org/apache/aries/application/impl/DeploymentMetadataFactoryImpl.java
+index 4273d08c5..124380557 100644
+--- a/application/application-utils/src/main/java/org/apache/aries/application/impl/DeploymentMetadataFactoryImpl.java
++++ b/application/application-utils/src/main/java/org/apache/aries/application/impl/DeploymentMetadataFactoryImpl.java
+@@ -19,23 +19,23 @@
+ 
+ package org.apache.aries.application.impl;
+ 
+-import java.io.IOException;
+ import java.util.Set;
++import java.util.jar.Manifest;
+ 
++import org.apache.aries.application.ApplicationMetadata;
+ import org.apache.aries.application.DeploymentMetadata;
+ import org.apache.aries.application.DeploymentMetadataFactory;
+-import org.apache.aries.application.filesystem.IFile;
+ import org.apache.aries.application.management.AriesApplication;
+ import org.apache.aries.application.management.BundleInfo;
+ 
+ public class DeploymentMetadataFactoryImpl implements DeploymentMetadataFactory {
+ 
+   public DeploymentMetadata createDeploymentMetadata(AriesApplication app,
+-      Set<BundleInfo> additionalBundlesRequired) {
+-    return new DeploymentMetadataImpl (app, additionalBundlesRequired);
++      Set<BundleInfo> bundleInfo) {
++    // TODO Auto-generated method stub
++    return null;
+   }
++
+   
+-  public DeploymentMetadata createDeploymentMetadata(IFile src) throws IOException { 
+-    return new DeploymentMetadataImpl (src);
+-  }
++
+ }

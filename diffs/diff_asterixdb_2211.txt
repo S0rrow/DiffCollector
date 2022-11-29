@@ -1,0 +1,170 @@
+diff --git a/hyracks-fullstack/hyracks/hyracks-api/src/main/java/org/apache/hyracks/api/rewriter/runtime/SuperActivityOperatorNodePushable.java b/hyracks-fullstack/hyracks/hyracks-api/src/main/java/org/apache/hyracks/api/rewriter/runtime/SuperActivityOperatorNodePushable.java
+index 314bf8b8de..eeaee04f37 100644
+--- a/hyracks-fullstack/hyracks/hyracks-api/src/main/java/org/apache/hyracks/api/rewriter/runtime/SuperActivityOperatorNodePushable.java
++++ b/hyracks-fullstack/hyracks/hyracks-api/src/main/java/org/apache/hyracks/api/rewriter/runtime/SuperActivityOperatorNodePushable.java
+@@ -20,7 +20,6 @@
+ package org.apache.hyracks.api.rewriter.runtime;
+ 
+ import java.util.ArrayList;
+-import java.util.Collections;
+ import java.util.HashMap;
+ import java.util.LinkedList;
+ import java.util.List;
+@@ -30,7 +29,6 @@ import java.util.Queue;
+ import java.util.concurrent.Future;
+ import java.util.concurrent.Semaphore;
+ 
+-import org.apache.commons.collections4.MapUtils;
+ import org.apache.commons.lang3.tuple.Pair;
+ import org.apache.hyracks.api.comm.IFrameWriter;
+ import org.apache.hyracks.api.context.IHyracksTaskContext;
+@@ -66,7 +64,7 @@ public class SuperActivityOperatorNodePushable implements IOperatorNodePushable
+         this.partition = partition;
+         this.nPartitions = nPartitions;
+ 
+-        /*
++        /**
+          * initialize the writer-relationship for the internal DAG of operator
+          * node pushables
+          */
+@@ -79,39 +77,43 @@ public class SuperActivityOperatorNodePushable implements IOperatorNodePushable
+ 
+     @Override
+     public void initialize() throws HyracksDataException {
+-        runInParallel(IOperatorNodePushable::initialize);
++        runInParallel(op -> op.initialize());
+     }
+ 
+     @Override
+     public void deinitialize() throws HyracksDataException {
+-        runInParallel(IOperatorNodePushable::deinitialize);
++        runInParallel(op -> op.deinitialize());
+     }
+ 
+     private void init() throws HyracksDataException {
++        Map<ActivityId, IOperatorNodePushable> startOperatorNodePushables = new HashMap<>();
+         Queue<Pair<Pair<IActivity, Integer>, Pair<IActivity, Integer>>> childQueue = new LinkedList<>();
+         List<IConnectorDescriptor> outputConnectors;
+ 
+-        /*
++        /**
+          * Set up the source operators
+          */
+         for (Entry<ActivityId, IActivity> entry : startActivities.entrySet()) {
+-            IOperatorNodePushable opPushable = entry.getValue().createPushRuntime(ctx, recordDescProvider, partition,
+-                    nPartitions);
++            IOperatorNodePushable opPushable =
++                    entry.getValue().createPushRuntime(ctx, recordDescProvider, partition, nPartitions);
++            startOperatorNodePushables.put(entry.getKey(), opPushable);
+             operatorNodePushablesBFSOrder.add(opPushable);
+             operatorNodePushables.put(entry.getKey(), opPushable);
+             inputArity += opPushable.getInputArity();
+-            outputConnectors = MapUtils.getObject(parent.getActivityOutputMap(), entry.getKey(),
+-                    Collections.emptyList());
+-            for (IConnectorDescriptor conn : outputConnectors) {
+-                childQueue.add(parent.getConnectorActivityMap().get(conn.getConnectorId()));
++            outputConnectors = parent.getActivityOutputMap().get(entry.getKey());
++            if (outputConnectors != null) {
++                for (IConnectorDescriptor conn : outputConnectors) {
++                    childQueue.add(parent.getConnectorActivityMap().get(conn.getConnectorId()));
++                }
+             }
+         }
+ 
+-        /*
+-         * Using BFS (breadth-first search) to construct to runtime execution DAG...
++        /**
++         * Using BFS (breadth-first search) to construct to runtime execution
++         * DAG;
+          */
+-        while (!childQueue.isEmpty()) {
+-            /*
++        while (childQueue.size() > 0) {
++            /**
+              * construct the source to destination information
+              */
+             Pair<Pair<IActivity, Integer>, Pair<IActivity, Integer>> channel = childQueue.poll();
+@@ -128,23 +130,25 @@ public class SuperActivityOperatorNodePushable implements IOperatorNodePushable
+                 operatorNodePushables.put(destId, destOp);
+             }
+ 
+-            /*
++            /**
+              * construct the dataflow connection from a producer to a consumer
+              */
+             sourceOp.setOutputFrameWriter(outputChannel, destOp.getInputFrameWriter(inputChannel),
+                     recordDescProvider.getInputRecordDescriptor(destId, inputChannel));
+ 
+-            /*
++            /**
+              * traverse to the child of the current activity
+              */
+-            outputConnectors = MapUtils.getObject(parent.getActivityOutputMap(), destId, Collections.emptyList());
++            outputConnectors = parent.getActivityOutputMap().get(destId);
+ 
+-            /*
++            /**
+              * expend the executing activities further to the downstream
+              */
+-            for (IConnectorDescriptor conn : outputConnectors) {
+-                if (conn != null) {
+-                    childQueue.add(parent.getConnectorActivityMap().get(conn.getConnectorId()));
++            if (outputConnectors != null && outputConnectors.size() > 0) {
++                for (IConnectorDescriptor conn : outputConnectors) {
++                    if (conn != null) {
++                        childQueue.add(parent.getConnectorActivityMap().get(conn.getConnectorId()));
++                    }
+                 }
+             }
+         }
+@@ -158,7 +162,7 @@ public class SuperActivityOperatorNodePushable implements IOperatorNodePushable
+     @Override
+     public void setOutputFrameWriter(int clusterOutputIndex, IFrameWriter writer, RecordDescriptor recordDesc)
+             throws HyracksDataException {
+-        /*
++        /**
+          * set the right output frame writer
+          */
+         Pair<ActivityId, Integer> activityIdOutputIndex = parent.getActivityIdOutputIndex(clusterOutputIndex);
+@@ -168,7 +172,7 @@ public class SuperActivityOperatorNodePushable implements IOperatorNodePushable
+ 
+     @Override
+     public IFrameWriter getInputFrameWriter(final int index) {
+-        /*
++        /**
+          * get the right IFrameWriter from the cluster input index
+          */
+         Pair<ActivityId, Integer> activityIdInputIndex = parent.getActivityIdInputIndex(index);
+@@ -205,24 +209,16 @@ public class SuperActivityOperatorNodePushable implements IOperatorNodePushable
+             for (Future<Void> task : tasks) {
+                 task.get();
+             }
+-        } catch (InterruptedException e) {
+-            cancelTasks(tasks, startSemaphore, completeSemaphore);
+-            Thread.currentThread().interrupt();
+-            throw HyracksDataException.create(e);
+         } catch (Exception e) {
+-            cancelTasks(tasks, startSemaphore, completeSemaphore);
+-            throw HyracksDataException.create(e);
+-        }
+-    }
+-
+-    private void cancelTasks(List<Future<Void>> tasks, Semaphore startSemaphore, Semaphore completeSemaphore) {
+-        try {
+-            startSemaphore.acquireUninterruptibly();
+-            for (Future<Void> task : tasks) {
+-                task.cancel(true);
++            try {
++                startSemaphore.acquireUninterruptibly();
++                for (Future<Void> task : tasks) {
++                    task.cancel(true);
++                }
++            } finally {
++                completeSemaphore.acquireUninterruptibly();
+             }
+-        } finally {
+-            completeSemaphore.acquireUninterruptibly();
++            throw HyracksDataException.create(e);
+         }
+     }
+ }

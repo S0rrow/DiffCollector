@@ -1,0 +1,176 @@
+diff --git a/src/org/apache/axis/client/AxisClient.java b/src/org/apache/axis/client/AxisClient.java
+index 56da4fca4..03b29323e 100644
+--- a/src/org/apache/axis/client/AxisClient.java
++++ b/src/org/apache/axis/client/AxisClient.java
+@@ -53,7 +53,7 @@
+  * <http://www.apache.org/>.
+  */
+ 
+-package org.apache.axis.client ;
++package org.apache.axis.server ;
+ 
+ import java.util.* ;
+ import org.apache.axis.* ;
+@@ -122,101 +122,75 @@ public class AxisClient extends BasicHandler
+         HandlerRegistry sr = 
+             (HandlerRegistry) getOption(Constants.SERVICE_REGISTRY);
+ 
+-        if ( hr != null )
+-          msgContext.setProperty(Constants.HANDLER_REGISTRY, hr);
+-        if ( sr != null )
+-          msgContext.setProperty(Constants.SERVICE_REGISTRY, sr);
++        msgContext.setProperty(Constants.HANDLER_REGISTRY, hr);
++        msgContext.setProperty(Constants.SERVICE_REGISTRY, sr);
+ 
+         try {
+-          hName = msgContext.getStrProp( MessageContext.ENGINE_HANDLER );
+-          Debug.Print( 2, "EngineHandler: " + hName );
+-
+-          if ( hName != null ) {
+-            if ( hr == null || (h = hr.find(hName)) == null ) {
+-              ClassLoader cl = new AxisClassLoader();
+-              try {
+-                Debug.Print( 2, "Trying to load class: " + hName );
+-                Class cls = cl.loadClass( hName );
+-                h = (Handler) cls.newInstance();
+-              }
+-              catch( Exception e ) {
+-                h = null ;
+-              }
++          // This really should be in a handler - but we need to discuss it
++          // first - to make sure that's what we want.
++
++          /* Now we do the 'real' work.  The flow is basically:         */
++          /*                                                            */
++          /*   Service Specific Request Chain                           */
++          /*   Global Request Chain                                     */
++          /*   Transport Request Chain - must have a send at the end    */
++          /*   Transport Response Chain                                 */
++          /*   Global Response Chain                                    */
++          /*   Service Specific Response Chain                          */
++          /*   Protocol Specific-Handler/Checker                        */
++          /**************************************************************/
++ 
++          // When do we call init/cleanup??
++
++          SimpleTargetedChain service = null ;
++
++          /* Process the Service Specific Request Chain */
++          /**********************************************/
++          hName =  msgContext.getTargetService();
++          if ( hName != null && (h = sr.find( hName )) != null ) {
++            if ( h instanceof SimpleTargetedChain ) {
++              service = (SimpleTargetedChain) h ;
++              h = service.getInputChain();
+             }
+-            if ( h != null ) 
+-              h.invoke(msgContext);
+-            else
+-              throw new AxisFault( "Client.error",
+-                                   "Can't locate handler: " + hName,
+-                                   null, null );
++            if ( h != null ) h.invoke( msgContext );
+           }
+-          else {
+-            // This really should be in a handler - but we need to discuss it
+-            // first - to make sure that's what we want.
+-  
+-            /* Now we do the 'real' work.  The flow is basically:         */
+-            /*                                                            */
+-            /*   Service Specific Request Chain                           */
+-            /*   Global Request Chain                                     */
+-            /*   Transport Request Chain - must have a send at the end    */
+-            /*   Transport Response Chain                                 */
+-            /*   Global Response Chain                                    */
+-            /*   Service Specific Response Chain                          */
+-            /*   Protocol Specific-Handler/Checker                        */
+-            /**************************************************************/
+-   
+-            // When do we call init/cleanup??
+-  
+-            SimpleTargetedChain service = null ;
+-  
+-            /* Process the Service Specific Request Chain */
+-            /**********************************************/
+-            hName =  msgContext.getTargetService();
+-            if ( hName != null && (h = sr.find( hName )) != null ) {
+-              if ( h instanceof SimpleTargetedChain ) {
+-                service = (SimpleTargetedChain) h ;
+-                h = service.getInputChain();
+-              }
+-              if ( h != null ) h.invoke( msgContext );
+-            }
+-  
+-            /* Process the Global Input Chain */
+-            /**********************************/
+-            hName = Constants.GLOBAL_INPUT ;
+-            if ( hName != null  && (h = hr.find( hName )) != null )
+-                h.invoke(msgContext);
+-  
+-            /* Process the Transport Specific Input Chain */
+-            /**********************************************/
+-            hName = msgContext.getStrProp(MessageContext.TRANS_INPUT);
+-            if ( hName != null && (h = hr.find( hName )) != null )
+-              h.invoke(msgContext);
+-  
+-            /* Note: at the end of the transport specific input chain should */
+-            /* have been a handler that called the server.                   */
+-            /*****************************************************************/
+-    
+-            /* Process the Transport Specific Output Chain */
+-            /***********************************************/
+-            hName = msgContext.getStrProp(MessageContext.TRANS_OUTPUT);
+-            if ( hName != null  && (h = hr.find( hName )) != null )
++
++          /* Process the Global Input Chain */
++          /**********************************/
++          hName = Constants.GLOBAL_INPUT ;
++          if ( hName != null  && (h = hr.find( hName )) != null )
+               h.invoke(msgContext);
++
++          /* Process the Transport Specific Input Chain */
++          /**********************************************/
++          hName = msgContext.getStrProp(MessageContext.TRANS_INPUT);
++          if ( hName != null && (h = hr.find( hName )) != null )
++            h.invoke(msgContext);
++
++          /* Note: at the end of the transport specific input chain should */
++          /* have been a handler that called the server.                   */
++          /*****************************************************************/
+   
+-            /* Process the Global Output Chain */
+-            /***********************************/
+-            hName = Constants.GLOBAL_OUTPUT ;
+-            if ( hName != null && (h = hr.find( hName )) != null )
++          /* Process the Transport Specific Output Chain */
++          /***********************************************/
++          hName = msgContext.getStrProp(MessageContext.TRANS_OUTPUT);
++          if ( hName != null  && (h = hr.find( hName )) != null )
++            h.invoke(msgContext);
++
++          /* Process the Global Output Chain */
++          /***********************************/
++          hName = Constants.GLOBAL_OUTPUT ;
++          if ( hName != null && (h = hr.find( hName )) != null )
++            h.invoke(msgContext);
++
++          if ( service != null ) {
++            h = service.getOutputChain();
++            if ( h != null )
+               h.invoke(msgContext);
+-  
+-            if ( service != null ) {
+-              h = service.getOutputChain();
+-              if ( h != null )
+-                h.invoke(msgContext);
+-            }
+-  
+-            // Do SOAP Semantics checks here - this needs to be a call to
+-            // a pluggable object/handler/something
+           }
++
++          // Do SOAP Semantics checks here - this needs to be a call to
++          // a pluggable object/handler/something
+         }
+         catch( Exception e ) {
+             // Should we even bother catching it ?

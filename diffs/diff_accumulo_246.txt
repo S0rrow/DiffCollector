@@ -1,0 +1,307 @@
+diff --git a/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java b/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java
+index f73c23647b..8023169194 100644
+--- a/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java
++++ b/server/master/src/main/java/org/apache/accumulo/master/MasterClientServiceHandler.java
+@@ -18,25 +18,21 @@ package org.apache.accumulo.master;
+ 
+ import java.nio.ByteBuffer;
+ import java.util.ArrayList;
+-import java.util.Collections;
++import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Iterator;
+-import java.util.List;
+ import java.util.Map.Entry;
+ import java.util.Set;
+ 
+ import org.apache.accumulo.core.Constants;
+ import org.apache.accumulo.core.client.AccumuloException;
+ import org.apache.accumulo.core.client.AccumuloSecurityException;
+-import org.apache.accumulo.core.client.BatchScanner;
+ import org.apache.accumulo.core.client.Connector;
+ import org.apache.accumulo.core.client.Instance;
+ import org.apache.accumulo.core.client.IsolatedScanner;
+ import org.apache.accumulo.core.client.RowIterator;
+ import org.apache.accumulo.core.client.Scanner;
+ import org.apache.accumulo.core.client.TableNotFoundException;
+-import org.apache.accumulo.core.client.admin.DelegationTokenConfig;
+-import org.apache.accumulo.core.client.impl.DelegationTokenConfigSerializer;
+ import org.apache.accumulo.core.client.impl.Tables;
+ import org.apache.accumulo.core.client.impl.thrift.SecurityErrorCode;
+ import org.apache.accumulo.core.client.impl.thrift.TableOperation;
+@@ -46,57 +42,51 @@ import org.apache.accumulo.core.client.impl.thrift.ThriftTableOperationException
+ import org.apache.accumulo.core.conf.Property;
+ import org.apache.accumulo.core.data.Key;
+ import org.apache.accumulo.core.data.KeyExtent;
+-import org.apache.accumulo.core.data.Range;
+ import org.apache.accumulo.core.data.Value;
+ import org.apache.accumulo.core.data.thrift.TKeyExtent;
+ import org.apache.accumulo.core.master.thrift.MasterClientService;
+ import org.apache.accumulo.core.master.thrift.MasterGoalState;
+ import org.apache.accumulo.core.master.thrift.MasterMonitorInfo;
+ import org.apache.accumulo.core.master.thrift.MasterState;
++import org.apache.accumulo.core.master.thrift.TableInfo;
+ import org.apache.accumulo.core.master.thrift.TabletLoadState;
++import org.apache.accumulo.core.master.thrift.TabletServerStatus;
+ import org.apache.accumulo.core.master.thrift.TabletSplit;
+ import org.apache.accumulo.core.metadata.MetadataTable;
+ import org.apache.accumulo.core.metadata.RootTable;
+ import org.apache.accumulo.core.metadata.schema.MetadataSchema;
+-import org.apache.accumulo.core.metadata.schema.MetadataSchema.ReplicationSection;
+ import org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection;
+ import org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection.LogColumnFamily;
+-import org.apache.accumulo.core.protobuf.ProtobufUtil;
+-import org.apache.accumulo.core.replication.ReplicationSchema.OrderSection;
+-import org.apache.accumulo.core.replication.ReplicationTable;
+-import org.apache.accumulo.core.security.AuthenticationTokenIdentifier;
+ import org.apache.accumulo.core.security.Authorizations;
+ import org.apache.accumulo.core.security.thrift.TCredentials;
+-import org.apache.accumulo.core.security.thrift.TDelegationToken;
+-import org.apache.accumulo.core.security.thrift.TDelegationTokenConfig;
+-import org.apache.accumulo.core.trace.thrift.TInfo;
+ import org.apache.accumulo.core.util.ByteBufferUtil;
+ import org.apache.accumulo.core.util.UtilWaitThread;
++import org.apache.accumulo.core.zookeeper.ZooUtil;
+ import org.apache.accumulo.fate.zookeeper.IZooReaderWriter;
+ import org.apache.accumulo.fate.zookeeper.IZooReaderWriter.Mutator;
+ import org.apache.accumulo.master.tableOps.TraceRepo;
+ import org.apache.accumulo.master.tserverOps.ShutdownTServer;
+ import org.apache.accumulo.server.client.ClientServiceHandler;
++import org.apache.accumulo.server.conf.ServerConfiguration;
+ import org.apache.accumulo.server.master.LiveTServerSet.TServerConnection;
+ import org.apache.accumulo.server.master.balancer.DefaultLoadBalancer;
+ import org.apache.accumulo.server.master.balancer.TabletBalancer;
++import org.apache.accumulo.server.master.state.DeadServerList;
+ import org.apache.accumulo.server.master.state.TServerInstance;
+-import org.apache.accumulo.server.replication.StatusUtil;
+-import org.apache.accumulo.server.replication.proto.Replication.Status;
+-import org.apache.accumulo.server.security.delegation.AuthenticationTokenSecretManager;
++import org.apache.accumulo.server.master.state.TabletServerState;
++import org.apache.accumulo.server.util.DefaultMap;
+ import org.apache.accumulo.server.util.NamespacePropUtil;
+ import org.apache.accumulo.server.util.SystemPropUtil;
++import org.apache.accumulo.server.util.TableInfoUtil;
+ import org.apache.accumulo.server.util.TablePropUtil;
+ import org.apache.accumulo.server.util.TabletIterator.TabletDeletedException;
+ import org.apache.accumulo.server.zookeeper.ZooReaderWriter;
++import org.apache.accumulo.trace.thrift.TInfo;
+ import org.apache.hadoop.io.Text;
+-import org.apache.hadoop.security.token.Token;
++import org.apache.log4j.Logger;
+ import org.apache.thrift.TException;
+ import org.apache.zookeeper.KeeperException;
+ import org.apache.zookeeper.KeeperException.NoNodeException;
+-import org.slf4j.Logger;
+-
+-import com.google.protobuf.InvalidProtocolBufferException;
+ 
+ class MasterClientServiceHandler extends FateServiceHandler implements MasterClientService.Iface {
+ 
+@@ -113,7 +103,8 @@ class MasterClientServiceHandler extends FateServiceHandler implements MasterCli
+     String namespaceId = Tables.getNamespaceId(instance, tableId);
+     master.security.canFlush(c, tableId, namespaceId);
+ 
+-    String zTablePath = Constants.ZROOT + "/" + master.getInstance().getInstanceID() + Constants.ZTABLES + "/" + tableId + Constants.ZTABLE_FLUSH_ID;
++    String zTablePath = Constants.ZROOT + "/" + master.getConfiguration().getInstance().getInstanceID() + Constants.ZTABLES + "/" + tableId
++        + Constants.ZTABLE_FLUSH_ID;
+ 
+     IZooReaderWriter zoo = ZooReaderWriter.getInstance();
+     byte fid[];
+@@ -253,7 +244,34 @@ class MasterClientServiceHandler extends FateServiceHandler implements MasterCli
+ 
+   @Override
+   public MasterMonitorInfo getMasterStats(TInfo info, TCredentials credentials) throws ThriftSecurityException {
+-    return master.getMasterMonitorInfo();
++    final MasterMonitorInfo result = new MasterMonitorInfo();
++
++    result.tServerInfo = new ArrayList<TabletServerStatus>();
++    result.tableMap = new DefaultMap<String,TableInfo>(new TableInfo());
++    for (Entry<TServerInstance,TabletServerStatus> serverEntry : master.tserverStatus.entrySet()) {
++      final TabletServerStatus status = serverEntry.getValue();
++      result.tServerInfo.add(status);
++      for (Entry<String,TableInfo> entry : status.tableMap.entrySet()) {
++        TableInfoUtil.add(result.tableMap.get(entry.getKey()), entry.getValue());
++      }
++    }
++    result.badTServers = new HashMap<String,Byte>();
++    synchronized (master.badServers) {
++      for (TServerInstance bad : master.badServers.keySet()) {
++        result.badTServers.put(bad.hostPort(), TabletServerState.UNRESPONSIVE.getId());
++      }
++    }
++    result.state = master.getMasterState();
++    result.goalState = master.getMasterGoalState();
++    result.unassignedTablets = master.displayUnassigned();
++    result.serversShuttingDown = new HashSet<String>();
++    synchronized (master.serversToShutdown) {
++      for (TServerInstance server : master.serversToShutdown)
++        result.serversShuttingDown.add(server.hostPort());
++    }
++    DeadServerList obit = new DeadServerList(ZooUtil.getRoot(master.getInstance()) + Constants.ZDEADTSERVERS);
++    result.deadTabletServers = obit.getList();
++    return result;
+   }
+ 
+   @Override
+@@ -417,7 +435,7 @@ class MasterClientServiceHandler extends FateServiceHandler implements MasterCli
+   private void alterTableProperty(TCredentials c, String tableName, String property, String value, TableOperation op) throws ThriftSecurityException,
+       ThriftTableOperationException {
+     final String tableId = ClientServiceHandler.checkTableId(master.getInstance(), tableName, op);
+-    String namespaceId = Tables.getNamespaceId(master.getInstance(), tableId);
++    String namespaceId = Tables.getNamespaceId(master.getInstance(), tableId); 
+     if (!master.security.canAlterTable(c, tableId, namespaceId))
+       throw new ThriftSecurityException(c.getPrincipal(), SecurityErrorCode.PERMISSION_DENIED);
+ 
+@@ -440,149 +458,12 @@ class MasterClientServiceHandler extends FateServiceHandler implements MasterCli
+ 
+   private void updatePlugins(String property) {
+     if (property.equals(Property.MASTER_TABLET_BALANCER.getKey())) {
+-      TabletBalancer balancer = master.getConfiguration().instantiateClassProperty(Property.MASTER_TABLET_BALANCER, TabletBalancer.class,
+-          new DefaultLoadBalancer());
+-      balancer.init(master.getConfigurationFactory());
++      TabletBalancer balancer = ServerConfiguration.getSystemConfiguration(master.getInstance()).instantiateClassProperty(Property.MASTER_TABLET_BALANCER,
++          TabletBalancer.class, new DefaultLoadBalancer());
++      balancer.init(master.getConfiguration());
+       master.tabletBalancer = balancer;
+       log.info("tablet balancer changed to " + master.tabletBalancer.getClass().getName());
+     }
+   }
+ 
+-  @Override
+-  public void waitForBalance(TInfo tinfo) throws TException {
+-    master.waitForBalance(tinfo);
+-  }
+-
+-  @Override
+-  public List<String> getActiveTservers(TInfo tinfo, TCredentials credentials) throws TException {
+-    Set<TServerInstance> tserverInstances = master.onlineTabletServers();
+-    List<String> servers = new ArrayList<String>();
+-    for (TServerInstance tserverInstance : tserverInstances) {
+-      servers.add(tserverInstance.getLocation().toString());
+-    }
+-
+-    return servers;
+-  }
+-
+-  @Override
+-  public TDelegationToken getDelegationToken(TInfo tinfo, TCredentials credentials, TDelegationTokenConfig tConfig) throws ThriftSecurityException, TException {
+-    if (!master.security.canObtainDelegationToken(credentials)) {
+-      throw new ThriftSecurityException(credentials.getPrincipal(), SecurityErrorCode.PERMISSION_DENIED);
+-    }
+-
+-    // Make sure we're actually generating the secrets to make delegation tokens
+-    // Round-about way to verify that SASL is also enabled.
+-    if (!master.delegationTokensAvailable()) {
+-      throw new TException("Delegation tokens are not available for use");
+-    }
+-
+-    final DelegationTokenConfig config = DelegationTokenConfigSerializer.deserialize(tConfig);
+-    final AuthenticationTokenSecretManager secretManager = master.getSecretManager();
+-    try {
+-      Entry<Token<AuthenticationTokenIdentifier>,AuthenticationTokenIdentifier> pair = secretManager.generateToken(credentials.principal, config);
+-
+-      return new TDelegationToken(ByteBuffer.wrap(pair.getKey().getPassword()), pair.getValue().getThriftIdentifier());
+-    } catch (Exception e) {
+-      throw new TException(e.getMessage());
+-    }
+-  }
+-
+-  @Override
+-  public boolean drainReplicationTable(TInfo tfino, TCredentials credentials, String tableName, Set<String> logsToWatch) throws TException {
+-    Connector conn;
+-    try {
+-      conn = master.getConnector();
+-    } catch (AccumuloException | AccumuloSecurityException e) {
+-      throw new RuntimeException("Failed to obtain connector", e);
+-    }
+-
+-    final Text tableId = new Text(getTableId(master.getInstance(), tableName));
+-
+-    log.trace("Waiting for {} to be replicated for {}", logsToWatch, tableId);
+-
+-    log.trace("Reading from metadata table");
+-    final Set<Range> range = Collections.singleton(new Range(ReplicationSection.getRange()));
+-    BatchScanner bs;
+-    try {
+-      bs = conn.createBatchScanner(MetadataTable.NAME, Authorizations.EMPTY, 4);
+-    } catch (TableNotFoundException e) {
+-      throw new RuntimeException("Could not read metadata table", e);
+-    }
+-    bs.setRanges(range);
+-    bs.fetchColumnFamily(ReplicationSection.COLF);
+-    try {
+-      // Return immediately if there are records in metadata for these WALs
+-      if (!allReferencesReplicated(bs, tableId, logsToWatch)) {
+-        return false;
+-      }
+-    } finally {
+-      bs.close();
+-    }
+-
+-    log.trace("reading from replication table");
+-    try {
+-      bs = conn.createBatchScanner(ReplicationTable.NAME, Authorizations.EMPTY, 4);
+-    } catch (TableNotFoundException e) {
+-      throw new RuntimeException("Replication table was not found", e);
+-    }
+-    bs.setRanges(Collections.singleton(new Range()));
+-    try {
+-      // No records in metadata, check replication table
+-      return allReferencesReplicated(bs, tableId, logsToWatch);
+-    } finally {
+-      bs.close();
+-    }
+-  }
+-
+-  protected String getTableId(Instance instance, String tableName) throws ThriftTableOperationException {
+-    return ClientServiceHandler.checkTableId(instance, tableName, null);
+-  }
+-
+-  /**
+-   * @return return true records are only in place which are fully replicated
+-   */
+-  protected boolean allReferencesReplicated(BatchScanner bs, Text tableId, Set<String> relevantLogs) {
+-    Text rowHolder = new Text(), colfHolder = new Text();
+-    for (Entry<Key,Value> entry : bs) {
+-      log.trace("Got key {}", entry.getKey().toStringNoTruncate());
+-
+-      entry.getKey().getColumnQualifier(rowHolder);
+-      if (tableId.equals(rowHolder)) {
+-        entry.getKey().getRow(rowHolder);
+-        entry.getKey().getColumnFamily(colfHolder);
+-
+-        String file;
+-        if (colfHolder.equals(ReplicationSection.COLF)) {
+-          file = rowHolder.toString();
+-          file = file.substring(ReplicationSection.getRowPrefix().length());
+-        } else if (colfHolder.equals(OrderSection.NAME)) {
+-          file = OrderSection.getFile(entry.getKey(), rowHolder);
+-          long timeClosed = OrderSection.getTimeClosed(entry.getKey(), rowHolder);
+-          log.trace("Order section: {} and {}", timeClosed, file);
+-        } else {
+-          file = rowHolder.toString();
+-        }
+-
+-        // Skip files that we didn't observe when we started (new files/data)
+-        if (!relevantLogs.contains(file)) {
+-          log.trace("Found file that we didn't care about {}", file);
+-          continue;
+-        } else {
+-          log.trace("Found file that we *do* care about {}", file);
+-        }
+-
+-        try {
+-          Status stat = Status.parseFrom(entry.getValue().get());
+-          if (!StatusUtil.isFullyReplicated(stat)) {
+-            log.trace("{} and {} is not fully replicated", entry.getKey().getRow(), ProtobufUtil.toString(stat));
+-            return false;
+-          }
+-        } catch (InvalidProtocolBufferException e) {
+-          log.trace("Could not parse protobuf for {}", entry.getKey(), e);
+-        }
+-      }
+-    }
+-
+-    return true;
+-  }
+ }

@@ -1,0 +1,155 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/security/Authorizations.java b/core/src/main/java/org/apache/accumulo/core/security/Authorizations.java
+index 661b6b1ec2..58cbc04257 100644
+--- a/core/src/main/java/org/apache/accumulo/core/security/Authorizations.java
++++ b/core/src/main/java/org/apache/accumulo/core/security/Authorizations.java
+@@ -17,9 +17,7 @@
+ package org.apache.accumulo.core.security;
+ 
+ import java.io.Serializable;
+-import java.io.UnsupportedEncodingException;
+ import java.nio.ByteBuffer;
+-import java.nio.charset.Charset;
+ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Collections;
+@@ -31,7 +29,6 @@ import org.apache.accumulo.core.data.ArrayByteSequence;
+ import org.apache.accumulo.core.data.ByteSequence;
+ import org.apache.accumulo.core.util.ArgumentChecker;
+ import org.apache.accumulo.core.util.ByteBufferUtil;
+-import org.apache.commons.codec.binary.Base64;
+ 
+ public class Authorizations implements Iterable<byte[]>, Serializable {
+   
+@@ -43,8 +40,6 @@ public class Authorizations implements Iterable<byte[]>, Serializable {
+   
+   private static final boolean[] validAuthChars = new boolean[256];
+   
+-  public static final String HEADER = "!AUTH1:";
+-
+   static {
+     for (int i = 0; i < 256; i++) {
+       validAuthChars[i] = false;
+@@ -80,7 +75,7 @@ public class Authorizations implements Iterable<byte[]>, Serializable {
+         throw new IllegalArgumentException("Empty authorization");
+       }
+       
+-      authsList.add(bs.toArray());
++      authsList.add(bs.getBackingArray());
+     }
+   }
+   
+@@ -99,70 +94,39 @@ public class Authorizations implements Iterable<byte[]>, Serializable {
+     checkAuths();
+   }
+   
+-  /**
+-   * @param authorizations
+-   *          a serialized authorizations string produced by {@link #getAuthorizationsArray()} or {@link #serialize()}
+-   */
+-
+   public Authorizations(byte[] authorizations) {
+-    
+     ArgumentChecker.notNull(authorizations);
+-
+-    String authsString = new String(authorizations);
+-    if (authsString.startsWith(HEADER)) {
+-      // its the new format
+-      for (String encAuth : authsString.substring(HEADER.length()).split(",")) {
+-        byte[] auth = Base64.decodeBase64(encAuth.getBytes());
+-        auths.add(new ArrayByteSequence(auth));
+-      }
+-      checkAuths();
+-    } else {
+-      // its the old format
+-      ArgumentChecker.notNull(authorizations);
+-      if (authorizations.length > 0)
+-        setAuthorizations(authsString.split(","));
+-    }
++    if (authorizations.length > 0)
++      setAuthorizations(new String(authorizations).split(","));
+   }
+   
+   public Authorizations() {}
+   
+-  /**
+-   * 
+-   * @param charset
+-   *          used to convert each authorization to a byte array
+-   * @param authorizations
+-   *          array of authorizations
+-   */
+-  
+-  public Authorizations(Charset charset, String... authorizations) {
+-    setAuthorizations(charset, authorizations);
+-  }
+-
+   public Authorizations(String... authorizations) {
+     setAuthorizations(authorizations);
+   }
+   
+   private void setAuthorizations(String... authorizations) {
+-    setAuthorizations(Charset.defaultCharset(), authorizations);
+-  }
+-  
+-  private void setAuthorizations(Charset charset, String... authorizations) {
+     ArgumentChecker.notNull(authorizations);
+     auths.clear();
+     for (String str : authorizations) {
+       str = str.trim();
+-      try {
+-        auths.add(new ArrayByteSequence(str.getBytes(charset.name())));
+-      } catch (UnsupportedEncodingException e) {
+-        throw new RuntimeException(e);
+-      }
++      auths.add(new ArrayByteSequence(str));
+     }
+     
+     checkAuths();
+   }
+   
+   public byte[] getAuthorizationsArray() {
+-    return serialize().getBytes();
++    StringBuilder sb = new StringBuilder();
++    String sep = "";
++    for (ByteSequence auth : auths) {
++      sb.append(sep);
++      sep = ",";
++      sb.append(auth.toString());
++    }
++    
++    return sb.toString().getBytes();
+   }
+   
+   public List<byte[]> getAuthorizations() {
+@@ -174,15 +138,7 @@ public class Authorizations implements Iterable<byte[]>, Serializable {
+   }
+   
+   public String toString() {
+-    StringBuilder sb = new StringBuilder();
+-    String sep = "";
+-    for (ByteSequence auth : auths) {
+-      sb.append(sep);
+-      sep = ",";
+-      sb.append(new String(auth.toArray()));
+-    }
+-    
+-    return sb.toString();
++    return serialize();
+   }
+   
+   public boolean contains(byte[] auth) {
+@@ -228,12 +184,12 @@ public class Authorizations implements Iterable<byte[]>, Serializable {
+   }
+   
+   public String serialize() {
+-    StringBuilder sb = new StringBuilder(HEADER);
++    StringBuilder sb = new StringBuilder();
+     String sep = "";
+     for (ByteSequence auth : auths) {
+       sb.append(sep);
+       sep = ",";
+-      sb.append(new String(Base64.encodeBase64(auth.toArray())));
++      sb.append(auth.toString());
+     }
+     
+     return sb.toString();

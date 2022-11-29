@@ -1,0 +1,310 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationManager.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationManager.java
+index d48a5a01c8..1dbacc9299 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationManager.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationManager.java
+@@ -16,7 +16,8 @@
+  */
+ package org.apache.activemq.artemis.core.replication;
+ 
+-import java.io.RandomAccessFile;
++import java.io.FileInputStream;
++import java.nio.ByteBuffer;
+ import java.nio.channels.FileChannel;
+ import java.util.ArrayList;
+ import java.util.LinkedHashSet;
+@@ -26,15 +27,16 @@ import java.util.Set;
+ import java.util.concurrent.ConcurrentLinkedQueue;
+ import java.util.concurrent.Executor;
+ import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicBoolean;
+ 
++import io.netty.buffer.ByteBuf;
++import io.netty.buffer.PooledByteBufAllocator;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
+ import org.apache.activemq.artemis.api.core.ActiveMQException;
+ import org.apache.activemq.artemis.api.core.ActiveMQExceptionType;
+-import org.apache.activemq.artemis.api.core.ActiveMQReplicationTimeooutException;
+ import org.apache.activemq.artemis.api.core.Pair;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.api.core.client.SessionFailureListener;
+-import org.apache.activemq.artemis.core.io.IOCriticalErrorListener;
+ import org.apache.activemq.artemis.core.io.SequentialFile;
+ import org.apache.activemq.artemis.core.journal.EncodingSupport;
+ import org.apache.activemq.artemis.core.journal.impl.JournalFile;
+@@ -68,10 +70,7 @@ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.Replicatio
+ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationSyncFileMessage;
+ import org.apache.activemq.artemis.core.server.ActiveMQComponent;
+ import org.apache.activemq.artemis.core.server.ActiveMQMessageBundle;
+-import org.apache.activemq.artemis.core.server.ActiveMQServer;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+-import org.apache.activemq.artemis.core.server.cluster.ClusterManager;
+-import org.apache.activemq.artemis.core.server.cluster.qourum.QuorumManager;
+ import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+ import org.apache.activemq.artemis.utils.ExecutorFactory;
+ import org.apache.activemq.artemis.utils.ReusableLatch;
+@@ -109,8 +108,6 @@ public final class ReplicationManager implements ActiveMQComponent {
+       }
+    }
+ 
+-   private final ActiveMQServer server;
+-
+    private final ResponseHandler responseHandler = new ResponseHandler();
+ 
+    private final Channel replicatingChannel;
+@@ -119,9 +116,11 @@ public final class ReplicationManager implements ActiveMQComponent {
+ 
+    private volatile boolean enabled;
+ 
++   private final AtomicBoolean writable = new AtomicBoolean(true);
++
+    private final Queue<OperationContext> pendingTokens = new ConcurrentLinkedQueue<>();
+ 
+-   private final ExecutorFactory ioExecutorFactory;
++   private final ExecutorFactory executorFactory;
+ 
+    private final Executor replicationStream;
+ 
+@@ -140,17 +139,15 @@ public final class ReplicationManager implements ActiveMQComponent {
+    /**
+     * @param remotingConnection
+     */
+-   public ReplicationManager(ActiveMQServer server,
+-                             CoreRemotingConnection remotingConnection,
++   public ReplicationManager(CoreRemotingConnection remotingConnection,
+                              final long timeout,
+                              final long initialReplicationSyncTimeout,
+-                             final ExecutorFactory ioExecutorFactory) {
+-      this.server = server;
+-      this.ioExecutorFactory = ioExecutorFactory;
++                             final ExecutorFactory executorFactory) {
++      this.executorFactory = executorFactory;
+       this.initialReplicationSyncTimeout = initialReplicationSyncTimeout;
+       this.replicatingChannel = remotingConnection.getChannel(CHANNEL_ID.REPLICATION.id, -1);
+       this.remotingConnection = remotingConnection;
+-      this.replicationStream = ioExecutorFactory.getExecutor();
++      this.replicationStream = executorFactory.getExecutor();
+       this.timeout = timeout;
+    }
+ 
+@@ -285,21 +282,11 @@ public final class ReplicationManager implements ActiveMQComponent {
+ 
+    @Override
+    public void stop() throws Exception {
+-      stop(true);
+-   }
+-
+-   public void stop(boolean clearTokens) throws Exception {
+       synchronized (this) {
+          if (!started) {
+             logger.trace("Stopping being ignored as it hasn't been started");
+             return;
+          }
+-
+-         started = false;
+-      }
+-
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("stop(clearTokens=" + clearTokens + ")", new Exception("Trace"));
+       }
+ 
+       // This is to avoid the write holding a lock while we are trying to close it
+@@ -309,17 +296,15 @@ public final class ReplicationManager implements ActiveMQComponent {
+       }
+ 
+       enabled = false;
+-
+-      if (clearTokens) {
+-         clearReplicationTokens();
+-      }
++      writable.set(true);
++      clearReplicationTokens();
+ 
+       RemotingConnection toStop = remotingConnection;
+       if (toStop != null) {
+          toStop.removeFailureListener(failureListener);
+-         toStop.destroy();
+       }
+       remotingConnection = null;
++      started = false;
+    }
+ 
+    /**
+@@ -370,7 +355,7 @@ public final class ReplicationManager implements ActiveMQComponent {
+          return null;
+       }
+ 
+-      final OperationContext repliToken = OperationContextImpl.getContext(ioExecutorFactory);
++      final OperationContext repliToken = OperationContextImpl.getContext(executorFactory);
+       if (lineUp) {
+          repliToken.replicationLineUp();
+       }
+@@ -389,39 +374,6 @@ public final class ReplicationManager implements ActiveMQComponent {
+       return repliToken;
+    }
+ 
+-   private OperationContext sendSyncFileMessage(final ReplicationSyncFileMessage syncFileMessage, boolean lastChunk) {
+-      if (!enabled) {
+-         syncFileMessage.release();
+-         return null;
+-      }
+-
+-      final OperationContext repliToken = OperationContextImpl.getContext(ioExecutorFactory);
+-      repliToken.replicationLineUp();
+-
+-      replicationStream.execute(() -> {
+-         if (enabled) {
+-            try {
+-               pendingTokens.add(repliToken);
+-               flowControl(syncFileMessage.expectedEncodeSize());
+-               if (syncFileMessage.getFileId() != -1 && syncFileMessage.getDataSize() > 0) {
+-                  replicatingChannel.send(syncFileMessage, syncFileMessage.getRaf(), syncFileMessage.getFileChannel(),
+-                                          syncFileMessage.getOffset(), syncFileMessage.getDataSize(),
+-                                          lastChunk ? (Channel.Callback) success -> syncFileMessage.release() : null);
+-               } else {
+-                  replicatingChannel.send(syncFileMessage);
+-               }
+-            } catch (Exception e) {
+-               syncFileMessage.release();
+-            }
+-         } else {
+-            syncFileMessage.release();
+-            repliToken.replicationDone();
+-         }
+-      });
+-
+-      return repliToken;
+-   }
+-
+    /**
+     * This was written as a refactoring of sendReplicatePacket.
+     * In case you refactor this in any way, this method must hold a lock on replication lock. .
+@@ -450,7 +402,7 @@ public final class ReplicationManager implements ActiveMQComponent {
+       OperationContext ctx = pendingTokens.poll();
+ 
+       if (ctx == null) {
+-         ActiveMQServerLogger.LOGGER.missingReplicationTokenOnQueue();
++         logger.warn("Missing replication token on queue");
+          return;
+       }
+       ctx.replicationDone();
+@@ -590,52 +542,49 @@ public final class ReplicationManager implements ActiveMQComponent {
+       if (!file.isOpen()) {
+          file.open();
+       }
+-      final int size = 1024 * 1024;
+-      long fileSize = file.size();
++      int size = 32 * 1024;
+ 
+       int flowControlSize = 10;
+ 
+       int packetsSent = 0;
+       FlushAction action = new FlushAction();
+ 
+-      long offset = 0;
+-      RandomAccessFile raf = null;
+-      FileChannel fileChannel = null;
+       try {
+-         raf = new RandomAccessFile(file.getJavaFile(), "r");
+-         fileChannel = raf.getChannel();
+-         while (true) {
+-            long chunkSize = Math.min(size, fileSize - offset);
+-            int toSend = (int) chunkSize;
+-            if (chunkSize > 0) {
+-               if (chunkSize >= maxBytesToSend) {
+-                  toSend = (int) maxBytesToSend;
+-                  maxBytesToSend = 0;
+-               } else {
+-                  maxBytesToSend = maxBytesToSend - chunkSize;
++         try (FileInputStream fis = new FileInputStream(file.getJavaFile()); FileChannel channel = fis.getChannel()) {
++
++            // We can afford having a single buffer here for this entire loop
++            // because sendReplicatePacket will encode the packet as a NettyBuffer
++            // through ActiveMQBuffer class leaving this buffer free to be reused on the next copy
++            while (true) {
++               final ByteBuf buffer = PooledByteBufAllocator.DEFAULT.directBuffer(size, size);
++               buffer.clear();
++               ByteBuffer byteBuffer = buffer.writerIndex(size).readerIndex(0).nioBuffer();
++               final int bytesRead = channel.read(byteBuffer);
++               int toSend = bytesRead;
++               if (bytesRead > 0) {
++                  if (bytesRead >= maxBytesToSend) {
++                     toSend = (int) maxBytesToSend;
++                     maxBytesToSend = 0;
++                  } else {
++                     maxBytesToSend = maxBytesToSend - bytesRead;
++                  }
+                }
++               logger.debug("sending " + buffer.writerIndex() + " bytes on file " + file.getFileName());
++               // sending -1 or 0 bytes will close the file at the backup
++               // We cannot simply send everything of a file through the executor,
++               // otherwise we would run out of memory.
++               // so we don't use the executor here
++               sendReplicatePacket(new ReplicationSyncFileMessage(content, pageStore, id, toSend, buffer), true);
++               packetsSent++;
++
++               if (packetsSent % flowControlSize == 0) {
++                  flushReplicationStream(action);
++               }
++               if (bytesRead == -1 || bytesRead == 0 || maxBytesToSend == 0)
++                  break;
+             }
+-            logger.debug("sending " + toSend + " bytes on file " + file.getFileName());
+-            // sending -1 or 0 bytes will close the file at the backup
+-            // We cannot simply send everything of a file through the executor,
+-            // otherwise we would run out of memory.
+-            // so we don't use the executor here
+-            sendSyncFileMessage(new ReplicationSyncFileMessage(content, pageStore, id, raf, fileChannel, offset, toSend), offset + toSend == fileSize);
+-            packetsSent++;
+-            offset += toSend;
+-
+-            if (packetsSent % flowControlSize == 0) {
+-               flushReplicationStream(action);
+-            }
+-            if (toSend == 0 || maxBytesToSend == 0)
+-               break;
+          }
+          flushReplicationStream(action);
+-
+-      } catch (Exception e) {
+-         if (raf != null)
+-            raf.close();
+-         throw e;
+       } finally {
+          if (file.isOpen())
+             file.close();
+@@ -673,7 +622,7 @@ public final class ReplicationManager implements ActiveMQComponent {
+     *
+     * @param nodeID
+     */
+-   public void sendSynchronizationDone(String nodeID, long initialReplicationSyncTimeout, IOCriticalErrorListener criticalErrorListener) throws ActiveMQReplicationTimeooutException {
++   public void sendSynchronizationDone(String nodeID, long initialReplicationSyncTimeout) {
+       if (enabled) {
+ 
+          if (logger.isTraceEnabled()) {
+@@ -684,25 +633,8 @@ public final class ReplicationManager implements ActiveMQComponent {
+          sendReplicatePacket(new ReplicationStartSyncMessage(nodeID));
+          try {
+             if (!synchronizationIsFinishedAcknowledgement.await(initialReplicationSyncTimeout)) {
+-               ActiveMQReplicationTimeooutException exception = ActiveMQMessageBundle.BUNDLE.replicationSynchronizationTimeout(initialReplicationSyncTimeout);
+-
+-               if (server != null) {
+-                  try {
+-                     ClusterManager clusterManager = server.getClusterManager();
+-                     if (clusterManager != null) {
+-                        QuorumManager manager = clusterManager.getQuorumManager();
+-                        if (criticalErrorListener != null && manager != null && manager.getMaxClusterSize() <= 2) {
+-                           criticalErrorListener.onIOException(exception, exception.getMessage(), null);
+-                        }
+-                     }
+-                  } catch (Throwable e) {
+-                     // if NPE or anything else, continue as nothing changed
+-                     logger.warn(e.getMessage(), e);
+-                  }
+-               }
+-
+                logger.trace("sendSynchronizationDone wasn't finished in time");
+-               throw exception;
++               throw ActiveMQMessageBundle.BUNDLE.replicationSynchronizationTimeout(initialReplicationSyncTimeout);
+             }
+          } catch (InterruptedException e) {
+             logger.debug(e);

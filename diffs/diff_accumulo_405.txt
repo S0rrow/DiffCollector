@@ -1,0 +1,30 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/TracerRecoversAfterOfflineTableIT.java b/test/src/main/java/org/apache/accumulo/test/TracerRecoversAfterOfflineTableIT.java
+index 2c4d970ef9..72f87aa52f 100644
+--- a/test/src/main/java/org/apache/accumulo/test/TracerRecoversAfterOfflineTableIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/TracerRecoversAfterOfflineTableIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertTrue;
+ 
+ import java.util.concurrent.TimeUnit;
+@@ -40,6 +39,8 @@ import org.apache.hadoop.conf.Configuration;
+ import org.apache.hadoop.io.Text;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ /**
+  *
+  */
+@@ -93,7 +94,7 @@ public class TracerRecoversAfterOfflineTableIT extends ConfigurableMacBase {
+     final Scanner scanner = conn.createScanner("trace", Authorizations.EMPTY);
+     scanner.setRange(new Range(new Text(Long.toHexString(root.traceId()))));
+     while (true) {
+-      final StringBuilder finalBuffer = new StringBuilder();
++      final StringBuffer finalBuffer = new StringBuffer();
+       int traceCount = TraceDump.printTrace(scanner, new Printer() {
+         @Override
+         public void print(final String line) {

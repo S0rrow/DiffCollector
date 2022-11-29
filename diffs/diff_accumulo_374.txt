@@ -1,0 +1,22 @@
+diff --git a/server/master/src/main/java/org/apache/accumulo/master/replication/WorkDriver.java b/server/master/src/main/java/org/apache/accumulo/master/replication/WorkDriver.java
+index cc9d93679e..f0c368a7e5 100644
+--- a/server/master/src/main/java/org/apache/accumulo/master/replication/WorkDriver.java
++++ b/server/master/src/main/java/org/apache/accumulo/master/replication/WorkDriver.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.master.replication;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.concurrent.TimeUnit;
+ 
+ import org.apache.accumulo.core.client.AccumuloException;
+@@ -31,6 +29,8 @@ import org.apache.accumulo.server.replication.WorkAssigner;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ /**
+  * Driver for a {@link WorkAssigner}
+  */

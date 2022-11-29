@@ -1,0 +1,21 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/TimeoutIT.java b/test/src/main/java/org/apache/accumulo/test/functional/TimeoutIT.java
+index 8511d10b52..d13c4af8fc 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/TimeoutIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/TimeoutIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.fail;
+ 
+ import java.util.Collections;
+@@ -38,6 +37,8 @@ import org.apache.accumulo.core.security.Authorizations;
+ import org.apache.accumulo.harness.AccumuloClusterHarness;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ /**
+  *
+  */

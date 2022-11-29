@@ -1,0 +1,131 @@
+diff --git a/repository/src/main/java/org/apache/atlas/discovery/EntityDiscoveryService.java b/repository/src/main/java/org/apache/atlas/discovery/EntityDiscoveryService.java
+index 1e6883502..d5062a7ce 100644
+--- a/repository/src/main/java/org/apache/atlas/discovery/EntityDiscoveryService.java
++++ b/repository/src/main/java/org/apache/atlas/discovery/EntityDiscoveryService.java
+@@ -76,19 +76,14 @@ import java.util.*;
+ import static org.apache.atlas.AtlasErrorCode.CLASSIFICATION_NOT_FOUND;
+ import static org.apache.atlas.AtlasErrorCode.DISCOVERY_QUERY_FAILED;
+ import static org.apache.atlas.AtlasErrorCode.UNKNOWN_TYPENAME;
+-import static org.apache.atlas.SortOrder.ASCENDING;
+ import static org.apache.atlas.SortOrder.DESCENDING;
+ import static org.apache.atlas.model.TypeCategory.ARRAY;
+ import static org.apache.atlas.model.TypeCategory.MAP;
+ import static org.apache.atlas.model.TypeCategory.OBJECT_ID_TYPE;
+-import static org.apache.atlas.model.instance.AtlasEntity.Status.ACTIVE;
+-import static org.apache.atlas.model.instance.AtlasEntity.Status.DELETED;
+ import static org.apache.atlas.repository.graph.GraphHelper.EDGE_LABEL_PREFIX;
+-import static org.apache.atlas.util.AtlasGremlinQueryProvider.AtlasGremlinQuery.BASIC_SEARCH_STATE_FILTER;
+ import static org.apache.atlas.util.AtlasGremlinQueryProvider.AtlasGremlinQuery.RELATIONSHIP_SEARCH;
+ import static org.apache.atlas.util.AtlasGremlinQueryProvider.AtlasGremlinQuery.RELATIONSHIP_SEARCH_DESCENDING_SORT;
+ import static org.apache.atlas.util.AtlasGremlinQueryProvider.AtlasGremlinQuery.RELATIONSHIP_SEARCH_ASCENDING_SORT;
+-import static org.apache.atlas.util.AtlasGremlinQueryProvider.AtlasGremlinQuery.TO_RANGE_LIST;
+ 
+ @Component
+ public class EntityDiscoveryService implements AtlasDiscoveryService {
+@@ -369,9 +364,9 @@ public class EntityDiscoveryService implements AtlasDiscoveryService {
+             }
+ 
+             if (excludeDeletedEntities) {
+-                bindings.put("state", ACTIVE.toString());
++                bindings.put("state", Status.ACTIVE.toString());
+ 
+-                basicQuery += gremlinQueryProvider.getQuery(BASIC_SEARCH_STATE_FILTER);
++                basicQuery += gremlinQueryProvider.getQuery(AtlasGremlinQuery.BASIC_SEARCH_STATE_FILTER);
+             }
+ 
+             if (isGuidPrefixSearch) {
+@@ -383,7 +378,7 @@ public class EntityDiscoveryService implements AtlasDiscoveryService {
+             bindings.put("startIdx", params.offset());
+             bindings.put("endIdx", params.offset() + params.limit());
+ 
+-            basicQuery += gremlinQueryProvider.getQuery(TO_RANGE_LIST);
++            basicQuery += gremlinQueryProvider.getQuery(AtlasGremlinQuery.TO_RANGE_LIST);
+ 
+             ScriptEngine scriptEngine = graph.getGremlinScriptEngine();
+ 
+@@ -509,8 +504,8 @@ public class EntityDiscoveryService implements AtlasDiscoveryService {
+ 
+     @Override
+     @GraphTransaction
+-    public AtlasSearchResult searchRelatedEntities(String guid, String relation, String sortByAttributeName, SortOrder sortOrder,
+-                                                   boolean excludeDeletedEntities, int limit, int offset) throws AtlasBaseException {
++    public AtlasSearchResult searchRelatedEntities(String guid, String relation, String sortByAttributeName,
++                                                   SortOrder sortOrder, int limit, int offset) throws AtlasBaseException {
+         AtlasSearchResult ret = new AtlasSearchResult(AtlasQueryType.RELATIONSHIP);
+ 
+         if (StringUtils.isEmpty(guid) || StringUtils.isEmpty(relation)) {
+@@ -548,37 +543,21 @@ public class EntityDiscoveryService implements AtlasDiscoveryService {
+             sortByAttributeName = sortByAttribute.getQualifiedName();
+ 
+             if (sortOrder == null) {
+-                sortOrder = ASCENDING;
++                sortOrder = SortOrder.ASCENDING;
+             }
+         }
+ 
+-        QueryParams  params               = validateSearchParams(limit, offset);
++        String       relatedEntitiesQuery = getRelatedEntitiesQuery(sortOrder);
+         ScriptEngine scriptEngine         = graph.getGremlinScriptEngine();
+         Bindings     bindings             = scriptEngine.createBindings();
+-        Set<String>  states               = getEntityStates();
+-        String       relatedEntitiesQuery = gremlinQueryProvider.getQuery(RELATIONSHIP_SEARCH);
+-
+-        if (excludeDeletedEntities) {
+-            states.remove(DELETED.toString());
+-        }
+-
+-        if (sortOrder == ASCENDING) {
+-            relatedEntitiesQuery += gremlinQueryProvider.getQuery(RELATIONSHIP_SEARCH_ASCENDING_SORT);
+-            bindings.put("sortAttributeName", sortByAttributeName);
+-
+-        } else if (sortOrder == DESCENDING) {
+-            relatedEntitiesQuery += gremlinQueryProvider.getQuery(RELATIONSHIP_SEARCH_DESCENDING_SORT);
+-            bindings.put("sortAttributeName", sortByAttributeName);
+-        }
+-
+-        relatedEntitiesQuery += gremlinQueryProvider.getQuery(TO_RANGE_LIST);
++        QueryParams  params               = validateSearchParams(limit, offset);
+ 
+         bindings.put("g", graph);
+         bindings.put("guid", guid);
+         bindings.put("relation", relation);
+-        bindings.put("states", Collections.unmodifiableSet(states));
+-        bindings.put("startIdx", params.offset());
+-        bindings.put("endIdx", params.offset() + params.limit());
++        bindings.put("sortAttributeName", sortByAttributeName);
++        bindings.put("offset", params.offset());
++        bindings.put("limit", params.offset() + params.limit());
+ 
+         try {
+             Object result = graph.executeGremlinScript(scriptEngine, bindings, relatedEntitiesQuery, false);
+@@ -746,7 +725,7 @@ public class EntityDiscoveryService implements AtlasDiscoveryService {
+     }
+ 
+     private boolean skipDeletedEntities(boolean excludeDeletedEntities, AtlasVertex<?, ?> vertex) {
+-        return excludeDeletedEntities && GraphHelper.getStatus(vertex) == DELETED;
++        return excludeDeletedEntities && GraphHelper.getStatus(vertex) == Status.DELETED;
+     }
+ 
+     private static String getClassificationFilter(AtlasTypeRegistry typeRegistry, String classificationName, int maxTypesLengthInIdxQuery) {
+@@ -788,7 +767,17 @@ public class EntityDiscoveryService implements AtlasDiscoveryService {
+         return ret;
+     }
+ 
+-    private Set<String> getEntityStates() {
+-        return new HashSet<>(Arrays.asList(ACTIVE.toString(), DELETED.toString()));
++    private String getRelatedEntitiesQuery(SortOrder sortOrder) {
++        final String ret;
++
++        if (sortOrder == null) {
++            ret = gremlinQueryProvider.getQuery(RELATIONSHIP_SEARCH);
++        } else if (sortOrder == DESCENDING) {
++            ret = gremlinQueryProvider.getQuery(RELATIONSHIP_SEARCH_DESCENDING_SORT);
++        } else {
++            ret = gremlinQueryProvider.getQuery(RELATIONSHIP_SEARCH_ASCENDING_SORT);
++        }
++
++        return ret;
+     }
+-}
+\ No newline at end of file
++}

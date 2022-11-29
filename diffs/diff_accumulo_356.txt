@@ -1,0 +1,60 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/client/impl/RootTabletLocator.java b/core/src/main/java/org/apache/accumulo/core/client/impl/RootTabletLocator.java
+index 2bbe113e87..0992517681 100644
+--- a/core/src/main/java/org/apache/accumulo/core/client/impl/RootTabletLocator.java
++++ b/core/src/main/java/org/apache/accumulo/core/client/impl/RootTabletLocator.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.core.client.impl;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.util.Collection;
+ import java.util.Collections;
+ import java.util.List;
+@@ -39,8 +37,10 @@ import org.apache.accumulo.core.zookeeper.ZooUtil;
+ import org.apache.accumulo.fate.zookeeper.ZooCache;
+ import org.apache.accumulo.fate.zookeeper.ZooCacheFactory;
+ import org.apache.hadoop.io.Text;
+-import org.slf4j.Logger;
+-import org.slf4j.LoggerFactory;
++import org.apache.log4j.Level;
++import org.apache.log4j.Logger;
++
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class RootTabletLocator extends TabletLocator {
+ 
+@@ -61,7 +61,7 @@ public class RootTabletLocator extends TabletLocator {
+       throws AccumuloException, AccumuloSecurityException, TableNotFoundException {
+     TabletLocation rootTabletLocation = getRootTabletLocation(context);
+     if (rootTabletLocation != null) {
+-      TabletServerMutations<T> tsm = new TabletServerMutations<>(rootTabletLocation.tablet_session);
++      TabletServerMutations<T> tsm = new TabletServerMutations<T>(rootTabletLocation.tablet_session);
+       for (T mutation : mutations) {
+         tsm.addMutation(RootTable.EXTENT, mutation);
+       }
+@@ -106,22 +106,9 @@ public class RootTabletLocator extends TabletLocator {
+     String zRootLocPath = ZooUtil.getRoot(instance) + RootTable.ZROOT_TABLET_LOCATION;
+     ZooCache zooCache = zcf.getZooCache(instance.getZooKeepers(), instance.getZooKeepersSessionTimeOut());
+ 
+-    Logger log = LoggerFactory.getLogger(this.getClass());
+-
+-    OpTimer timer = null;
+-
+-    if (log.isTraceEnabled()) {
+-      log.trace("tid={} Looking up root tablet location in zookeeper.", Thread.currentThread().getId());
+-      timer = new OpTimer().start();
+-    }
+-
++    OpTimer opTimer = new OpTimer(Logger.getLogger(this.getClass()), Level.TRACE).start("Looking up root tablet location in zookeeper.");
+     byte[] loc = zooCache.get(zRootLocPath);
+-
+-    if (timer != null) {
+-      timer.stop();
+-      log.trace("tid={} Found root tablet at {} in {}", Thread.currentThread().getId(), (loc == null ? "null" : new String(loc)),
+-          String.format("%.3f secs", timer.scale(TimeUnit.SECONDS)));
+-    }
++    opTimer.stop("Found root tablet at " + (loc == null ? null : new String(loc)) + " in %DURATION%");
+ 
+     if (loc == null) {
+       return null;

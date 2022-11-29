@@ -1,0 +1,155 @@
+diff --git a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/interpretor/WorkflowInterpretorSkeleton.java b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/interpretor/WorkflowInterpretorSkeleton.java
+index 77c467b19..ef1ee9d1c 100644
+--- a/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/interpretor/WorkflowInterpretorSkeleton.java
++++ b/modules/xbaya-gui/src/main/java/org/apache/airavata/xbaya/interpretor/WorkflowInterpretorSkeleton.java
+@@ -29,11 +29,10 @@ import java.util.*;
+ 
+ import org.apache.airavata.common.registry.api.exception.RegistryException;
+ import org.apache.airavata.common.registry.api.impl.JCRRegistry;
+-import org.apache.airavata.common.workflow.execution.context.WorkflowContextHeaderBuilder;
++import org.apache.airavata.common.utils.XMLUtil;
+ import org.apache.airavata.commons.gfac.type.HostDescription;
+ import org.apache.airavata.schemas.gfac.GlobusHostType;
+ import org.apache.airavata.schemas.gfac.HostDescriptionType;
+-import org.apache.airavata.schemas.wec.ContextHeaderDocument;
+ import org.apache.airavata.xbaya.XBayaConfiguration;
+ import org.apache.airavata.xbaya.XBayaConstants;
+ import org.apache.airavata.xbaya.XBayaException;
+@@ -46,16 +45,12 @@ import org.apache.airavata.xbaya.graph.system.InputNode;
+ import org.apache.airavata.xbaya.monitor.MonitorException;
+ import org.apache.airavata.xbaya.ode.ODEClient;
+ import org.apache.airavata.xbaya.wf.Workflow;
+-import org.apache.airavata.xbaya.workflow.proxy.WorkflowContext;
+ import org.apache.axiom.om.OMElement;
+ import org.apache.axiom.om.impl.builder.StAXOMBuilder;
+-import org.apache.axiom.om.impl.llom.util.AXIOMUtil;
+-import org.apache.axiom.soap.SOAPHeader;
+ import org.apache.axis2.context.ConfigurationContext;
+ import org.apache.axis2.context.MessageContext;
+ import org.apache.axis2.description.AxisService;
+ import org.apache.axis2.engine.ServiceLifeCycle;
+-import org.apache.xmlbeans.XmlException;
+ import org.apache.xmlbeans.XmlObject;
+ import org.w3c.dom.Document;
+ import org.w3c.dom.Element;
+@@ -108,7 +103,6 @@ public class WorkflowInterpretorSkeleton implements ServiceLifeCycle {
+     public static final String GFAC_EMBEDDED = "gfac.embedded";
+     public static  ConfigurationContext configurationContext;
+     public static final String WITH_LISTENER = "with.Listener";
+-    public static final String OUTPUT_DATA_PATH = "outputDataPath";
+ 
+     public void startUp(final ConfigurationContext configctx, AxisService service) {
+     	new Thread(){
+@@ -177,47 +171,25 @@ public class WorkflowInterpretorSkeleton implements ServiceLifeCycle {
+     	}.start();
+ 
+     }
++	/**
++	 * Auto generated method signature
++	 *
++	 * @param workflowAsString
++	 * @param topic
++	 * @param password
++	 * @param username
++	 * @param inputs
++	 * @param configurations
++	 */
+ 
+-    /**
+-     *
+-     * @param workflowAsString
+-     * @param topic
+-     * @param inputs
+-     * @return
+-     * @throws XMLStreamException
+-     */
+-
+-	public java.lang.String launchWorkflow(java.lang.String workflowAsString, java.lang.String topic, NameValue[] inputs) throws XMLStreamException {
+-        OMElement workflowContext = getWorkflowContextHeader();
++	public java.lang.String launchWorkflow(java.lang.String workflowAsString, java.lang.String topic, NameValue[] inputs) {
++        MessageContext currentMessageContext = MessageContext.getCurrentMessageContext();
+         Map<String, String> configuration = new HashMap<String, String>();
+-        WorkflowContextHeaderBuilder workflowContextHeaderBuilder = parseContextHeader(workflowContext, configuration);
+         return setupAndLaunch(workflowAsString, topic,
+-                (String)configurationContext.getProperty(MYPROXY_USER),(String)configurationContext.getProperty(MYPROXY_PASS),inputs,configuration,runInThread,workflowContextHeaderBuilder);
++                (String)configurationContext.getProperty(MYPROXY_USER),(String)configurationContext.getProperty(MYPROXY_PASS),inputs,configuration,runInThread);
+ 	}
+ 
+-    private OMElement getWorkflowContextHeader() {
+-        MessageContext currentMessageContext = MessageContext.getCurrentMessageContext();
+-        SOAPHeader header = currentMessageContext.getEnvelope().getHeader();
+-        Iterator childrenWithName = header.getChildrenWithName(new QName("http://schemas.airavata.apache.org/workflow-execution-context", "context-header"));
+-        return (OMElement)childrenWithName.next();
+-    }
+-
+-    private WorkflowContextHeaderBuilder parseContextHeader(OMElement workflowContext, Map<String, String> configuration) throws XMLStreamException {
+-        ContextHeaderDocument parse = null;
+-        try {
+-            parse = ContextHeaderDocument.Factory.parse(workflowContext.toStringWithConsume());
+-            configuration.put(GFAC,parse.getContextHeader().getWorkflowMonitoringContext().getEventPublishEpr());
+-            configuration.put(BROKER, parse.getContextHeader().getWorkflowMonitoringContext().getEventPublishEpr());
+-            configuration.put(GFAC, parse.getContextHeader().getSoaServiceEprs().getGfacUrl());
+-            configuration.put(MSGBOX, parse.getContextHeader().getWorkflowMonitoringContext().getMsgBoxEpr());
+-        } catch (XmlException e) {
+-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+-        }
+-        return new WorkflowContextHeaderBuilder(parse.getContextHeader());
+-    }
+-
+-    private String setupAndLaunch(String workflowAsString, String topic, String password, String username,
+-                                  NameValue[] inputs,Map<String,String>configurations,boolean inNewThread,WorkflowContextHeaderBuilder builder) throws XMLStreamException {
++    private String setupAndLaunch(String workflowAsString, String topic, String password, String username, NameValue[] inputs,Map<String,String>configurations,boolean inNewThread) {
+         System.err.println("Launch is called for topi:");
+ 
+         Workflow workflow = null;
+@@ -258,7 +230,6 @@ public class WorkflowInterpretorSkeleton implements ServiceLifeCycle {
+         if (Boolean.parseBoolean(configurations.get(WITH_LISTENER))) {
+             listener = new WorkflowInterpretorEventListener(workflow, conf);
+             interpreter = new WorkflowInterpreter(conf, topic, workflow, username, password);
+-
+             try {
+                 System.err.println("start listener set");
+                 listener.start();
+@@ -269,9 +240,6 @@ public class WorkflowInterpretorSkeleton implements ServiceLifeCycle {
+             interpreter = new WorkflowInterpreter(conf, topic, workflow, username, password, true);
+         }
+ 
+-//        interpreter.setBuilder(builder);
+-        WorkflowContextHeaderBuilder.setCurrentContextHeader(builder.getContextHeader());
+-
+         final WorkflowInterpretorEventListener finalListener = listener;
+         conf.setJcrComponentRegistry(jcrComponentRegistry);
+ 
+@@ -283,20 +251,19 @@ public class WorkflowInterpretorSkeleton implements ServiceLifeCycle {
+         final String experimentId = topic;
+         System.err.println("Created the interpreter");
+         if(inNewThread){
+-            runInThread(finalInterpreter,finalListener,experimentId,builder);
++            runInThread(finalInterpreter,finalListener,experimentId);
+         }else{
+-            executeWorkflow(finalInterpreter, finalListener, experimentId);
++            executeWorkflow(finalInterpreter,finalListener,experimentId);
+         }
+         System.err.println("topic return:" + topic);
+         return topic;
+     }
+ 
+-    private void runInThread(final WorkflowInterpreter interpreter,final WorkflowInterpretorEventListener listener,final String experimentId,final WorkflowContextHeaderBuilder builder) {
++    private void runInThread(final WorkflowInterpreter interpreter,final WorkflowInterpretorEventListener listener,final String experimentId) {
+         new Thread(new Runnable() {
+ 
+             public void run() {
+-                WorkflowContextHeaderBuilder.setCurrentContextHeader(builder.getContextHeader());
+-                executeWorkflow(interpreter, listener, experimentId);
++                executeWorkflow(interpreter, listener,experimentId);
+             }
+         }).start();
+     }
+@@ -323,6 +290,7 @@ public class WorkflowInterpretorSkeleton implements ServiceLifeCycle {
+     public  XBayaConfiguration getConfiguration(Map<String,String> vals) throws URISyntaxException {
+ 		XBayaConfiguration configuration = new XBayaConfiguration();
+ 		configuration.setBrokerURL(new URI(findValue(vals, BROKER, XBayaConstants.DEFAULT_BROKER_URL.toString())));
++		configuration.setDSCURL(new URI(findValue(vals, DSC, XBayaConstants.DEFAULT_DSC_URL.toString())));
+ 		configuration.setGFacURL(new URI(findValue(vals, GFAC, XBayaConstants.DEFAULT_GFAC_URL.toString())));
+ 		configuration.setMessageBoxURL(new URI(findValue(vals, MSGBOX, XBayaConstants.DEFAULT_MESSAGE_BOX_URL.toString())));
+ 		configuration.setMyProxyLifetime(XBayaConstants.DEFAULT_MYPROXY_LIFTTIME);

@@ -1,0 +1,21 @@
+diff --git a/test/src/test/java/org/apache/accumulo/proxy/SimpleProxyBase.java b/test/src/test/java/org/apache/accumulo/proxy/SimpleProxyBase.java
+index 4c3f55c48b..0f3dea0eba 100644
+--- a/test/src/test/java/org/apache/accumulo/proxy/SimpleProxyBase.java
++++ b/test/src/test/java/org/apache/accumulo/proxy/SimpleProxyBase.java
+@@ -972,8 +972,6 @@ public abstract class SimpleProxyBase extends SharedMiniClusterIT {
+ 
+     client.createTable(creds, TABLE_TEST, true, TimeType.MILLIS);
+     client.addConstraint(creds, TABLE_TEST, NumericValueConstraint.class.getName());
+-    // zookeeper propagation time
+-    UtilWaitThread.sleep(5 * 1000);
+ 
+     WriterOptions writerOptions = new WriterOptions();
+     writerOptions.setLatencyMs(10000);
+@@ -1027,7 +1025,6 @@ public abstract class SimpleProxyBase extends SharedMiniClusterIT {
+     client.addConstraint(creds, TABLE_TEST, NumericValueConstraint.class.getName());
+     assertEquals(2, client.listConstraints(creds, TABLE_TEST).size());
+ 
+-    // zookeeper propagation time
+     UtilWaitThread.sleep(5 * 1000);
+ 
+     client.updateAndFlush(creds, TABLE_TEST, mutation("row1", "cf", "cq", "123"));

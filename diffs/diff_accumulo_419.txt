@@ -1,0 +1,20 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ConcurrencyIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ConcurrencyIT.java
+index 929bb61de4..d462b530ca 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ConcurrencyIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ConcurrencyIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.util.EnumSet;
+@@ -45,6 +44,7 @@ import org.apache.hadoop.io.Text;
+ import org.junit.Test;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class ConcurrencyIT extends AccumuloClusterHarness {
+ 

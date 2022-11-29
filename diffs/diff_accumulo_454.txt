@@ -1,0 +1,29 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/ZookeeperRestartIT.java b/test/src/main/java/org/apache/accumulo/test/functional/ZookeeperRestartIT.java
+index e376555c0a..b19ec2f0c4 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/ZookeeperRestartIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/ZookeeperRestartIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertFalse;
+ import static org.junit.Assert.assertTrue;
+@@ -41,12 +40,14 @@ import org.apache.accumulo.minicluster.impl.ProcessReference;
+ import org.apache.hadoop.conf.Configuration;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class ZookeeperRestartIT extends ConfigurableMacBase {
+ 
+   @Override
+   public void configure(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
+-    Map<String,String> siteConfig = new HashMap<>();
+-    siteConfig.put(Property.INSTANCE_ZK_TIMEOUT.getKey(), "15s");
++    Map<String,String> siteConfig = new HashMap<String,String>();
++    siteConfig.put(Property.INSTANCE_ZK_TIMEOUT.getKey(), "3s");
+     cfg.setSiteConfig(siteConfig);
+   }
+ 

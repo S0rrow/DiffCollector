@@ -1,0 +1,515 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/BindingsImpl.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/BindingsImpl.java
+index c20e988380..8b21396376 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/BindingsImpl.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/postoffice/impl/BindingsImpl.java
+@@ -30,33 +30,34 @@ import java.util.concurrent.CopyOnWriteArrayList;
+ import org.apache.activemq.artemis.api.core.Message;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.filter.Filter;
++import org.apache.activemq.artemis.core.message.impl.MessageImpl;
+ import org.apache.activemq.artemis.core.paging.PagingStore;
+ import org.apache.activemq.artemis.core.postoffice.Binding;
+ import org.apache.activemq.artemis.core.postoffice.Bindings;
+ import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+ import org.apache.activemq.artemis.core.server.Queue;
+ import org.apache.activemq.artemis.core.server.RoutingContext;
++import org.apache.activemq.artemis.core.server.ServerMessage;
+ import org.apache.activemq.artemis.core.server.cluster.RemoteQueueBinding;
+ import org.apache.activemq.artemis.core.server.cluster.impl.MessageLoadBalancingType;
+ import org.apache.activemq.artemis.core.server.group.GroupingHandler;
+ import org.apache.activemq.artemis.core.server.group.impl.Proposal;
+ import org.apache.activemq.artemis.core.server.group.impl.Response;
+-import org.jboss.logging.Logger;
+ 
+ public final class BindingsImpl implements Bindings {
+ 
+-   private static final Logger logger = Logger.getLogger(BindingsImpl.class);
+-
+    // This is public as we use on test assertions
+    public static final int MAX_GROUP_RETRY = 10;
+ 
+-   private final ConcurrentMap<SimpleString, List<Binding>> routingNameBindingMap = new ConcurrentHashMap<>();
++   private static boolean isTrace = ActiveMQServerLogger.LOGGER.isTraceEnabled();
++
++   private final ConcurrentMap<SimpleString, List<Binding>> routingNameBindingMap = new ConcurrentHashMap<SimpleString, List<Binding>>();
+ 
+-   private final Map<SimpleString, Integer> routingNamePositions = new ConcurrentHashMap<>();
++   private final Map<SimpleString, Integer> routingNamePositions = new ConcurrentHashMap<SimpleString, Integer>();
+ 
+-   private final Map<Long, Binding> bindingsMap = new ConcurrentHashMap<>();
++   private final Map<Long, Binding> bindingsMap = new ConcurrentHashMap<Long, Binding>();
+ 
+-   private final List<Binding> exclusiveBindings = new CopyOnWriteArrayList<>();
++   private final List<Binding> exclusiveBindings = new CopyOnWriteArrayList<Binding>();
+ 
+    private volatile MessageLoadBalancingType messageLoadBalancingType = MessageLoadBalancingType.OFF;
+ 
+@@ -72,42 +73,34 @@ public final class BindingsImpl implements Bindings {
+       this.name = name;
+    }
+ 
+-   @Override
+    public void setMessageLoadBalancingType(final MessageLoadBalancingType messageLoadBalancingType) {
+       this.messageLoadBalancingType = messageLoadBalancingType;
+    }
+ 
+-   @Override
+-   public MessageLoadBalancingType getMessageLoadBalancingType() {
+-      return this.messageLoadBalancingType;
+-   }
+-
+-   @Override
+    public Collection<Binding> getBindings() {
+       return bindingsMap.values();
+    }
+ 
+-   @Override
+    public void unproposed(SimpleString groupID) {
+       for (Binding binding : bindingsMap.values()) {
+          binding.unproposed(groupID);
+       }
+    }
+ 
+-   @Override
+    public void addBinding(final Binding binding) {
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("addBinding(" + binding + ") being called");
++      if (isTrace) {
++         ActiveMQServerLogger.LOGGER.trace("addBinding(" + binding + ") being called");
+       }
+       if (binding.isExclusive()) {
+          exclusiveBindings.add(binding);
+-      } else {
++      }
++      else {
+          SimpleString routingName = binding.getRoutingName();
+ 
+          List<Binding> bindings = routingNameBindingMap.get(routingName);
+ 
+          if (bindings == null) {
+-            bindings = new CopyOnWriteArrayList<>();
++            bindings = new CopyOnWriteArrayList<Binding>();
+ 
+             List<Binding> oldBindings = routingNameBindingMap.putIfAbsent(routingName, bindings);
+ 
+@@ -116,24 +109,22 @@ public final class BindingsImpl implements Bindings {
+             }
+          }
+ 
+-         if (!bindings.contains(binding)) {
+-            bindings.add(binding);
+-         }
++         bindings.add(binding);
+       }
+ 
+       bindingsMap.put(binding.getID(), binding);
+ 
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("Adding binding " + binding + " into " + this + " bindingTable: " + debugBindings());
++      if (isTrace) {
++         ActiveMQServerLogger.LOGGER.trace("Adding binding " + binding + " into " + this + " bindingTable: " + debugBindings());
+       }
+ 
+    }
+ 
+-   @Override
+    public void removeBinding(final Binding binding) {
+       if (binding.isExclusive()) {
+          exclusiveBindings.remove(binding);
+-      } else {
++      }
++      else {
+          SimpleString routingName = binding.getRoutingName();
+ 
+          List<Binding> bindings = routingNameBindingMap.get(routingName);
+@@ -149,26 +140,20 @@ public final class BindingsImpl implements Bindings {
+ 
+       bindingsMap.remove(binding.getID());
+ 
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("Removing binding " + binding + " from " + this + " bindingTable: " + debugBindings());
++      if (isTrace) {
++         ActiveMQServerLogger.LOGGER.trace("Removing binding " + binding + " into " + this + " bindingTable: " + debugBindings());
+       }
+    }
+ 
+-   @Override
+-   public boolean allowRedistribute() {
+-      return messageLoadBalancingType.equals(MessageLoadBalancingType.ON_DEMAND);
+-   }
+-
+-   @Override
+-   public boolean redistribute(final Message message,
++   public boolean redistribute(final ServerMessage message,
+                                final Queue originatingQueue,
+                                final RoutingContext context) throws Exception {
+       if (messageLoadBalancingType.equals(MessageLoadBalancingType.STRICT) || messageLoadBalancingType.equals(MessageLoadBalancingType.OFF)) {
+          return false;
+       }
+ 
+-      if (logger.isTraceEnabled()) {
+-         logger.trace("Redistributing message " + message);
++      if (isTrace) {
++         ActiveMQServerLogger.LOGGER.trace("Redistributing message " + message);
+       }
+ 
+       SimpleString routingName = originatingQueue.getName();
+@@ -196,7 +181,8 @@ public final class BindingsImpl implements Bindings {
+          Binding binding;
+          try {
+             binding = bindings.get(pos);
+-         } catch (IndexOutOfBoundsException e) {
++         }
++         catch (IndexOutOfBoundsException e) {
+             // This can occur if binding is removed while in route
+             if (!bindings.isEmpty()) {
+                pos = 0;
+@@ -204,7 +190,8 @@ public final class BindingsImpl implements Bindings {
+                length = bindings.size();
+ 
+                continue;
+-            } else {
++            }
++            else {
+                break;
+             }
+          }
+@@ -232,33 +219,35 @@ public final class BindingsImpl implements Bindings {
+          theBinding.route(message, context);
+ 
+          return true;
+-      } else {
++      }
++      else {
+          return false;
+       }
+    }
+ 
+-   @Override
+-   public void route(final Message message, final RoutingContext context) throws Exception {
++   public void route(final ServerMessage message, final RoutingContext context) throws Exception {
+       route(message, context, true);
+    }
+ 
+-   private void route(final Message message,
++   private void route(final ServerMessage message,
+                       final RoutingContext context,
+                       final boolean groupRouting) throws Exception {
+       /* This is a special treatment for scaled-down messages involving SnF queues.
+        * See org.apache.activemq.artemis.core.server.impl.ScaleDownHandler.scaleDownMessages() for the logic that sends messages with this property
+        */
+-      byte[] ids = (byte[]) message.removeExtraBytesProperty(Message.HDR_SCALEDOWN_TO_IDS);
+-
+-      if (ids != null) {
+-         ByteBuffer buffer = ByteBuffer.wrap(ids);
+-         while (buffer.hasRemaining()) {
+-            long id = buffer.getLong();
+-            for (Map.Entry<Long, Binding> entry : bindingsMap.entrySet()) {
+-               if (entry.getValue() instanceof RemoteQueueBinding) {
+-                  RemoteQueueBinding remoteQueueBinding = (RemoteQueueBinding) entry.getValue();
+-                  if (remoteQueueBinding.getRemoteQueueID() == id) {
+-                     message.putExtraBytesProperty(Message.HDR_ROUTE_TO_IDS, ByteBuffer.allocate(8).putLong(remoteQueueBinding.getID()).array());
++      if (message.containsProperty(MessageImpl.HDR_SCALEDOWN_TO_IDS)) {
++         byte[] ids = (byte[]) message.removeProperty(MessageImpl.HDR_SCALEDOWN_TO_IDS);
++
++         if (ids != null) {
++            ByteBuffer buffer = ByteBuffer.wrap(ids);
++            while (buffer.hasRemaining()) {
++               long id = buffer.getLong();
++               for (Map.Entry<Long, Binding> entry : bindingsMap.entrySet()) {
++                  if (entry.getValue() instanceof RemoteQueueBinding) {
++                     RemoteQueueBinding remoteQueueBinding = (RemoteQueueBinding) entry.getValue();
++                     if (remoteQueueBinding.getRemoteQueueID() == id) {
++                        message.putBytesProperty(MessageImpl.HDR_ROUTE_TO_IDS, ByteBuffer.allocate(8).putLong(remoteQueueBinding.getID()).array());
++                     }
+                   }
+                }
+             }
+@@ -267,29 +256,32 @@ public final class BindingsImpl implements Bindings {
+ 
+       boolean routed = false;
+ 
+-      for (Binding binding : exclusiveBindings) {
+-
+-         if (binding.getFilter() == null || binding.getFilter().match(message)) {
+-            binding.getBindable().route(message, context);
++      if (!exclusiveBindings.isEmpty()) {
++         for (Binding binding : exclusiveBindings) {
++            if (binding.getFilter() == null || binding.getFilter().match(message)) {
++               binding.getBindable().route(message, context);
+ 
+-            routed = true;
++               routed = true;
++            }
+          }
+       }
+ 
+       if (!routed) {
+          // Remove the ids now, in order to avoid double check
+-         ids = message.removeExtraBytesProperty(Message.HDR_ROUTE_TO_IDS);
++         byte[] ids = (byte[]) message.removeProperty(MessageImpl.HDR_ROUTE_TO_IDS);
+ 
+          // Fetch the groupId now, in order to avoid double checking
+-         SimpleString groupId = message.getGroupID();
++         SimpleString groupId = message.getSimpleStringProperty(Message.HDR_GROUP_ID);
+ 
+          if (ids != null) {
+             routeFromCluster(message, context, ids);
+-         } else if (groupingHandler != null && groupRouting && groupId != null) {
++         }
++         else if (groupingHandler != null && groupRouting && groupId != null) {
+             routeUsingStrictOrdering(message, context, groupingHandler, groupId, 0);
+-         } else {
+-            if (logger.isTraceEnabled()) {
+-               logger.trace("Routing message " + message + " on binding=" + this);
++         }
++         else {
++            if (isTrace) {
++               ActiveMQServerLogger.LOGGER.trace("Routing message " + message + " on binding=" + this);
+             }
+             for (Map.Entry<SimpleString, List<Binding>> entry : routingNameBindingMap.entrySet()) {
+                SimpleString routingName = entry.getKey();
+@@ -325,7 +317,7 @@ public final class BindingsImpl implements Bindings {
+     * these two servers. This will eventually send more messages to one server than the other
+     * (depending if you are using multi-thread), and not lose messages.
+     */
+-   private Binding getNextBinding(final Message message,
++   private Binding getNextBinding(final ServerMessage message,
+                                   final SimpleString routingName,
+                                   final List<Binding> bindings) {
+       Integer ipos = routingNamePositions.get(routingName);
+@@ -344,7 +336,8 @@ public final class BindingsImpl implements Bindings {
+          Binding binding;
+          try {
+             binding = bindings.get(pos);
+-         } catch (IndexOutOfBoundsException e) {
++         }
++         catch (IndexOutOfBoundsException e) {
+             // This can occur if binding is removed while in route
+             if (!bindings.isEmpty()) {
+                pos = 0;
+@@ -352,7 +345,8 @@ public final class BindingsImpl implements Bindings {
+                length = bindings.size();
+ 
+                continue;
+-            } else {
++            }
++            else {
+                break;
+             }
+          }
+@@ -368,7 +362,8 @@ public final class BindingsImpl implements Bindings {
+                pos = incrementPos(pos, length);
+ 
+                break;
+-            } else {
++            }
++            else {
+                //https://issues.jboss.org/browse/HORNETQ-1254 When !routeWhenNoConsumers,
+                // the localQueue should always have the priority over the secondary bindings
+                if (lastLowPriorityBinding == -1 || messageLoadBalancingType.equals(MessageLoadBalancingType.ON_DEMAND) && binding instanceof LocalQueueBinding) {
+@@ -385,7 +380,8 @@ public final class BindingsImpl implements Bindings {
+             if (lastLowPriorityBinding != -1) {
+                try {
+                   theBinding = bindings.get(lastLowPriorityBinding);
+-               } catch (IndexOutOfBoundsException e) {
++               }
++               catch (IndexOutOfBoundsException e) {
+                   // This can occur if binding is removed while in route
+                   if (!bindings.isEmpty()) {
+                      pos = 0;
+@@ -393,7 +389,8 @@ public final class BindingsImpl implements Bindings {
+                      lastLowPriorityBinding = -1;
+ 
+                      continue;
+-                  } else {
++                  }
++                  else {
+                      break;
+                   }
+                }
+@@ -408,30 +405,12 @@ public final class BindingsImpl implements Bindings {
+       }
+ 
+       if (messageLoadBalancingType.equals(MessageLoadBalancingType.OFF) && theBinding instanceof RemoteQueueBinding) {
+-         if (exclusivelyRemote(bindings)) {
+-            theBinding = null;
+-         } else {
+-            theBinding = getNextBinding(message, routingName, bindings);
+-         }
++         theBinding = getNextBinding(message, routingName, bindings);
+       }
+-
+       return theBinding;
+    }
+ 
+-   private boolean exclusivelyRemote(List<Binding> bindings) {
+-      boolean result = true;
+-
+-      for (Binding binding : bindings) {
+-         if (!(binding instanceof RemoteQueueBinding)) {
+-            result = false;
+-            break;
+-         }
+-      }
+-
+-      return result;
+-   }
+-
+-   private void routeUsingStrictOrdering(final Message message,
++   private void routeUsingStrictOrdering(final ServerMessage message,
+                                          final RoutingContext context,
+                                          final GroupingHandler groupingGroupingHandler,
+                                          final SimpleString groupId,
+@@ -465,7 +444,7 @@ public final class BindingsImpl implements Bindings {
+             resp = groupingGroupingHandler.propose(new Proposal(fullID, theBinding.getClusterName()));
+ 
+             if (resp == null) {
+-               logger.debug("it got a timeout on propose, trying again, number of retries: " + tries);
++               ActiveMQServerLogger.LOGGER.debug("it got a timeout on propose, trying again, number of retries: " + tries);
+                // it timed out, so we will check it through routeAndcheckNull
+                theBinding = null;
+             }
+@@ -478,7 +457,8 @@ public final class BindingsImpl implements Bindings {
+             }
+ 
+             routeAndCheckNull(message, context, resp, theBinding, groupId, tries);
+-         } else {
++         }
++         else {
+             // ok, we need to find the binding and route it
+             Binding chosen = locateBinding(resp.getChosenClusterName(), bindings);
+ 
+@@ -497,7 +477,7 @@ public final class BindingsImpl implements Bindings {
+       return null;
+    }
+ 
+-   private void routeAndCheckNull(Message message,
++   private void routeAndCheckNull(ServerMessage message,
+                                   RoutingContext context,
+                                   Response resp,
+                                   Binding theBinding,
+@@ -506,7 +486,8 @@ public final class BindingsImpl implements Bindings {
+       // and let's route it
+       if (theBinding != null) {
+          theBinding.route(message, context);
+-      } else {
++      }
++      else {
+          if (resp != null) {
+             groupingHandler.forceRemove(resp.getGroupId(), resp.getClusterName());
+          }
+@@ -515,7 +496,8 @@ public final class BindingsImpl implements Bindings {
+          //in this case all we can do is remove it and try again.
+          if (tries < MAX_GROUP_RETRY) {
+             routeUsingStrictOrdering(message, context, groupingHandler, groupId, tries + 1);
+-         } else {
++         }
++         else {
+             ActiveMQServerLogger.LOGGER.impossibleToRouteGrouped();
+             route(message, context, false);
+          }
+@@ -527,59 +509,62 @@ public final class BindingsImpl implements Bindings {
+ 
+       PrintWriter out = new PrintWriter(writer);
+ 
+-      out.println("\n**************************************************");
++      out.println("\n***************************************");
+ 
+       out.println("routingNameBindingMap:");
+       if (routingNameBindingMap.isEmpty()) {
+-         out.println("\tEMPTY!");
++         out.println("EMPTY!");
+       }
+       for (Map.Entry<SimpleString, List<Binding>> entry : routingNameBindingMap.entrySet()) {
+-         out.println("\tkey=" + entry.getKey() + ", value(s):");
+-         for (Binding bind : entry.getValue()) {
+-            out.println("\t\t" + bind);
+-         }
++         out.print("key=" + entry.getKey() + ", value=" + entry.getValue());
++         //         for (Binding bind : entry.getValue())
++         //         {
++         //            out.print(bind + ",");
++         //         }
+          out.println();
+       }
+ 
+-      out.println("routingNamePositions:");
++      out.println();
++
++      out.println("RoutingNamePositions:");
+       if (routingNamePositions.isEmpty()) {
+-         out.println("\tEMPTY!");
++         out.println("EMPTY!");
+       }
+       for (Map.Entry<SimpleString, Integer> entry : routingNamePositions.entrySet()) {
+-         out.println("\tkey=" + entry.getKey() + ", value=" + entry.getValue());
++         out.println("key=" + entry.getKey() + ", value=" + entry.getValue());
+       }
+ 
+       out.println();
+ 
+-      out.println("bindingsMap:");
++      out.println("BindingsMap:");
+ 
+       if (bindingsMap.isEmpty()) {
+-         out.println("\tEMPTY!");
++         out.println("EMPTY!");
+       }
+       for (Map.Entry<Long, Binding> entry : bindingsMap.entrySet()) {
+-         out.println("\tkey=" + entry.getKey() + ", value=" + entry.getValue());
++         out.println("Key=" + entry.getKey() + ", value=" + entry.getValue());
+       }
+ 
+       out.println();
+ 
+-      out.println("exclusiveBindings:");
++      out.println("ExclusiveBindings:");
+       if (exclusiveBindings.isEmpty()) {
+-         out.println("\tEMPTY!");
++         out.println("EMPTY!");
+       }
+ 
+       for (Binding binding : exclusiveBindings) {
+-         out.println("\t" + binding);
++         out.println(binding);
+       }
+ 
+-      out.println("####################################################");
++      out.println("#####################################################");
+ 
+       return writer.toString();
+    }
+ 
+-   private void routeFromCluster(final Message message,
++   private void routeFromCluster(final ServerMessage message,
+                                  final RoutingContext context,
+                                  final byte[] ids) throws Exception {
+-      byte[] idsToAck = (byte[]) message.removeProperty(Message.HDR_ROUTE_TO_ACK_IDS);
++      byte[] idsToAck = (byte[]) message.removeProperty(MessageImpl.HDR_ROUTE_TO_ACK_IDS);
+ 
+       List<Long> idsToAckList = new ArrayList<>();
+ 
+@@ -600,10 +585,12 @@ public final class BindingsImpl implements Bindings {
+          if (binding != null) {
+             if (idsToAckList.contains(bindingID)) {
+                binding.routeWithAck(message, context);
+-            } else {
++            }
++            else {
+                binding.route(message, context);
+             }
+-         } else {
++         }
++         else {
+             ActiveMQServerLogger.LOGGER.bindingNotFound(bindingID, message.toString(), this.toString());
+          }
+       }
+@@ -619,7 +606,4 @@ public final class BindingsImpl implements Bindings {
+       return pos;
+    }
+ 
+-   public Map<SimpleString, List<Binding>> getRoutingNameBindingMap() {
+-      return routingNameBindingMap;
+-   }
+ }

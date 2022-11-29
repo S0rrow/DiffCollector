@@ -1,0 +1,30 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/MetadataMaxFilesIT.java b/test/src/main/java/org/apache/accumulo/test/functional/MetadataMaxFilesIT.java
+index 6a202972dc..3e8b421261 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/MetadataMaxFilesIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/MetadataMaxFilesIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ 
+ import java.util.Map.Entry;
+@@ -44,6 +43,8 @@ import org.apache.hadoop.fs.RawLocalFileSystem;
+ import org.apache.hadoop.io.Text;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class MetadataMaxFilesIT extends ConfigurableMacBase {
+ 
+   @Override
+@@ -62,7 +63,7 @@ public class MetadataMaxFilesIT extends ConfigurableMacBase {
+   @Test
+   public void test() throws Exception {
+     Connector c = getConnector();
+-    SortedSet<Text> splits = new TreeSet<>();
++    SortedSet<Text> splits = new TreeSet<Text>();
+     for (int i = 0; i < 1000; i++) {
+       splits.add(new Text(String.format("%03d", i)));
+     }

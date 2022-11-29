@@ -1,0 +1,248 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/bootstrap/AtlasTypeDefStoreInitializer.java b/repository/src/main/java/org/apache/atlas/repository/store/bootstrap/AtlasTypeDefStoreInitializer.java
+index 4109abf41..e11cd1256 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/bootstrap/AtlasTypeDefStoreInitializer.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/bootstrap/AtlasTypeDefStoreInitializer.java
+@@ -17,11 +17,6 @@
+  */
+ package org.apache.atlas.repository.store.bootstrap;
+ 
+-
+-import com.fasterxml.jackson.annotation.JsonAutoDetect;
+-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+-
+ import org.apache.atlas.AtlasErrorCode;
+ import org.apache.atlas.AtlasException;
+ import org.apache.atlas.exception.AtlasBaseException;
+@@ -44,6 +39,9 @@ import org.apache.commons.collections.MapUtils;
+ import org.apache.commons.configuration.Configuration;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang3.StringUtils;
++import org.codehaus.jackson.annotate.JsonAutoDetect;
++import org.codehaus.jackson.annotate.JsonIgnoreProperties;
++import org.codehaus.jackson.map.annotate.JsonSerialize;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.stereotype.Service;
+@@ -61,9 +59,8 @@ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+ 
+-import static com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility.NONE;
+-import static com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility.PUBLIC_ONLY;
+-import static org.apache.atlas.AtlasConstants.ATLAS_MIGRATION_MODE_FILENAME;
++import static org.codehaus.jackson.annotate.JsonAutoDetect.Visibility.NONE;
++import static org.codehaus.jackson.annotate.JsonAutoDetect.Visibility.PUBLIC_ONLY;
+ 
+ 
+ /**
+@@ -89,10 +86,10 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+     @PostConstruct
+     public void init() throws AtlasBaseException {
+         LOG.info("==> AtlasTypeDefStoreInitializer.init()");
+-        boolean isMigrationEnabled = !StringUtils.isEmpty(conf.getString(ATLAS_MIGRATION_MODE_FILENAME));
+ 
+-        if (!HAConfiguration.isHAEnabled(conf) || isMigrationEnabled) {
++        if (!HAConfiguration.isHAEnabled(conf)) {
+             atlasTypeDefStore.init();
++
+             loadBootstrapTypeDefs();
+         } else {
+             LOG.info("AtlasTypeDefStoreInitializer.init(): deferring type loading until instance activation");
+@@ -121,18 +118,16 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+             File   topModeltypesDir  = new File(modelsDirName);
+             File[] modelsDirContents = topModeltypesDir.exists() ? topModeltypesDir.listFiles() : null;
+ 
+-            if (modelsDirContents != null && modelsDirContents.length > 0) {
+-	            Arrays.sort(modelsDirContents);
+-
+-	            for (File folder : modelsDirContents) {
+-	                    if (folder.isFile()) {
+-	                        // ignore files
+-	                        continue;
+-	                    } else if (!folder.getName().equals(PATCHES_FOLDER_NAME)){
+-	                        // load the models alphabetically in the subfolders apart from patches
+-	                        loadModelsInFolder(folder);
+-	                    }
+-	            }
++            Arrays.sort(modelsDirContents);
++
++            for (File folder : modelsDirContents) {
++                    if (folder.isFile()) {
++                        // ignore files
++                        continue;
++                    } else if (!folder.getName().equals(PATCHES_FOLDER_NAME)){
++                        // load the models alphabetically in the subfolders apart from patches
++                        loadModelsInFolder(folder);
++                    }
+             }
+ 
+             // load any files in the top models folder and any associated patches.
+@@ -152,50 +147,44 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+         File[] typeDefFiles = typesDir.exists() ? typesDir.listFiles() : null;
+ 
+         if (typeDefFiles == null || typeDefFiles.length == 0) {
+-            LOG.info("Types directory {} does not exist or not readable or has no typedef files", typesDirName);
++            LOG.info("Types directory {} does not exist or not readable or has no typedef files", typesDirName );
+         } else {
++
+             // sort the files by filename
+             Arrays.sort(typeDefFiles);
+-            for (File typeDefFile : typeDefFiles) {
+-                try {
+-                    readTypesFromFile(typeDefFile);
+-                } catch (Throwable t) {
+-                    LOG.error("error while registering types in file {}", typeDefFile.getAbsolutePath(), t);
+-                }
+-            }
+-        }
+ 
+-        LOG.info("<== AtlasTypeDefStoreInitializer({})", typesDir);
+-    }
++            for (File typeDefFile : typeDefFiles) {
++                if (typeDefFile.isFile()) {
++                    try {
++                        String        jsonStr  = new String(Files.readAllBytes(typeDefFile.toPath()), StandardCharsets.UTF_8);
++                        AtlasTypesDef typesDef = AtlasType.fromJson(jsonStr, AtlasTypesDef.class);
+ 
+-    public void readTypesFromFile(File typeDefFile) {
+-        if (!typeDefFile.isFile()) {
+-            return;
+-        }
++                        if (typesDef == null || typesDef.isEmpty()) {
++                            LOG.info("No type in file {}", typeDefFile.getAbsolutePath());
+ 
+-        try {
+-            String        jsonStr  = new String(Files.readAllBytes(typeDefFile.toPath()), StandardCharsets.UTF_8);
+-            AtlasTypesDef typesDef = AtlasType.fromJson(jsonStr, AtlasTypesDef.class);
++                            continue;
++                        }
+ 
+-            if (typesDef == null || typesDef.isEmpty()) {
+-                LOG.info("No type in file {}", typeDefFile.getAbsolutePath());
+-                return;
+-            }
++                        AtlasTypesDef typesToCreate = getTypesToCreate(typesDef, atlasTypeRegistry);
++                        AtlasTypesDef typesToUpdate = getTypesToUpdate(typesDef, atlasTypeRegistry);
+ 
+-            AtlasTypesDef typesToCreate = getTypesToCreate(typesDef, atlasTypeRegistry);
+-            AtlasTypesDef typesToUpdate = getTypesToUpdate(typesDef, atlasTypeRegistry, true);
++                        if (!typesToCreate.isEmpty() || !typesToUpdate.isEmpty()) {
++                            atlasTypeDefStore.createUpdateTypesDef(typesToCreate, typesToUpdate);
+ 
+-            if (!typesToCreate.isEmpty() || !typesToUpdate.isEmpty()) {
+-                atlasTypeDefStore.createUpdateTypesDef(typesToCreate, typesToUpdate);
++                            LOG.info("Created/Updated types defined in file {}", typeDefFile.getAbsolutePath());
++                        } else {
++                            LOG.info("No new type in file {}", typeDefFile.getAbsolutePath());
++                        }
+ 
+-                LOG.info("Created/Updated types defined in file {}", typeDefFile.getAbsolutePath());
+-            } else {
+-                LOG.info("No new type in file {}", typeDefFile.getAbsolutePath());
++                    } catch (Throwable t) {
++                        LOG.error("error while registering types in file {}", typeDefFile.getAbsolutePath(), t);
++                    }
++                }
+             }
+ 
+-        } catch (Throwable t) {
+-            LOG.error("error while registering types in file {}", typeDefFile.getAbsolutePath(), t);
++            applyTypePatches(typesDir.getPath());
+         }
++        LOG.info("<== AtlasTypeDefStoreInitializer({})", typesDir);
+     }
+ 
+     public static AtlasTypesDef getTypesToCreate(AtlasTypesDef typesDef, AtlasTypeRegistry typeRegistry) {
+@@ -244,7 +233,7 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+         return typesToCreate;
+     }
+ 
+-    public static AtlasTypesDef getTypesToUpdate(AtlasTypesDef typesDef, AtlasTypeRegistry typeRegistry, boolean checkTypeVersion) {
++    public static AtlasTypesDef getTypesToUpdate(AtlasTypesDef typesDef, AtlasTypeRegistry typeRegistry) {
+         AtlasTypesDef typesToUpdate = new AtlasTypesDef();
+ 
+         if (CollectionUtils.isNotEmpty(typesDef.getStructDefs())) {
+@@ -255,7 +244,7 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+                     continue;
+                 }
+ 
+-                if (updateTypeAttributes(oldStructDef, newStructDef, checkTypeVersion)) {
++                if (updateTypeAttributes(oldStructDef, newStructDef)) {
+                     typesToUpdate.getStructDefs().add(newStructDef);
+                 }
+             }
+@@ -269,7 +258,7 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+                     continue;
+                 }
+ 
+-                if (updateTypeAttributes(oldClassifDef, newClassifDef, checkTypeVersion)) {
++                if (updateTypeAttributes(oldClassifDef, newClassifDef)) {
+                     typesToUpdate.getClassificationDefs().add(newClassifDef);
+                 }
+             }
+@@ -283,7 +272,7 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+                     continue;
+                 }
+ 
+-                if (updateTypeAttributes(oldEntityDef, newEntityDef, checkTypeVersion)) {
++                if (updateTypeAttributes(oldEntityDef, newEntityDef)) {
+                     typesToUpdate.getEntityDefs().add(newEntityDef);
+                 }
+             }
+@@ -297,7 +286,7 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+                     continue;
+                 }
+ 
+-                if (isTypeUpdateApplicable(oldEnumDef, newEnumDef, checkTypeVersion)) {
++                if (isTypeUpdateApplicable(oldEnumDef, newEnumDef)) {
+                     if (CollectionUtils.isNotEmpty(oldEnumDef.getElementDefs())) {
+                         for (AtlasEnumElementDef oldEnumElem : oldEnumDef.getElementDefs()) {
+                             if (!newEnumDef.hasElement(oldEnumElem.getValue())) {
+@@ -319,7 +308,7 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+                     continue;
+                 }
+ 
+-                if (updateTypeAttributes(oldRelationshipDef, relationshipDef, checkTypeVersion)) {
++                if (updateTypeAttributes(oldRelationshipDef, relationshipDef)) {
+                     typesToUpdate.getRelationshipDefs().add(relationshipDef);
+                 }
+             }
+@@ -350,13 +339,8 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+         LOG.info("<== AtlasTypeDefStoreInitializer.instanceIsPassive()");
+     }
+ 
+-    @Override
+-    public int getHandlerOrder() {
+-        return HandlerOrder.TYPEDEF_STORE_INITIALIZER.getOrder();
+-    }
+-
+-    private static boolean updateTypeAttributes(AtlasStructDef oldStructDef, AtlasStructDef newStructDef, boolean checkTypeVersion) {
+-        boolean ret = isTypeUpdateApplicable(oldStructDef, newStructDef, checkTypeVersion);
++    private static boolean updateTypeAttributes(AtlasStructDef oldStructDef, AtlasStructDef newStructDef) {
++        boolean ret = isTypeUpdateApplicable(oldStructDef, newStructDef);
+ 
+         if (ret) {
+             // make sure that all attributes in oldDef are in newDef as well
+@@ -372,17 +356,11 @@ public class AtlasTypeDefStoreInitializer implements ActiveStateChangeHandler {
+         return ret;
+     }
+ 
+-    private static boolean isTypeUpdateApplicable(AtlasBaseTypeDef oldTypeDef, AtlasBaseTypeDef newTypeDef, boolean checkVersion) {
+-        boolean ret = true;
++    private static boolean isTypeUpdateApplicable(AtlasBaseTypeDef oldTypeDef, AtlasBaseTypeDef newTypeDef) {
++        String oldTypeVersion = oldTypeDef.getTypeVersion();
++        String newTypeVersion = newTypeDef.getTypeVersion();
+ 
+-        if (checkVersion) {
+-            String oldTypeVersion = oldTypeDef.getTypeVersion();
+-            String newTypeVersion = newTypeDef.getTypeVersion();
+-
+-            ret = ObjectUtils.compare(newTypeVersion, oldTypeVersion) > 0;
+-        }
+-
+-        return ret;
++        return ObjectUtils.compare(newTypeVersion, oldTypeVersion) > 0;
+     }
+ 
+     private void applyTypePatches(String typesDirName) {

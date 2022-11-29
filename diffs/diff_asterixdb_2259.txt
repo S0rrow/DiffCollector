@@ -1,0 +1,38 @@
+diff --git a/asterixdb/asterix-lang-sqlpp/src/main/java/org/apache/asterix/lang/sqlpp/rewrites/visitor/SqlppBuiltinFunctionRewriteVisitor.java b/asterixdb/asterix-lang-sqlpp/src/main/java/org/apache/asterix/lang/sqlpp/rewrites/visitor/SqlppBuiltinFunctionRewriteVisitor.java
+index 82284f3aa1..abfa14eb7c 100644
+--- a/asterixdb/asterix-lang-sqlpp/src/main/java/org/apache/asterix/lang/sqlpp/rewrites/visitor/SqlppBuiltinFunctionRewriteVisitor.java
++++ b/asterixdb/asterix-lang-sqlpp/src/main/java/org/apache/asterix/lang/sqlpp/rewrites/visitor/SqlppBuiltinFunctionRewriteVisitor.java
+@@ -31,7 +31,6 @@ import org.apache.asterix.lang.common.expression.OperatorExpr;
+ import org.apache.asterix.lang.common.literal.TrueLiteral;
+ import org.apache.asterix.lang.common.struct.OperatorType;
+ import org.apache.asterix.lang.sqlpp.expression.CaseExpression;
+-import org.apache.asterix.lang.sqlpp.expression.WindowExpression;
+ import org.apache.asterix.lang.sqlpp.util.FunctionMapUtil;
+ import org.apache.asterix.lang.sqlpp.util.SqlppRewriteUtil;
+ import org.apache.asterix.lang.sqlpp.visitor.base.AbstractSqlppSimpleExpressionVisitor;
+@@ -42,16 +41,15 @@ public class SqlppBuiltinFunctionRewriteVisitor extends AbstractSqlppSimpleExpre
+     @Override
+     public Expression visit(CallExpr callExpr, ILangExpression arg) throws CompilationException {
+         //TODO(buyingyi): rewrite SQL temporal functions
+-        callExpr.setFunctionSignature(FunctionMapUtil.normalizeBuiltinFunctionSignature(callExpr.getFunctionSignature(),
+-                true, callExpr.getSourceLocation()));
+-        return super.visit(callExpr, arg);
+-    }
+-
+-    @Override
+-    public Expression visit(WindowExpression winExpr, ILangExpression arg) throws CompilationException {
+-        winExpr.setFunctionSignature(FunctionMapUtil.normalizeBuiltinFunctionSignature(winExpr.getFunctionSignature(),
+-                true, winExpr.getSourceLocation()));
+-        return super.visit(winExpr, arg);
++        FunctionSignature functionSignature = callExpr.getFunctionSignature();
++        callExpr.setFunctionSignature(FunctionMapUtil.normalizeBuiltinFunctionSignature(functionSignature, true,
++                callExpr.getSourceLocation()));
++        List<Expression> newExprList = new ArrayList<>();
++        for (Expression expr : callExpr.getExprList()) {
++            newExprList.add(expr.accept(this, arg));
++        }
++        callExpr.setExprList(newExprList);
++        return callExpr;
+     }
+ 
+     @Override

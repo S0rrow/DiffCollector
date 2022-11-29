@@ -1,0 +1,111 @@
+diff --git a/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/AddressControl.java b/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/AddressControl.java
+index 5e7d60032b..7d066bd5fe 100644
+--- a/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/AddressControl.java
++++ b/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/AddressControl.java
+@@ -17,7 +17,6 @@
+ package org.apache.activemq.artemis.api.core.management;
+ 
+ import javax.management.MBeanOperationInfo;
+-import java.util.Map;
+ 
+ /**
+  * An AddressControl is used to manage an address.
+@@ -27,52 +26,37 @@ public interface AddressControl {
+    /**
+     * Returns the managed address.
+     */
+-   @Attribute(desc = "managed address")
+    String getAddress();
+ 
+-   /*
+-   * The routing type of this address, either multicast (topic subscriptions) or anycast (queue semantics).
+-   * */
+-   @Attribute(desc = "The routing type of this address")
+-   String getRoutingType();
+-
+    /**
+-    * Returns the roles (name and permissions) associated with this address.
++    * Returns the roles (name and permissions) associated to this address.
+     */
+-   @Attribute(desc = "roles (name and permissions) associated with this address")
+    Object[] getRoles() throws Exception;
+ 
+    /**
+-    * Returns the roles  (name and permissions) associated with this address
++    * Returns the roles  (name and permissions) associated to this address
+     * using JSON serialization.
+     * <br>
+     * Java objects can be recreated from JSON serialization using {@link RoleInfo#from(String)}.
+     */
+-   @Attribute(desc = "roles  (name and permissions) associated with this address using JSON serialization")
+    String getRolesAsJSON() throws Exception;
+ 
+-   /**
+-    * Returns the number of estimated bytes being used by the queue(s), used to control paging and blocking.
+-    */
+-   @Attribute(desc = "the number of estimated bytes being used by the queue(s), used to control paging and blocking")
++   @Operation(desc = "returns the number of estimated bytes being used by the queue, used to control paging and blocking",
++      impact = MBeanOperationInfo.INFO)
+    long getAddressSize() throws Exception;
+ 
+-   /**
+-    * Returns the sum of messages on queue(s), including messages in delivery.
+-    */
+-   @Attribute(desc = "the sum of messages on queue(s), including messages in delivery")
++   @Operation(desc = "Returns the sum of messages on queues, including messages in delivery",
++      impact = MBeanOperationInfo.INFO)
+    long getNumberOfMessages() throws Exception;
+ 
+    /**
+     * Returns the names of the queues bound to this address.
+     */
+-   @Attribute(desc = "names of the queue(s) bound to this address")
+    String[] getQueueNames() throws Exception;
+ 
+    /**
+     * Returns the number of pages used by this address.
+     */
+-   @Attribute(desc = "number of pages used by this address")
+    int getNumberOfPages() throws Exception;
+ 
+    /**
+@@ -80,39 +64,15 @@ public interface AddressControl {
+     *
+     * @throws Exception
+     */
+-   @Attribute(desc = "whether this address is paging")
+    boolean isPaging() throws Exception;
+ 
+    /**
+     * Returns the number of bytes used by each page for this address.
+     */
+-   @Attribute(desc = "number of bytes used by each page for this address")
+    long getNumberOfBytesPerPage() throws Exception;
+ 
+    /**
+     * Returns the names of all bindings (both queues and diverts) bound to this address
+     */
+-   @Attribute(desc = "names of all bindings (both queues and diverts) bound to this address")
+    String[] getBindingNames() throws Exception;
+-
+-   @Attribute(desc = "number of messages added to all the queues for this address")
+-   long getMessageCount();
+-
+-
+-   /**
+-    * @param headers  the message headers and properties to set. Can only
+-    *                 container Strings maped to primitive types.
+-    * @param body     the text to send
+-    * @param durable
+-    * @param user
+-    * @param password @return
+-    * @throws Exception
+-    */
+-   @Operation(desc = "Sends a TextMessage to a password-protected address.", impact = MBeanOperationInfo.ACTION)
+-   String sendMessage(@Parameter(name = "headers", desc = "The headers to add to the message") Map<String, String> headers,
+-                      @Parameter(name = "headers", desc = "A type for the message") final int type,
+-                      @Parameter(name = "body", desc = "The body (byte[]) of the message encoded as a string using Base64") String body,
+-                      @Parameter(name = "durable", desc = "Whether the message is durable") boolean durable,
+-                      @Parameter(name = "user", desc = "The user to authenticate with") String user,
+-                      @Parameter(name = "password", desc = "The users password to authenticate with") String password) throws Exception;
+ }

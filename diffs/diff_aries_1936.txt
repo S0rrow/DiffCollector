@@ -1,0 +1,203 @@
+diff --git a/jndi/jndi-core/src/main/java/org/apache/aries/jndi/DirObjectFactoryHelper.java b/jndi/jndi-core/src/main/java/org/apache/aries/jndi/DirObjectFactoryHelper.java
+index 4f184be81..5b322885e 100644
+--- a/jndi/jndi-core/src/main/java/org/apache/aries/jndi/DirObjectFactoryHelper.java
++++ b/jndi/jndi-core/src/main/java/org/apache/aries/jndi/DirObjectFactoryHelper.java
+@@ -18,6 +18,7 @@
+  */
+ package org.apache.aries.jndi;
+ 
++import java.security.PrivilegedExceptionAction;
+ import java.util.Arrays;
+ import java.util.Hashtable;
+ 
+@@ -31,25 +32,33 @@ import javax.naming.spi.DirObjectFactory;
+ import javax.naming.spi.ObjectFactory;
+ import javax.naming.spi.ObjectFactoryBuilder;
+ 
+-import org.apache.aries.jndi.tracker.ServiceTrackerCustomizers;
+ import org.osgi.framework.BundleContext;
++import org.osgi.framework.InvalidSyntaxException;
+ import org.osgi.framework.ServiceReference;
+ 
+ public class DirObjectFactoryHelper extends ObjectFactoryHelper implements DirObjectFactory {
+ 
+-    private ServiceTrackerCustomizers.ContextServiceTrackerCustomizer dirObjFactorySTC = null;
+-
+-  
+     public DirObjectFactoryHelper(BundleContext defaultContext, BundleContext callerContext) {
+         super(defaultContext, callerContext);
+-        dirObjFactorySTC = ServiceTrackerCustomizers.getOrRegisterServiceTracker(callerContext, DirObjectFactory.class.getName());
+     }
+     
+-    public Object getObjectInstance(Object obj,
+-                                    Name name,
+-                                    Context nameCtx,
+-                                    Hashtable<?, ?> environment,
+-                                    Attributes attrs) throws Exception {
++    public Object getObjectInstance(final Object obj,
++                                    final Name name,
++                                    final Context nameCtx,
++                                    final Hashtable<?, ?> environment,
++                                    final Attributes attrs) throws Exception {
++        return Utils.doPrivileged(new PrivilegedExceptionAction<Object>() {
++            public Object run() throws Exception {
++                return doGetObjectInstance(obj, name, nameCtx, environment, attrs);
++            }            
++        });
++    }
++    
++    private Object doGetObjectInstance(Object obj,
++                                       Name name,
++                                       Context nameCtx,
++                                       Hashtable<?, ?> environment,
++                                       Attributes attrs) throws Exception {
+ 
+         // Step 1
+         if (obj instanceof Referenceable) {
+@@ -82,14 +91,6 @@ public class DirObjectFactoryHelper extends ObjectFactoryHelper implements DirOb
+             }
+         }
+ 
+-        // Extra, non-standard, bonus step. If javax.naming.OBJECT_FACTORIES is set as 
+-        // a property in the environment, use its value to construct additional object factories. 
+-        // Added under Aries-822, with reference 
+-        // to https://www.osgi.org/bugzilla/show_bug.cgi?id=138 
+-        if (result == null || result == obj) {
+-            result = getObjectInstanceViaContextDotObjectFactories(obj, name, nameCtx, environment, attrs);
+-        } 
+-        
+         return (result == null) ? obj : result;
+     }
+ 
+@@ -99,17 +100,20 @@ public class DirObjectFactoryHelper extends ObjectFactoryHelper implements DirOb
+                                                          Hashtable<?, ?> environment,
+                                                          Attributes attrs) 
+         throws Exception {
+-        
+         Object result = null;
+-        ServiceReference[] refs = dirObjFactorySTC.getServiceRefs(); 
+-        if (refs != null) {
+-            Arrays.sort(refs, Utils.SERVICE_REFERENCE_COMPARATOR);
+-            for (ServiceReference ref : refs) {
+-              
+-                if (canCallObjectFactory(obj, ref)) {
+-                    DirObjectFactory factory = (DirObjectFactory) dirObjFactorySTC.getService(ref);
+-                    result = factory.getObjectInstance(obj, name, nameCtx, environment, attrs);
+-                    
++        try {
++            ServiceReference[] refs = callerContext.getServiceReferences(DirObjectFactory.class.getName(), null);
++            if (refs != null) {
++                Arrays.sort(refs, Utils.SERVICE_REFERENCE_COMPARATOR);
++                for (ServiceReference ref : refs) {
++                    DirObjectFactory factory = (DirObjectFactory) callerContext.getService(ref);
++
++                    try {
++                        result = factory.getObjectInstance(obj, name, nameCtx, environment, attrs);
++                    } finally {
++                        callerContext.ungetService(ref);
++                    }
++
+                     // if the result comes back and is not null and not the reference
+                     // object then we should return the result, so break out of the
+                     // loop we are in.
+@@ -118,6 +122,9 @@ public class DirObjectFactoryHelper extends ObjectFactoryHelper implements DirOb
+                     }
+                 }
+             }
++        } catch (InvalidSyntaxException e) {
++            // should not happen
++            throw new RuntimeException("Invalid filter", e);
+         }
+ 
+         if (result == null) {
+@@ -127,19 +134,6 @@ public class DirObjectFactoryHelper extends ObjectFactoryHelper implements DirOb
+         return (result == null) ? obj : result;
+     }
+ 
+-    private boolean canCallObjectFactory(Object obj, ServiceReference ref)
+-    {
+-      if (obj instanceof Reference) return true;
+-      
+-      Object prop = ref.getProperty("aries.object.factory.requires.reference");
+-      
+-      if (prop == null) return true;
+-      
+-      if (prop instanceof Boolean) return !!!(Boolean) prop; // if set to true we don't call.
+-      
+-      return true;
+-    }
+-
+     private Object getObjectInstanceUsingClassName(Object reference,
+                                                    String className,
+                                                    Object obj,
+@@ -148,12 +142,27 @@ public class DirObjectFactoryHelper extends ObjectFactoryHelper implements DirOb
+                                                    Hashtable<?, ?> environment,
+                                                    Attributes attrs)
+         throws Exception {
++        ServiceReference serviceReference = null;
++
++        try {
++            ServiceReference[] refs = defaultContext.getServiceReferences(className, null);
++            if (refs != null && refs.length > 0) {
++                serviceReference = refs[0];
++            }
++        } catch (InvalidSyntaxException e) {
++            // should not happen
++            throw new RuntimeException("Invalid filter", e);
++        }
+ 
+-        Tuple<ServiceReference, ObjectFactory> tuple = ObjectFactoryHelper.findObjectFactoryByClassName(defaultStC, className);
+         Object result = null;
+         
+-        if (tuple.second != null) {
+-            result = ((DirObjectFactory) tuple.second).getObjectInstance(reference, name, nameCtx, environment, attrs);
++        if (serviceReference != null) {
++            DirObjectFactory factory = (DirObjectFactory) defaultContext.getService(serviceReference);
++            try {
++                result = factory.getObjectInstance(reference, name, nameCtx, environment, attrs);
++            } finally {
++                defaultContext.ungetService(serviceReference);
++            }
+         }
+ 
+         return (result == null) ? obj : result;
+@@ -166,20 +175,27 @@ public class DirObjectFactoryHelper extends ObjectFactoryHelper implements DirOb
+                                                                Attributes attrs) 
+         throws Exception {
+         ObjectFactory factory = null;
+-        ServiceReference[] refs = objFactoryBuilderStC.getServiceRefs();
+-        if (refs != null) {
+-            Arrays.sort(refs, Utils.SERVICE_REFERENCE_COMPARATOR);
+-            for (ServiceReference ref : refs) {
+-                ObjectFactoryBuilder builder = (ObjectFactoryBuilder) objFactoryBuilderStC.getService(ref);
+-                try {
+-                    factory = builder.createObjectFactory(obj, environment);
+-                } catch (NamingException e) {
+-                    // TODO: log it
+-                }
+-                if (factory != null) {
+-                    break;
++        try {
++            ServiceReference[] refs = callerContext.getServiceReferences(ObjectFactoryBuilder.class.getName(), null);
++            if (refs != null) {
++                Arrays.sort(refs, Utils.SERVICE_REFERENCE_COMPARATOR);
++                for (ServiceReference ref : refs) {
++                    ObjectFactoryBuilder builder = (ObjectFactoryBuilder) callerContext.getService(ref);
++                    try {
++                        factory = builder.createObjectFactory(obj, environment);
++                    } catch (NamingException e) {
++                        // TODO: log it
++                    } finally {
++                        callerContext.ungetService(ref);
++                    }
++                    if (factory != null) {
++                        break;
++                    }
+                 }
+             }
++        } catch (InvalidSyntaxException e) {
++            // should not happen
++            throw new RuntimeException("Invalid filter", e);
+         }
+ 
+         Object result = null;

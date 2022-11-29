@@ -1,0 +1,46 @@
+diff --git a/test/src/test/java/org/apache/accumulo/test/functional/RestartIT.java b/test/src/test/java/org/apache/accumulo/test/functional/RestartIT.java
+index 8d5a1dd4bd..5af9414725 100644
+--- a/test/src/test/java/org/apache/accumulo/test/functional/RestartIT.java
++++ b/test/src/test/java/org/apache/accumulo/test/functional/RestartIT.java
+@@ -143,14 +143,10 @@ public class RestartIT extends AccumuloClusterIT {
+     VOPTS.tableName = tableName;
+     TestIngest.ingest(c, OPTS, BWOPTS);
+     ClusterControl control = getCluster().getClusterControl();
+-
+     // TODO implement a kill all too?
+-    // cluster.stop() would also stop ZooKeeper
+-    control.stopAllServers(ServerType.MASTER);
+-    control.stopAllServers(ServerType.TRACER);
+-    control.stopAllServers(ServerType.TABLET_SERVER);
+-    control.stopAllServers(ServerType.GARBAGE_COLLECTOR);
+-    control.stopAllServers(ServerType.MONITOR);
++    for (ServerType type : new ServerType[] {ServerType.TABLET_SERVER, ServerType.MASTER, ServerType.MONITOR, ServerType.GARBAGE_COLLECTOR, ServerType.TRACER}) {
++      control.stopAllServers(type);
++    }
+ 
+     ZooReader zreader = new ZooReader(c.getInstance().getZooKeepers(), c.getInstance().getZooKeepersSessionTimeOut());
+     ZooCache zcache = new ZooCache(zreader, null);
+@@ -162,7 +158,6 @@ public class RestartIT extends AccumuloClusterIT {
+         Thread.sleep(1000);
+       }
+     } while (null != masterLockData);
+-
+     cluster.start();
+     UtilWaitThread.sleep(5);
+     control.stopAllServers(ServerType.MASTER);
+@@ -286,12 +281,10 @@ public class RestartIT extends AccumuloClusterIT {
+       TestIngest.ingest(c, opts, BWOPTS);
+       c.tableOperations().flush(tableName, null, null, false);
+       VerifyIngest.verifyIngest(c, VOPTS, SOPTS);
+-      getCluster().stop();
++      getCluster().getClusterControl().adminStopAll();
+     } finally {
+-      if (getClusterType() == ClusterType.STANDALONE) {
+-        getCluster().start();
+-        c.tableOperations().setProperty(MetadataTable.NAME, Property.TABLE_SPLIT_THRESHOLD.getKey(), splitThreshold);
+-      }
++      getCluster().start();
++      c.tableOperations().setProperty(MetadataTable.NAME, Property.TABLE_SPLIT_THRESHOLD.getKey(), splitThreshold);
+     }
+   }
+ }

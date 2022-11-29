@@ -1,0 +1,72 @@
+diff --git a/fate/src/main/java/org/apache/accumulo/fate/ZooStore.java b/fate/src/main/java/org/apache/accumulo/fate/ZooStore.java
+index 36a88e3485..6f5ea70d19 100644
+--- a/fate/src/main/java/org/apache/accumulo/fate/ZooStore.java
++++ b/fate/src/main/java/org/apache/accumulo/fate/ZooStore.java
+@@ -16,8 +16,8 @@
+  */
+ package org.apache.accumulo.fate;
+ 
++import static com.google.common.base.Charsets.UTF_8;
+ import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.io.ByteArrayInputStream;
+ import java.io.ByteArrayOutputStream;
+@@ -79,7 +79,11 @@ public class ZooStore<T> implements TStore<T> {
+     try {
+       ByteArrayInputStream bais = new ByteArrayInputStream(ser);
+       ObjectInputStream ois = new ObjectInputStream(bais);
+-      return ois.readObject();
++      try {
++        return ois.readObject();
++      } finally {
++        ois.close();
++      }
+     } catch (Exception e) {
+       throw new RuntimeException(e);
+     }
+@@ -458,44 +462,4 @@ public class ZooStore<T> implements TStore<T> {
+       throw new RuntimeException(e);
+     }
+   }
+-
+-  @Override
+-  public List<ReadOnlyRepo<T>> getStack(long tid) {
+-    String txpath = getTXPath(tid);
+-
+-    outer: while (true) {
+-      List<String> ops;
+-      try {
+-        ops = zk.getChildren(txpath);
+-      } catch (KeeperException.NoNodeException e) {
+-        return Collections.emptyList();
+-      } catch (KeeperException | InterruptedException e1) {
+-        throw new RuntimeException(e1);
+-      }
+-
+-      ops = new ArrayList<String>(ops);
+-      Collections.sort(ops, Collections.reverseOrder());
+-
+-      ArrayList<ReadOnlyRepo<T>> dops = new ArrayList<>();
+-
+-      for (String child : ops) {
+-        if (child.startsWith("repo_")) {
+-          byte[] ser;
+-          try {
+-            ser = zk.getData(txpath + "/" + child, null);
+-            @SuppressWarnings("unchecked")
+-            ReadOnlyRepo<T> repo = (ReadOnlyRepo<T>) deserialize(ser);
+-            dops.add(repo);
+-          } catch (KeeperException.NoNodeException e) {
+-            // children changed so start over
+-            continue outer;
+-          } catch (KeeperException | InterruptedException e) {
+-            throw new RuntimeException(e);
+-          }
+-        }
+-      }
+-
+-      return dops;
+-    }
+-  }
+ }

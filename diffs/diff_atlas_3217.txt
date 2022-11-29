@@ -1,0 +1,122 @@
+diff --git a/repository/src/main/java/org/apache/atlas/query/AtlasDSL.java b/repository/src/main/java/org/apache/atlas/query/AtlasDSL.java
+index 777d19473..61a34b180 100644
+--- a/repository/src/main/java/org/apache/atlas/query/AtlasDSL.java
++++ b/repository/src/main/java/org/apache/atlas/query/AtlasDSL.java
+@@ -104,8 +104,6 @@ public class AtlasDSL {
+     }
+ 
+     public static class Translator {
+-        private static final Logger LOG = LoggerFactory.getLogger(Translator.class);
+-
+         private final AtlasDSLParser.QueryContext queryContext;
+         private final AtlasTypeRegistry           typeRegistry;
+         private final int                         offset;
+@@ -113,7 +111,7 @@ public class AtlasDSL {
+         private final String                      query;
+ 
+         public Translator(String query, AtlasTypeRegistry typeRegistry, int offset, int limit) throws AtlasBaseException {
+-            this.query        = query;
++            this.query = query;
+             this.queryContext = Parser.parse(query);
+             this.typeRegistry = typeRegistry;
+             this.offset       = offset;
+@@ -121,52 +119,53 @@ public class AtlasDSL {
+         }
+ 
+         public GremlinQuery translate() throws AtlasBaseException {
+-            QueryMetadata queryMetadata        = new QueryMetadata(queryContext);
+-            GremlinQueryComposer queryComposer = new GremlinQueryComposer(typeRegistry, queryMetadata, limit, offset);
++            QueryMetadata queryMetadata = new QueryMetadata(queryContext);
++            GremlinQueryComposer gremlinQueryComposer = new GremlinQueryComposer(typeRegistry, queryMetadata, limit, offset);
++            DSLVisitor dslVisitor = new DSLVisitor(gremlinQueryComposer);
+ 
+-            queryContext.accept(new DSLVisitor(queryComposer));
++            try {
++                queryContext.accept(dslVisitor);
+ 
+-            processErrorList(queryComposer);
++                processErrorList(gremlinQueryComposer, null);
+ 
+-            return new GremlinQuery(queryComposer.get(), queryMetadata, queryComposer.clauses(), queryComposer.getSelectComposer());
++                return new GremlinQuery(gremlinQueryComposer.get(), queryMetadata.hasSelect());
++            } catch (Exception e) {
++                processErrorList(gremlinQueryComposer, e);
++            }
++
++            return null;
+         }
+ 
+-        private void processErrorList(GremlinQueryComposer gremlinQueryComposer) throws AtlasBaseException {
+-            if (CollectionUtils.isEmpty(gremlinQueryComposer.getErrorList())) {
+-                return;
++        private void processErrorList(GremlinQueryComposer gremlinQueryComposer, Exception e) throws AtlasBaseException {
++            final String errorMessage;
++
++            if (CollectionUtils.isNotEmpty(gremlinQueryComposer.getErrorList())) {
++                errorMessage = StringUtils.join(gremlinQueryComposer.getErrorList(), ", ");
++            } else {
++                errorMessage = e != null ? (e.getMessage() != null ? e.getMessage() : e.toString()) : null;
+             }
+ 
+-            final String errorMessage = StringUtils.join(gremlinQueryComposer.getErrorList(), ", ");
+-            LOG.warn("DSL Errors: {}", errorMessage);
+-            throw new AtlasBaseException(AtlasErrorCode.INVALID_DSL_QUERY, this.query, errorMessage);
++            if (errorMessage != null) {
++                if (e != null) {
++                    throw new AtlasBaseException(AtlasErrorCode.INVALID_DSL_QUERY, e, this.query, errorMessage);
++                }
++
++                throw new AtlasBaseException(AtlasErrorCode.INVALID_DSL_QUERY, this.query, errorMessage);
++            }
+         }
+     }
+ 
+     public static class QueryMetadata {
+-        private final boolean hasSelect;
+-        private final boolean hasGroupBy;
+-        private final boolean hasOrderBy;
+-        private final boolean hasLimitOffset;
+-        private final int     resolvedLimit;
+-        private final int     resolvedOffset;
++        private boolean hasSelect;
++        private boolean hasGroupBy;
++        private boolean hasOrderBy;
++        private boolean hasLimitOffset;
+ 
+         public QueryMetadata(AtlasDSLParser.QueryContext queryContext) {
+-            hasSelect      = queryContext != null && queryContext.selectClause() != null;
+-            hasGroupBy     = queryContext != null && queryContext.groupByExpression() != null;
+-            hasOrderBy     = queryContext != null && queryContext.orderByExpr() != null;
++            hasSelect  = queryContext != null && queryContext.selectClause() != null;
++            hasGroupBy = queryContext != null && queryContext.groupByExpression() != null;
++            hasOrderBy = queryContext != null && queryContext.orderByExpr() != null;
+             hasLimitOffset = queryContext != null && queryContext.limitOffset() != null;
+-
+-            if (hasLimitOffset) {
+-                AtlasDSLParser.LimitOffsetContext  limitOffsetContext = queryContext.limitOffset();
+-                AtlasDSLParser.LimitClauseContext  limitClause        = limitOffsetContext.limitClause();
+-                AtlasDSLParser.OffsetClauseContext offsetClause       = limitOffsetContext.offsetClause();
+-
+-                resolvedLimit = (limitClause != null) ? Integer.parseInt(limitClause.NUMBER().getText()) : 0;
+-                resolvedOffset = (offsetClause != null) ? Integer.parseInt(offsetClause.NUMBER().getText()) : 0;
+-            } else {
+-                resolvedLimit = 0;
+-                resolvedOffset = 0;
+-            }
+         }
+ 
+         public boolean hasSelect() {
+@@ -188,13 +187,5 @@ public class AtlasDSL {
+         public boolean needTransformation() {
+             return (hasGroupBy && hasSelect && hasOrderBy) || hasSelect;
+         }
+-
+-        public int getResolvedLimit() {
+-            return resolvedLimit;
+-        }
+-
+-        public int getResolvedOffset() {
+-            return resolvedOffset;
+-        }
+     }
+ }

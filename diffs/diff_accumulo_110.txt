@@ -1,0 +1,58 @@
+diff --git a/fate/src/main/java/org/apache/accumulo/fate/zookeeper/ZooReader.java b/fate/src/main/java/org/apache/accumulo/fate/zookeeper/ZooReader.java
+index b6f3daf0d3..1bd08cd693 100644
+--- a/fate/src/main/java/org/apache/accumulo/fate/zookeeper/ZooReader.java
++++ b/fate/src/main/java/org/apache/accumulo/fate/zookeeper/ZooReader.java
+@@ -17,12 +17,10 @@
+ package org.apache.accumulo.fate.zookeeper;
+ 
+ import java.util.List;
+-import java.util.concurrent.atomic.AtomicBoolean;
+ 
+ import org.apache.zookeeper.KeeperException;
+ import org.apache.zookeeper.Watcher;
+ import org.apache.zookeeper.ZooKeeper;
+-import org.apache.zookeeper.AsyncCallback.VoidCallback;
+ import org.apache.zookeeper.data.Stat;
+ 
+ public class ZooReader implements IZooReader {
+@@ -30,12 +28,12 @@ public class ZooReader implements IZooReader {
+   protected String keepers;
+   protected int timeout;
+   
+-  protected ZooKeeper getSession(String keepers, int timeout, String scheme, byte[] auth) {
+-    return ZooSession.getSession(keepers, timeout, scheme, auth);
++  protected ZooKeeper getSession(String keepers, int timeout, String auth) {
++    return ZooSession.getSession(keepers, timeout, auth);
+   }
+   
+   protected ZooKeeper getZooKeeper() {
+-    return getSession(keepers, timeout, null, null);
++    return getSession(keepers, timeout, null);
+   }
+   
+   @Override
+@@ -73,24 +71,6 @@ public class ZooReader implements IZooReader {
+     return getZooKeeper().exists(zPath, watcher) != null;
+   }
+   
+-  @Override
+-  public void sync(final String path) throws KeeperException, InterruptedException {
+-    final AtomicBoolean waiter = new AtomicBoolean(false);
+-    getZooKeeper().sync(path, new VoidCallback() {
+-      @Override
+-      public void processResult(int arg0, String arg1, Object arg2) {
+-        synchronized (waiter) {
+-          waiter.set(true);
+-          waiter.notifyAll();
+-        }
+-      }}, null);
+-    synchronized (waiter) {
+-      while (!waiter.get())
+-        waiter.wait();
+-    }
+-  }
+-  
+-  
+   public ZooReader(String keepers, int timeout) {
+     this.keepers = keepers;
+     this.timeout = timeout;

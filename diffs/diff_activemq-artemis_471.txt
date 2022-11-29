@@ -1,0 +1,56 @@
+diff --git a/activemq-server/src/main/java/org/apache/activemq/core/server/ActiveMQServers.java b/activemq-server/src/main/java/org/apache/activemq/core/server/ActiveMQServers.java
+index 730a2c8943..411f68c5b9 100644
+--- a/activemq-server/src/main/java/org/apache/activemq/core/server/ActiveMQServers.java
++++ b/activemq-server/src/main/java/org/apache/activemq/core/server/ActiveMQServers.java
+@@ -1,18 +1,14 @@
+-/**
+- * Licensed to the Apache Software Foundation (ASF) under one or more
+- * contributor license agreements. See the NOTICE file distributed with
+- * this work for additional information regarding copyright ownership.
+- * The ASF licenses this file to You under the Apache License, Version 2.0
+- * (the "License"); you may not use this file except in compliance with
+- * the License. You may obtain a copy of the License at
+- *
+- *     http://www.apache.org/licenses/LICENSE-2.0
+- *
++/*
++ * Copyright 2005-2014 Red Hat, Inc.
++ * Red Hat licenses this file to you under the Apache License, version
++ * 2.0 (the "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *    http://www.apache.org/licenses/LICENSE-2.0
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++ * implied.  See the License for the specific language governing
++ * permissions and limitations under the License.
+  */
+ package org.apache.activemq.core.server;
+ 
+@@ -97,9 +93,9 @@ public final class ActiveMQServers
+    public static ActiveMQServer newActiveMQServer(Configuration config,
+                                                   String defUser, String defPass)
+    {
+-      ActiveMQSecurityManagerImpl securityManager = new ActiveMQSecurityManagerImpl();
++      ActiveMQSecurityManager securityManager = new ActiveMQSecurityManagerImpl();
+ 
+-      securityManager.getConfiguration().addUser(defUser, defPass);
++      securityManager.addUser(defUser, defPass);
+ 
+       ActiveMQServer server = ActiveMQServers.newActiveMQServer(config,
+                                                                 ManagementFactory.getPlatformMBeanServer(),
+@@ -115,9 +111,9 @@ public final class ActiveMQServers
+                                                   String user,
+                                                   String password)
+    {
+-      ActiveMQSecurityManagerImpl securityManager = new ActiveMQSecurityManagerImpl();
++      ActiveMQSecurityManager securityManager = new ActiveMQSecurityManagerImpl();
+ 
+-      securityManager.getConfiguration().addUser(user, password);
++      securityManager.addUser(user, password);
+ 
+       ActiveMQServer server = ActiveMQServers.newActiveMQServer(config, mbeanServer, securityManager, enablePersistence);
+ 

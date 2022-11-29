@@ -1,0 +1,208 @@
+diff --git a/archiva-modules/archiva-scheduled/src/main/java/org/apache/maven/archiva/scheduled/executors/ArchivaIndexingTaskExecutor.java b/archiva-modules/archiva-scheduled/src/main/java/org/apache/maven/archiva/scheduled/executors/ArchivaIndexingTaskExecutor.java
+index 4576eae0a..31d0a9f96 100644
+--- a/archiva-modules/archiva-scheduled/src/main/java/org/apache/maven/archiva/scheduled/executors/ArchivaIndexingTaskExecutor.java
++++ b/archiva-modules/archiva-scheduled/src/main/java/org/apache/maven/archiva/scheduled/executors/ArchivaIndexingTaskExecutor.java
+@@ -47,12 +47,13 @@
+ import org.sonatype.nexus.index.packer.IndexPackingRequest;
+ 
+ /**
+- * ArchivaIndexingTaskExecutor Executes all indexing tasks. Adding, updating and removing artifacts from the index are
+- * all performed by this executor. Add and update artifact in index tasks are added in the indexing task queue by the
+- * NexusIndexerConsumer while remove artifact from index tasks are added by the LuceneCleanupRemoveIndexedConsumer.
++ * ArchivaIndexingTaskExecutor
++ * 
++ * Executes all indexing tasks. Adding, updating and removing artifacts from the index are all performed by
++ * this executor. Add and update artifact in index tasks are added in the indexing task queue by the NexusIndexerConsumer while
++ * remove artifact from index tasks are added by the LuceneCleanupRemoveIndexedConsumer.
+  * 
+  * @plexus.component role="org.codehaus.plexus.taskqueue.execution.TaskExecutor" role-hint="indexing"
+- *                   instantiation-strategy="singleton"
+  */
+ public class ArchivaIndexingTaskExecutor
+     implements TaskExecutor, Initializable
+@@ -63,34 +64,34 @@
+      * @plexus.requirement
+      */
+     private IndexerEngine indexerEngine;
+-
++    
+     /**
+      * @plexus.requirement
+      */
+     private ArchivaConfiguration archivaConfiguration;
+-
++    
+     /**
+      * @plexus.requirement
+      */
+     private IndexPacker indexPacker;
+-
++    
+     private ArtifactContextProducer artifactContextProducer;
+-
++        
+     public void executeTask( Task task )
+         throws TaskExecutionException
+     {
+-        synchronized ( indexerEngine )
++        synchronized( indexerEngine )
+         {
+-            ArtifactIndexingTask indexingTask = (ArtifactIndexingTask) task;
+-
++            ArtifactIndexingTask indexingTask = ( ArtifactIndexingTask ) task;
++            
+             ManagedRepositoryConfiguration repository =
+                 archivaConfiguration.getConfiguration().findManagedRepositoryById( indexingTask.getRepositoryId() );
+-
++    
+             String indexDir = repository.getIndexDir();
+             File managedRepository = new File( repository.getLocation() );
+-
++            
+             File indexDirectory = null;
+-            if ( indexDir != null && !"".equals( indexDir ) )
++            if( indexDir != null && !"".equals( indexDir ) )
+             {
+                 indexDirectory = new File( repository.getIndexDir() );
+             }
+@@ -98,84 +99,72 @@ public void executeTask( Task task )
+             {
+                 indexDirectory = new File( managedRepository, ".indexer" );
+             }
+-
++            
+             IndexingContext context = null;
+             try
+             {
+                 context =
+                     new DefaultIndexingContext( repository.getId(), repository.getId(), managedRepository,
+-                                                indexDirectory, null, null, NexusIndexer.FULL_INDEX, false );
++                                            indexDirectory, null, null, NexusIndexer.FULL_INDEX, false );
+                 context.setSearchable( repository.isScanned() );
+-
+-                if ( ArtifactIndexingTask.FINISH.equals( indexingTask.getAction() ) )
+-                {
+-                    final File indexLocation = new File( managedRepository, ".index" );
+-                    IndexPackingRequest request = new IndexPackingRequest( context, indexLocation );
+-                    indexPacker.packIndex( request );
+-                    
+-                    log.debug( "Index file packaged at '" + indexLocation.getPath() + "'." );
+-                }
+-                else
+-                {
+-                    File artifactFile = indexingTask.getResourceFile();
+-                    ArtifactContext ac = artifactContextProducer.getArtifactContext( context, artifactFile );
+-
+-                    if ( ac != null )
++                
++                File artifactFile = indexingTask.getResourceFile();                
++                ArtifactContext ac = artifactContextProducer.getArtifactContext( context, artifactFile );
++                
++                if( ac != null )
++                {   
++                    if( indexingTask.getAction().equals( ArtifactIndexingTask.ADD ) )
+                     {
+-                        if ( indexingTask.getAction().equals( ArtifactIndexingTask.ADD ) )
++                        boolean add = true;
++                        IndexReader r = context.getIndexReader();      
++                        for ( int i = 0; i < r.numDocs(); i++ )
+                         {
+-                            boolean add = true;
+-                            IndexReader r = context.getIndexReader();
+-                            for ( int i = 0; i < r.numDocs(); i++ )
++                            if ( !r.isDeleted( i ) )
+                             {
+-                                if ( !r.isDeleted( i ) )
++                                Document d = r.document( i );          
++                                String uinfo = d.get( ArtifactInfo.UINFO );                                
++                                if( ac.getArtifactInfo().getUinfo().equals( uinfo ) )
+                                 {
+-                                    Document d = r.document( i );
+-                                    String uinfo = d.get( ArtifactInfo.UINFO );
+-                                    if ( ac.getArtifactInfo().getUinfo().equals( uinfo ) )
+-                                    {
+-                                        add = false;
+-                                        break;
+-                                    }
++                                    add = false;
++                                    break;
+                                 }
+                             }
+-
+-                            if ( add )
+-                            {
+-                                log.debug( "Adding artifact '" + ac.getArtifactInfo() + "' to index.." );
+-                                indexerEngine.index( context, ac );
+-                                context.optimize();
+-                            }
+-                            else
+-                            {
+-                                log.debug( "Updating artifact '" + ac.getArtifactInfo() + "' in index.." );
+-                                indexerEngine.update( context, ac );
+-                                context.optimize();
+-                            }
++                        }
++                        
++                        if( add )
++                        {   
++                            log.debug( "Adding artifact '" + ac.getArtifactInfo() + "' to index.." );
++                            indexerEngine.index( context, ac );
+                         }
+                         else
+                         {
+-                            log.debug( "Removing artifact '" + ac.getArtifactInfo() + "' from index.." );
+-                            indexerEngine.remove( context, ac );
+-                            context.optimize();
++                            log.debug( "Updating artifact '" + ac.getArtifactInfo() + "' in index.." );
++                            indexerEngine.update( context, ac );
+                         }
+                     }
+-                }
++                    else
++                    {                           
++                        log.debug( "removing artifact '" + ac.getArtifactInfo() + "' from index.." );
++                        indexerEngine.remove( context, ac );
++                    }
++                    
++                    final File indexLocation = new File( managedRepository, ".index" );
++                    IndexPackingRequest request = new IndexPackingRequest( context, indexLocation );
++                    indexPacker.packIndex( request );
++                }                
+             }
+             catch ( IOException e )
+             {
+-                log.error( "Error occurred while executing indexing task '" + indexingTask.getName() + "'" );
+-                throw new TaskExecutionException( "Error occurred while executing indexing task '"
+-                    + indexingTask.getName() + "'" );
++                throw new TaskExecutionException( "Error occurred while executing indexing task '" +
++                    indexingTask.getName() + "'" );
+             }
+             catch ( UnsupportedExistingLuceneIndexException e )
+             {
+-                log.error( "Unsupported Lucene index format: " + e.getMessage() );
+                 throw new TaskExecutionException( "Unsupported Lucene index format: " + e.getMessage() );
+             }
+             finally
+             {
+-                if ( context != null )
++                if( context != null )
+                 {
+                     try
+                     {
+@@ -183,7 +172,6 @@ public void executeTask( Task task )
+                     }
+                     catch ( IOException e )
+                     {
+-                        log.error( "Error occurred while closing context: " + e.getMessage() );
+                         throw new TaskExecutionException( "Error occurred while closing context: " + e.getMessage() );
+                     }
+                 }
+@@ -195,7 +183,7 @@ public void initialize()
+         throws InitializationException
+     {
+         log.info( "Initialized " + this.getClass().getName() );
+-
++        
+         artifactContextProducer = new DefaultArtifactContextProducer();
+     }
+ 

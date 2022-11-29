@@ -1,0 +1,94 @@
+diff --git a/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServer.java b/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServer.java
+index ac5d948be2..9563254c81 100644
+--- a/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServer.java
++++ b/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServer.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.tserver;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ import static org.apache.accumulo.server.problems.ProblemType.TABLET_LOAD;
+ 
+@@ -102,7 +101,6 @@ import org.apache.accumulo.core.data.thrift.TMutation;
+ import org.apache.accumulo.core.data.thrift.TRange;
+ import org.apache.accumulo.core.data.thrift.UpdateErrors;
+ import org.apache.accumulo.core.iterators.IterationInterruptedException;
+-import org.apache.accumulo.core.master.thrift.BulkImportState;
+ import org.apache.accumulo.core.master.thrift.Compacting;
+ import org.apache.accumulo.core.master.thrift.MasterClientService;
+ import org.apache.accumulo.core.master.thrift.TableInfo;
+@@ -190,7 +188,6 @@ import org.apache.accumulo.server.util.FileSystemMonitor;
+ import org.apache.accumulo.server.util.Halt;
+ import org.apache.accumulo.server.util.MasterMetadataUtil;
+ import org.apache.accumulo.server.util.MetadataTableUtil;
+-import org.apache.accumulo.server.util.ServerBulkImportStatus;
+ import org.apache.accumulo.server.util.time.RelativeTime;
+ import org.apache.accumulo.server.util.time.SimpleTimer;
+ import org.apache.accumulo.server.zookeeper.DistributedWorkQueue;
+@@ -253,6 +250,7 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.net.HostAndPort;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class TabletServer extends AccumuloServerContext implements Runnable {
+   private static final Logger log = LoggerFactory.getLogger(TabletServer.class);
+@@ -349,14 +347,12 @@ public class TabletServer extends AccumuloServerContext implements Runnable {
+       }
+     }, 5000, 5000);
+ 
+-    final long walogMaxSize = getConfiguration().getMemoryInBytes(Property.TSERV_WALOG_MAX_SIZE);
+-    final long minBlockSize = CachedConfiguration.getInstance().getLong("dfs.namenode.fs-limits.min-block-size", 0);
++    long walogMaxSize = getConfiguration().getMemoryInBytes(Property.TSERV_WALOG_MAX_SIZE);
++    long minBlockSize = CachedConfiguration.getInstance().getLong("dfs.namenode.fs-limits.min-block-size", 0);
+     if (minBlockSize != 0 && minBlockSize > walogMaxSize)
+       throw new RuntimeException("Unable to start TabletServer. Logger is set to use blocksize " + walogMaxSize + " but hdfs minimum block size is "
+           + minBlockSize + ". Either increase the " + Property.TSERV_WALOG_MAX_SIZE + " or decrease dfs.namenode.fs-limits.min-block-size in hdfs-site.xml.");
+-    final long toleratedWalCreationFailures = getConfiguration().getCount(Property.TSERV_WALOG_TOLERATED_CREATION_FAILURES);
+-    final long toleratedWalCreationFailuresPeriod = getConfiguration().getTimeInMillis(Property.TSERV_WALOG_TOLERATED_CREATION_FAILURES_PERIOD);
+-    logger = new TabletServerLogger(this, walogMaxSize, syncCounter, flushCounter, toleratedWalCreationFailures, toleratedWalCreationFailuresPeriod);
++    logger = new TabletServerLogger(this, walogMaxSize, syncCounter, flushCounter);
+     this.resourceManager = new TabletServerResourceManager(this, fs);
+     this.security = AuditedSecurityOperation.getInstance(this);
+ 
+@@ -398,8 +394,6 @@ public class TabletServer extends AccumuloServerContext implements Runnable {
+ 
+   private final AtomicLong totalQueuedMutationSize = new AtomicLong(0);
+   private final ReentrantLock recoveryLock = new ReentrantLock(true);
+-  private ThriftClientHandler clientHandler;
+-  private final ServerBulkImportStatus bulkImportStatus = new ServerBulkImportStatus();
+ 
+   private class ThriftClientHandler extends ClientServiceHandler implements TabletClientService.Iface {
+ 
+@@ -2267,7 +2261,6 @@ public class TabletServer extends AccumuloServerContext implements Runnable {
+ 
+   private HostAndPort startTabletClientService() throws UnknownHostException {
+     // start listening for client connection last
+-    clientHandler = new ThriftClientHandler();
+     Iface rpcProxy = RpcWrapper.service(new ThriftClientHandler());
+     final Processor<Iface> processor;
+     if (ThriftServerType.SASL == getThriftServerType()) {
+@@ -2912,9 +2905,6 @@ public class TabletServer extends AccumuloServerContext implements Runnable {
+     result.logSorts = logSorter.getLogSorts();
+     result.flushs = flushCounter.get();
+     result.syncs = syncCounter.get();
+-    result.bulkImports = new ArrayList<>();
+-    result.bulkImports.addAll(clientHandler.getBulkLoadStatus());
+-    result.bulkImports.addAll(bulkImportStatus.getBulkLoadStatus());
+     return result;
+   }
+ 
+@@ -3092,12 +3082,4 @@ public class TabletServer extends AccumuloServerContext implements Runnable {
+     walMarker.closeWal(getTabletSession(), currentLog.getPath());
+   }
+ 
+-  public void updateBulkImportState(List<String> files, BulkImportState state) {
+-    bulkImportStatus.updateBulkImportStatus(files, state);
+-  }
+-
+-  public void removeBulkImportState(List<String> files) {
+-    bulkImportStatus.removeBulkImportStatus(files);
+-  }
+-
+ }

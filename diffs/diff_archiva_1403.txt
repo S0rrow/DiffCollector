@@ -1,0 +1,408 @@
+diff --git a/MRM-462/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/admin/repositories/ConfigureRepositoryAction.java b/MRM-462/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/admin/repositories/ConfigureRepositoryAction.java
+index 437ef009a..7e4bba999 100644
+--- a/MRM-462/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/admin/repositories/ConfigureRepositoryAction.java
++++ b/MRM-462/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/action/admin/repositories/ConfigureRepositoryAction.java
+@@ -19,16 +19,30 @@
+  * under the License.
+  */
+ 
++import com.opensymphony.xwork.ActionContext;
+ import com.opensymphony.xwork.Preparable;
+ import org.apache.commons.io.FileUtils;
+ import org.apache.commons.lang.StringUtils;
++import org.apache.maven.archiva.common.utils.PathUtil;
++import org.apache.maven.archiva.configuration.ArchivaConfiguration;
+ import org.apache.maven.archiva.configuration.Configuration;
++import org.apache.maven.archiva.configuration.IndeterminateConfigurationException;
+ import org.apache.maven.archiva.configuration.InvalidConfigurationException;
+-import org.apache.maven.archiva.configuration.ManagedRepositoryConfiguration;
++import org.apache.maven.archiva.configuration.RepositoryConfiguration;
++import org.apache.maven.archiva.security.ArchivaRoleConstants;
++import org.codehaus.plexus.redback.authorization.AuthorizationException;
++import org.codehaus.plexus.redback.authorization.AuthorizationResult;
++import org.codehaus.plexus.redback.rbac.Resource;
+ import org.codehaus.plexus.redback.role.RoleManager;
+ import org.codehaus.plexus.redback.role.RoleManagerException;
++import org.codehaus.plexus.redback.system.SecuritySession;
++import org.codehaus.plexus.redback.system.SecuritySystem;
++import org.codehaus.plexus.redback.xwork.interceptor.SecureAction;
++import org.codehaus.plexus.redback.xwork.interceptor.SecureActionBundle;
++import org.codehaus.plexus.redback.xwork.interceptor.SecureActionException;
+ import org.codehaus.plexus.registry.RegistryException;
+ import org.codehaus.plexus.scheduler.CronExpressionValidator;
++import org.codehaus.plexus.xwork.action.PlexusActionSupport;
+ 
+ import java.io.File;
+ import java.io.IOException;
+@@ -39,21 +53,36 @@
+  * @plexus.component role="com.opensymphony.xwork.Action" role-hint="configureRepositoryAction"
+  */
+ public class ConfigureRepositoryAction
+-    extends AbstractConfigureRepositoryAction
+-    implements Preparable
++    extends PlexusActionSupport
++    implements Preparable, SecureAction
+ {
+     /**
+-     * The model for this action.
++     * @plexus.requirement role-hint="default"
+      */
+-    private AdminRepositoryConfiguration repository;
++    private RoleManager roleManager;
+ 
+     /**
+-     * @plexus.requirement role-hint="default"
++     * @plexus.requirement
++     */
++    private SecuritySystem securitySystem;
++
++    /**
++     * @plexus.requirement
++     */
++    private ArchivaConfiguration archivaConfiguration;
++
++    private String repoid;
++
++    private String mode;
++
++    /**
++     * The model for this action.
+      */
+-    protected RoleManager roleManager;
++    private AdminRepositoryConfiguration repository;
+ 
+     public String add()
+     {
++        getLogger().info( ".add()" );
+         this.mode = "add";
+ 
+         this.repository.setReleases( true );
+@@ -62,12 +91,35 @@ public String add()
+         return INPUT;
+     }
+ 
++    public String confirm()
++    {
++        getLogger().info( ".confirm()" );
++
++        if ( operationAllowed( ArchivaRoleConstants.OPERATION_DELETE_REPOSITORY, getRepoid() ) )
++        {
++            addActionError(
++                "You do not have the appropriate permissions to delete the " + getRepoid() + " repository." );
++            return ERROR;
++        }
++
++        return INPUT;
++    }
++
+     public String delete()
+     {
++        getLogger().info( ".delete()" );
++
++        if ( operationAllowed( ArchivaRoleConstants.OPERATION_DELETE_REPOSITORY, getRepoid() ) )
++        {
++            addActionError(
++                "You do not have the appropriate permissions to delete the " + getRepoid() + " repository." );
++            return ERROR;
++        }
++
+         String result = SUCCESS;
+         if ( StringUtils.equals( mode, "delete-entry" ) || StringUtils.equals( mode, "delete-contents" ) )
+         {
+-            AdminRepositoryConfiguration existingRepository = repository;
++            AdminRepositoryConfiguration existingRepository = getRepository();
+             if ( existingRepository == null )
+             {
+                 addActionError( "A repository with that id does not exist" );
+@@ -78,9 +130,8 @@ public String delete()
+ 
+             try
+             {
+-                Configuration configuration = archivaConfiguration.getConfiguration();
+-                removeRepository( repoid, configuration );
+-                result = saveConfiguration( configuration );
++                removeRepository( getRepoid() );
++                result = saveConfiguration();
+ 
+                 if ( result.equals( SUCCESS ) )
+                 {
+@@ -116,14 +167,50 @@ public String delete()
+         return result;
+     }
+ 
++    public String edit()
++    {
++        getLogger().info( ".edit()" );
++        this.mode = "edit";
++
++        if ( operationAllowed( ArchivaRoleConstants.OPERATION_EDIT_REPOSITORY, getRepoid() ) )
++        {
++            addActionError( "You do not have the appropriate permissions to edit the " + getRepoid() + " repository." );
++            return ERROR;
++        }
++
++        return INPUT;
++    }
++
++    public String getMode()
++    {
++        return this.mode;
++    }
++
++    public String getRepoid()
++    {
++        return repoid;
++    }
++
+     public AdminRepositoryConfiguration getRepository()
+     {
+         return repository;
+     }
+ 
++    public SecureActionBundle getSecureActionBundle()
++        throws SecureActionException
++    {
++        SecureActionBundle bundle = new SecureActionBundle();
++
++        bundle.setRequiresAuthentication( true );
++        bundle.addRequiredAuthorization( ArchivaRoleConstants.OPERATION_MANAGE_CONFIGURATION, Resource.GLOBAL );
++
++        return bundle;
++    }
++
+     public void prepare()
++        throws Exception
+     {
+-        String id = repoid;
++        String id = getRepoid();
+         if ( id == null )
+         {
+             this.repository = new AdminRepositoryConfiguration();
+@@ -131,8 +218,7 @@ public void prepare()
+             this.repository.setIndexed( false );
+         }
+ 
+-        ManagedRepositoryConfiguration repoconfig =
+-            archivaConfiguration.getConfiguration().findManagedRepositoryById( id );
++        RepositoryConfiguration repoconfig = archivaConfiguration.getConfiguration().findRepositoryById( id );
+         if ( repoconfig != null )
+         {
+             this.repository = new AdminRepositoryConfiguration( repoconfig );
+@@ -141,30 +227,33 @@ public void prepare()
+ 
+     public String save()
+     {
+-        String repoId = repository.getId();
++        String mode = getMode();
++        String repoId = getRepository().getId();
++        boolean containsError = false;
++
++        getLogger().info( ".save(" + mode + ":" + repoId + ")" );
+ 
+-        Configuration configuration = archivaConfiguration.getConfiguration();
+-        boolean containsError = validateFields( configuration );
++        containsError = validateFields( mode );
+ 
+         if ( containsError && StringUtils.equalsIgnoreCase( "add", mode ) )
+         {
+             return INPUT;
+         }
+-        else if ( containsError && StringUtils.equalsIgnoreCase( "edit", this.mode ) )
++        else if ( containsError && StringUtils.equalsIgnoreCase( "edit", mode ) )
+         {
+             return ERROR;
+         }
+ 
+-        if ( StringUtils.equalsIgnoreCase( "edit", this.mode ) )
++        if ( StringUtils.equalsIgnoreCase( "edit", mode ) )
+         {
+-            removeRepository( repoId, configuration );
++            removeRepository( repoId );
+         }
+ 
+         String result;
+         try
+         {
+-            addRepository( repository, configuration );
+-            result = saveConfiguration( configuration );
++            addRepository( getRepository() );
++            result = saveConfiguration();
+         }
+         catch ( IOException e )
+         {
+@@ -190,11 +279,12 @@ else if ( containsError && StringUtils.equalsIgnoreCase( "edit", this.mode ) )
+         return result;
+     }
+ 
+-    private boolean validateFields( Configuration config )
++    private boolean validateFields( String mode )
+     {
+         boolean containsError = false;
+         CronExpressionValidator validator = new CronExpressionValidator();
+-        String repoId = repository.getId();
++        Configuration config = archivaConfiguration.getConfiguration();
++        String repoId = getRepository().getId();
+ 
+         if ( StringUtils.isBlank( repoId ) )
+         {
+@@ -202,18 +292,17 @@ private boolean validateFields( Configuration config )
+             containsError = true;
+         }
+         //if edit mode, do not validate existence of repoId
+-        else if ( ( config.getManagedRepositoriesAsMap().containsKey( repoId ) ||
+-            config.getRemoteRepositoriesAsMap().containsKey( repoId ) ) &&
+-            !StringUtils.equalsIgnoreCase( mode, "edit" ) )
++        else if ( config.findRepositoryById( repoId ) != null && !StringUtils.equalsIgnoreCase( mode, "edit" ) )
+         {
+             addFieldError( "repository.id",
+                            "Unable to add new repository with id [" + repoId + "], that id already exists." );
+             containsError = true;
+         }
+ 
+-        if ( StringUtils.isBlank( repository.getLocation() ) )
++        if ( StringUtils.isBlank( repository.getUrl() ) )
+         {
+-            addFieldError( "repository.location", "You must enter a directory." );
++
++            addFieldError( "repository.url", "You must enter a directory or url." );
+             containsError = true;
+         }
+         if ( StringUtils.isBlank( repository.getName() ) )
+@@ -230,53 +319,120 @@ else if ( ( config.getManagedRepositoriesAsMap().containsKey( repoId ) ||
+         return containsError;
+     }
+ 
+-    private void addRepository( AdminRepositoryConfiguration repository, Configuration configuration )
++    public void setMode( String mode )
++    {
++        this.mode = mode;
++    }
++
++    public void setRepoid( String repoid )
++    {
++        this.repoid = repoid;
++    }
++
++    public void setRepository( AdminRepositoryConfiguration repository )
++    {
++        this.repository = repository;
++    }
++
++    private void addRepository( AdminRepositoryConfiguration repository )
+         throws IOException, RoleManagerException
+     {
+-        // Normalize the path
+-        File file = new File( repository.getLocation() );
+-        repository.setLocation( file.getCanonicalPath() );
+-        if ( !file.exists() )
++        getLogger().info( ".addRepository(" + repository + ")" );
++
++        // Fix the URL entry (could possibly be a filesystem path)
++        String rawUrlEntry = repository.getUrl();
++        if ( !rawUrlEntry.startsWith( "http://" ) )
+         {
+-            file.mkdirs();
+-            // TODO: error handling when this fails, or is not a directory!
++            repository.setUrl( PathUtil.toUrl( rawUrlEntry ) );
++        }
++
++        if ( repository.isManaged() )
++        {
++            // Normalize the path
++            File file = new File( repository.getDirectory() );
++            repository.setDirectory( file.getCanonicalPath() );
++            if ( !file.exists() )
++            {
++                file.mkdirs();
++                // TODO: error handling when this fails, or is not a directory!
++            }
+         }
+ 
+-        configuration.addManagedRepository( repository );
++        archivaConfiguration.getConfiguration().addRepository( repository );
+ 
+         // TODO: double check these are configured on start up
+-        // TODO: belongs in the business logic
+         roleManager.createTemplatedRole( "archiva-repository-manager", repository.getId() );
+ 
+         roleManager.createTemplatedRole( "archiva-repository-observer", repository.getId() );
++
++    }
++
++    private boolean operationAllowed( String permission, String repoid )
++    {
++        ActionContext context = ActionContext.getContext();
++        SecuritySession securitySession = (SecuritySession) context.get( SecuritySession.ROLE );
++
++        AuthorizationResult authzResult;
++        try
++        {
++            authzResult = securitySystem.authorize( securitySession, permission, repoid );
++
++            return authzResult.isAuthorized();
++        }
++        catch ( AuthorizationException e )
++        {
++            getLogger().info( "Unable to authorize permission: " + permission + " against repo: " + repoid +
++                " due to: " + e.getMessage() );
++            return false;
++        }
+     }
+ 
+     private void removeContents( AdminRepositoryConfiguration existingRepository )
+         throws IOException
+     {
+-        FileUtils.deleteDirectory( new File( existingRepository.getLocation() ) );
++        if ( existingRepository.isManaged() )
++        {
++            getLogger().info( "Removing " + existingRepository.getDirectory() );
++            FileUtils.deleteDirectory( new File( existingRepository.getDirectory() ) );
++        }
+     }
+ 
+-    private void removeRepository( String repoId, Configuration configuration )
++    private void removeRepository( String repoId )
+     {
+-        ManagedRepositoryConfiguration toremove = configuration.findManagedRepositoryById( repoId );
++        getLogger().info( ".removeRepository()" );
++
++        RepositoryConfiguration toremove = archivaConfiguration.getConfiguration().findRepositoryById( repoId );
+         if ( toremove != null )
+         {
+-            configuration.removeManagedRepository( toremove );
++            archivaConfiguration.getConfiguration().removeRepository( toremove );
+         }
+     }
+ 
+-    private void removeRepositoryRoles( ManagedRepositoryConfiguration existingRepository )
++    private void removeRepositoryRoles( RepositoryConfiguration existingRepository )
+         throws RoleManagerException
+     {
+         roleManager.removeTemplatedRole( "archiva-repository-manager", existingRepository.getId() );
+         roleManager.removeTemplatedRole( "archiva-repository-observer", existingRepository.getId() );
+ 
+-        getLogger().debug( "removed user roles associated with repository " + existingRepository.getId() );
++        getLogger().info( "removed user roles associated with repository " + existingRepository.getId() );
+     }
+ 
+-    public void setRoleManager( RoleManager roleManager )
++    private String saveConfiguration()
++        throws IOException, InvalidConfigurationException, RegistryException
+     {
+-        this.roleManager = roleManager;
++        getLogger().info( ".saveConfiguration()" );
++
++        try
++        {
++            archivaConfiguration.save( archivaConfiguration.getConfiguration() );
++            addActionMessage( "Successfully saved configuration" );
++        }
++        catch ( IndeterminateConfigurationException e )
++        {
++            addActionError( e.getMessage() );
++            return INPUT;
++        }
++
++        return SUCCESS;
+     }
+ }

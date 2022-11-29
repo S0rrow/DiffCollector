@@ -1,0 +1,208 @@
+diff --git a/core/src/main/java/org/apache/accumulo/core/client/impl/TableOperationsImpl.java b/core/src/main/java/org/apache/accumulo/core/client/impl/TableOperationsImpl.java
+index d65bcec907..e6aecf2a2a 100644
+--- a/core/src/main/java/org/apache/accumulo/core/client/impl/TableOperationsImpl.java
++++ b/core/src/main/java/org/apache/accumulo/core/client/impl/TableOperationsImpl.java
+@@ -17,11 +17,9 @@
+ package org.apache.accumulo.core.client.impl;
+ 
+ import static com.google.common.base.Preconditions.checkArgument;
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.io.BufferedReader;
+-import java.io.FileNotFoundException;
+ import java.io.IOException;
+ import java.io.InputStreamReader;
+ import java.nio.ByteBuffer;
+@@ -111,19 +109,20 @@ import org.apache.hadoop.fs.FileStatus;
+ import org.apache.hadoop.fs.FileSystem;
+ import org.apache.hadoop.fs.Path;
+ import org.apache.hadoop.io.Text;
++import org.apache.log4j.Level;
++import org.apache.log4j.Logger;
+ import org.apache.thrift.TApplicationException;
+ import org.apache.thrift.TException;
+ import org.apache.thrift.transport.TTransportException;
+-import org.slf4j.Logger;
+-import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.base.Joiner;
+ import com.google.common.net.HostAndPort;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class TableOperationsImpl extends TableOperationsHelper {
+ 
+   public static final String CLONE_EXCLUDE_PREFIX = "!";
+-  private static final Logger log = LoggerFactory.getLogger(TableOperations.class);
++  private static final Logger log = Logger.getLogger(TableOperations.class);
+   private final ClientContext context;
+ 
+   public TableOperationsImpl(ClientContext context) {
+@@ -133,22 +132,9 @@ public class TableOperationsImpl extends TableOperationsHelper {
+ 
+   @Override
+   public SortedSet<String> list() {
+-
+-    OpTimer timer = null;
+-
+-    if (log.isTraceEnabled()) {
+-      log.trace("tid={} Fetching list of tables...", Thread.currentThread().getId());
+-      timer = new OpTimer().start();
+-    }
+-
++    OpTimer opTimer = new OpTimer(log, Level.TRACE).start("Fetching list of tables...");
+     TreeSet<String> tableNames = new TreeSet<String>(Tables.getNameToIdMap(context.getInstance()).keySet());
+-
+-    if (timer != null) {
+-      timer.stop();
+-      log.trace("tid={} Fetched {} table names in {}", Thread.currentThread().getId(), tableNames.size(),
+-          String.format("%.3f secs", timer.scale(TimeUnit.SECONDS)));
+-    }
+-
++    opTimer.stop("Fetched " + tableNames.size() + " table names in %DURATION%");
+     return tableNames;
+   }
+ 
+@@ -158,20 +144,9 @@ public class TableOperationsImpl extends TableOperationsHelper {
+     if (tableName.equals(MetadataTable.NAME) || tableName.equals(RootTable.NAME))
+       return true;
+ 
+-    OpTimer timer = null;
+-
+-    if (log.isTraceEnabled()) {
+-      log.trace("tid={} Checking if table {} exists...", Thread.currentThread().getId(), tableName);
+-      timer = new OpTimer().start();
+-    }
+-
++    OpTimer opTimer = new OpTimer(log, Level.TRACE).start("Checking if table " + tableName + " exists...");
+     boolean exists = Tables.getNameToIdMap(context.getInstance()).containsKey(tableName);
+-
+-    if (timer != null) {
+-      timer.stop();
+-      log.trace("tid={} Checked existance of {} in {}", Thread.currentThread().getId(), exists, String.format("%.3f secs", timer.scale(TimeUnit.SECONDS)));
+-    }
+-
++    opTimer.stop("Checked existance of " + exists + " in %DURATION%");
+     return exists;
+   }
+ 
+@@ -333,7 +308,7 @@ public class TableOperationsImpl extends TableOperationsHelper {
+         try {
+           finishFateOperation(opid);
+         } catch (Exception e) {
+-          log.warn("Exception thrown while finishing fate table operation", e);
++          log.warn(e.getMessage(), e);
+         }
+     }
+   }
+@@ -464,24 +439,17 @@ public class TableOperationsImpl extends TableOperationsHelper {
+         try {
+           TabletClientService.Client client = ThriftUtil.getTServerClient(address, context);
+           try {
+-
+-            OpTimer timer = null;
+-
+-            if (log.isTraceEnabled()) {
+-              log.trace("tid={} Splitting tablet {} on {} at {}", Thread.currentThread().getId(), tl.tablet_extent, address, split);
+-              timer = new OpTimer().start();
+-            }
++            OpTimer opTimer = null;
++            if (log.isTraceEnabled())
++              opTimer = new OpTimer(log, Level.TRACE).start("Splitting tablet " + tl.tablet_extent + " on " + address + " at " + split);
+ 
+             client.splitTablet(Tracer.traceInfo(), context.rpcCreds(), tl.tablet_extent.toThrift(), TextUtil.getByteBuffer(split));
+ 
+             // just split it, might as well invalidate it in the cache
+             tabLocator.invalidateCache(tl.tablet_extent);
+ 
+-            if (timer != null) {
+-              timer.stop();
+-              log.trace("Split tablet in {}", String.format("%.3f secs", timer.scale(TimeUnit.SECONDS)));
+-            }
+-
++            if (opTimer != null)
++              opTimer.stop("Split tablet in %DURATION%");
+           } finally {
+             ThriftUtil.returnClient(client);
+           }
+@@ -500,7 +468,8 @@ public class TableOperationsImpl extends TableOperationsHelper {
+           // Do not silently spin when we repeatedly fail to get the location for a tablet
+           locationFailures++;
+           if (5 == locationFailures || 0 == locationFailures % 50) {
+-            log.warn("Having difficulty locating hosting tabletserver for split {} on table {}. Seen {} failures.", split, tableName, locationFailures);
++            log.warn("Having difficulty locating hosting tabletserver for split " + split + " on table " + tableName + ". Seen " + locationFailures
++                + " failures.");
+           }
+ 
+           tabLocator.invalidateCache(tl.tablet_extent);
+@@ -573,7 +542,7 @@ public class TableOperationsImpl extends TableOperationsHelper {
+           throw (AccumuloSecurityException) e.getCause();
+         }
+ 
+-        log.info("{} ... retrying ...", e.getMessage());
++        log.info(e.getMessage() + " ... retrying ...");
+         sleepUninterruptibly(3, TimeUnit.SECONDS);
+       }
+     }
+@@ -825,7 +794,7 @@ public class TableOperationsImpl extends TableOperationsHelper {
+         case TABLE_DOESNT_EXIST:
+           throw new TableNotFoundException(tableId, null, e.getMessage(), e);
+         default:
+-          log.debug("flush security exception on table id {}", tableId);
++          log.debug("flush security exception on table id " + tableId);
+           throw new AccumuloSecurityException(e.user, e.code, e);
+       }
+     } catch (ThriftTableOperationException e) {
+@@ -1040,12 +1009,11 @@ public class TableOperationsImpl extends TableOperationsHelper {
+       ret = fs.makeQualified(new Path(dir));
+     }
+ 
+-    try {
+-      if (!fs.getFileStatus(ret).isDirectory()) {
+-        throw new AccumuloException(kind + " import " + type + " directory " + dir + " is not a directory!");
+-      }
+-    } catch (FileNotFoundException fnf) {
++    if (!fs.exists(ret))
+       throw new AccumuloException(kind + " import " + type + " directory " + dir + " does not exist!");
++
++    if (!fs.getFileStatus(ret).isDirectory()) {
++      throw new AccumuloException(kind + " import " + type + " directory " + dir + " is not a directory!");
+     }
+ 
+     if (type.equals("failure")) {
+@@ -1186,7 +1154,8 @@ public class TableOperationsImpl extends TableOperationsHelper {
+           waitTime = waitFor * 10;
+         waitTime = Math.max(100, waitTime);
+         waitTime = Math.min(5000, waitTime);
+-        log.trace("Waiting for {}({}) tablets, startRow = {} lastRow = {}, holes={} sleeping:{}ms", waitFor, maxPerServer, startRow, lastRow, holes, waitTime);
++        log.trace("Waiting for " + waitFor + "(" + maxPerServer + ") tablets, startRow = " + startRow + " lastRow = " + lastRow + ", holes=" + holes
++            + " sleeping:" + waitTime + "ms");
+         sleepUninterruptibly(waitTime, TimeUnit.MILLISECONDS);
+       } else {
+         break;
+@@ -1302,7 +1271,7 @@ public class TableOperationsImpl extends TableOperationsHelper {
+         if (pair == null) {
+           log.debug("Disk usage request failed.  Pair is null.  Retrying request...", e);
+         } else {
+-          log.debug("Disk usage request failed {}, retrying ... ", pair.getFirst(), e);
++          log.debug("Disk usage request failed " + pair.getFirst() + ", retrying ... ", e);
+         }
+         sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
+       } catch (TException e) {
+@@ -1368,13 +1337,13 @@ public class TableOperationsImpl extends TableOperationsHelper {
+ 
+       for (Entry<String,String> entry : props.entrySet()) {
+         if (Property.isClassProperty(entry.getKey()) && !entry.getValue().contains(Constants.CORE_PACKAGE_NAME)) {
+-          LoggerFactory.getLogger(this.getClass()).info("Imported table sets '{}' to '{}'.  Ensure this class is on Accumulo classpath.", entry.getKey(),
+-              entry.getValue());
++          Logger.getLogger(this.getClass()).info(
++              "Imported table sets '" + entry.getKey() + "' to '" + entry.getValue() + "'.  Ensure this class is on Accumulo classpath.");
+         }
+       }
+ 
+     } catch (IOException ioe) {
+-      LoggerFactory.getLogger(this.getClass()).warn("Failed to check if imported table references external java classes : {}", ioe.getMessage());
++      Logger.getLogger(this.getClass()).warn("Failed to check if imported table references external java classes : " + ioe.getMessage());
+     }
+ 
+     List<ByteBuffer> args = Arrays.asList(ByteBuffer.wrap(tableName.getBytes(UTF_8)), ByteBuffer.wrap(importDir.getBytes(UTF_8)));

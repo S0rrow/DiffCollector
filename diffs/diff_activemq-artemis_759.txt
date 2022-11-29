@@ -1,0 +1,506 @@
+diff --git a/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/ActiveMQServerControl.java b/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/ActiveMQServerControl.java
+index cfde85ea4d..7772459abd 100644
+--- a/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/ActiveMQServerControl.java
++++ b/artemis-core-client/src/main/java/org/apache/activemq/artemis/api/core/management/ActiveMQServerControl.java
+@@ -19,8 +19,6 @@ package org.apache.activemq.artemis.api.core.management;
+ import javax.management.MBeanOperationInfo;
+ import java.util.Map;
+ 
+-import org.apache.activemq.artemis.api.core.ActiveMQAddressDoesNotExistException;
+-
+ /**
+  * An ActiveMQServerControl is used to manage ActiveMQ Artemis servers.
+  */
+@@ -213,7 +211,7 @@ public interface ActiveMQServerControl {
+    /**
+     * Returns whether the bindings directory is created on this server startup.
+     */
+-   @Attribute(desc = "whether the bindings directory is created on this server startup")
++   @Attribute(desc = "whether the bindings directory is created on this server startu")
+    boolean isCreateBindingsDir();
+ 
+    /**
+@@ -395,12 +393,6 @@ public interface ActiveMQServerControl {
+    @Attribute(desc = "names of the queues created on this server")
+    String[] getQueueNames();
+ 
+-   /**
+-    * Returns the names of the queues created on this server with the given routing-type.
+-    */
+-   @Attribute(desc = "names of the queues created on this server with the given routing-type (i.e. ANYCAST or MULTICAST)")
+-   String[] getQueueNames(String routingType);
+-
+    /**
+     * Returns the uptime of this server.
+     */
+@@ -438,37 +430,17 @@ public interface ActiveMQServerControl {
+    @Attribute(desc = "global maximum limit for in-memory messages, in bytes")
+    long getGlobalMaxSize();
+ 
+-   /**
+-    * Returns the  memory used by all the addresses on broker for in-memory messages
+-    */
+-   @Attribute(desc = "memory used by all the addresses on broker for in-memory messages")
+-   long getAddressMemoryUsage();
+-
+-   /**
+-    * Returns the memory used by all the addresses on broker as a percentage of global maximum limit
+-    */
+-   @Attribute(desc = "memory used by all the addresses on broker as a percentage of global maximum limit")
+-   int getAddressMemoryUsagePercentage();
+-
+    // Operations ----------------------------------------------------
+-   @Operation(desc = "Isolate the broker", impact = MBeanOperationInfo.ACTION)
+-   boolean freezeReplication();
+ 
+    @Operation(desc = "create an address", impact = MBeanOperationInfo.ACTION)
+-   String createAddress(@Parameter(name = "name", desc = "The name of the address") String name,
+-                        @Parameter(name = "routingTypes", desc = "Comma separated list of Routing Types (anycast/multicast)") String routingTypes) throws Exception;
+-
+-   @Operation(desc = "update an address", impact = MBeanOperationInfo.ACTION)
+-   String updateAddress(@Parameter(name = "name", desc = "The name of the address") String name,
+-                        @Parameter(name = "routingTypes", desc = "Comma separated list of Routing Types (anycast/multicast)") String routingTypes) throws Exception;
++   void createAddress(@Parameter(name = "name", desc = "The name of the address") String name,
++                      @Parameter(name = "routingType", desc = "the routing type of the address either 0 for multicast or 1 for anycast") int routingType,
++                      @Parameter(name = "defaultDeleteOnNoConsumers", desc = "Whether or not a queue with this address is deleted when it has no consumers") boolean defaultDeleteOnNoConsumers,
++                      @Parameter(name = "defaultMaxConsumers", desc = "The maximim number of consumer a queue with this address can have") int defaultMaxConsumers) throws Exception;
+ 
+    @Operation(desc = "delete an address", impact = MBeanOperationInfo.ACTION)
+    void deleteAddress(@Parameter(name = "name", desc = "The name of the address") String name) throws Exception;
+ 
+-   @Operation(desc = "delete an address", impact = MBeanOperationInfo.ACTION)
+-   void deleteAddress(@Parameter(name = "name", desc = "The name of the address") String name,
+-                      @Parameter(name = "force", desc = "Force consumers and queues out") boolean force) throws Exception;
+-
+    /**
+     * Create a durable queue.
+     * <br>
+@@ -479,27 +451,10 @@ public interface ActiveMQServerControl {
+     * @param address address to bind the queue to
+     * @param name    name of the queue
+     */
+-   @Deprecated
+    @Operation(desc = "Create a queue with the specified address", impact = MBeanOperationInfo.ACTION)
+    void createQueue(@Parameter(name = "address", desc = "Address of the queue") String address,
+                     @Parameter(name = "name", desc = "Name of the queue") String name) throws Exception;
+ 
+-   /**
+-    * Create a durable queue.
+-    * <br>
+-    * If {@code address} is {@code null} it will be defaulted to {@code name}.
+-    * <br>
+-    * This method throws a {@link org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException}) exception if the queue already exits.
+-    *
+-    * @param address     address to bind the queue to
+-    * @param name        name of the queue
+-    * @param routingType The routing type used for this address, MULTICAST or ANYCAST
+-    */
+-   @Operation(desc = "Create a queue with the specified address", impact = MBeanOperationInfo.ACTION)
+-   void createQueue(@Parameter(name = "address", desc = "Address of the queue") String address,
+-                    @Parameter(name = "name", desc = "Name of the queue") String name,
+-                    @Parameter(name = "routingType", desc = "The routing type used for this address, MULTICAST or ANYCAST") String routingType) throws Exception;
+-
+    /**
+     * Create a queue.
+     * <br>
+@@ -509,32 +464,15 @@ public interface ActiveMQServerControl {
+     *
+     * @param address address to bind the queue to
+     * @param name    name of the queue
++    * @param filter  of the queue
+     * @param durable whether the queue is durable
+     */
+-   @Deprecated
+-   @Operation(desc = "Create a queue with the specified address, name and durability", impact = MBeanOperationInfo.ACTION)
++   @Operation(desc = "Create a queue", impact = MBeanOperationInfo.ACTION)
+    void createQueue(@Parameter(name = "address", desc = "Address of the queue") String address,
+                     @Parameter(name = "name", desc = "Name of the queue") String name,
++                    @Parameter(name = "filter", desc = "Filter of the queue") String filter,
+                     @Parameter(name = "durable", desc = "Is the queue durable?") boolean durable) throws Exception;
+ 
+-   /**
+-    * Create a queue.
+-    * <br>
+-    * If {@code address} is {@code null} it will be defaulted to {@code name}.
+-    * <br>
+-    * This method throws a {@link org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException}) exception if the queue already exits.
+-    *
+-    * @param address     address to bind the queue to
+-    * @param name        name of the queue
+-    * @param durable     whether the queue is durable
+-    * @param routingType The routing type used for this address, MULTICAST or ANYCAST
+-    */
+-   @Operation(desc = "Create a queue with the specified address, name and durability", impact = MBeanOperationInfo.ACTION)
+-   void createQueue(@Parameter(name = "address", desc = "Address of the queue") String address,
+-                    @Parameter(name = "name", desc = "Name of the queue") String name,
+-                    @Parameter(name = "durable", desc = "Is the queue durable?") boolean durable,
+-                    @Parameter(name = "routingType", desc = "The routing type used for this address, MULTICAST or ANYCAST") String routingType) throws Exception;
+-
+    /**
+     * Create a queue.
+     * <br>
+@@ -544,94 +482,13 @@ public interface ActiveMQServerControl {
+     *
+     * @param address address to bind the queue to
+     * @param name    name of the queue
+-    * @param filter  of the queue
+     * @param durable whether the queue is durable
+     */
+-   @Operation(desc = "Create a queue", impact = MBeanOperationInfo.ACTION)
++   @Operation(desc = "Create a queue with the specified address, name and durability", impact = MBeanOperationInfo.ACTION)
+    void createQueue(@Parameter(name = "address", desc = "Address of the queue") String address,
+                     @Parameter(name = "name", desc = "Name of the queue") String name,
+-                    @Parameter(name = "filter", desc = "Filter of the queue") String filter,
+                     @Parameter(name = "durable", desc = "Is the queue durable?") boolean durable) throws Exception;
+ 
+-   /**
+-    * Create a queue.
+-    * <br>
+-    * If {@code address} is {@code null} it will be defaulted to {@code name}.
+-    * <br>
+-    * This method throws a {@link org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException}) exception if the queue already exits.
+-    *
+-    * @param address     address to bind the queue to
+-    * @param name        name of the queue
+-    * @param filter      of the queue
+-    * @param durable     whether the queue is durable
+-    * @param routingType The routing type used for this address, MULTICAST or ANYCAST
+-    */
+-   @Operation(desc = "Create a queue", impact = MBeanOperationInfo.ACTION)
+-   void createQueue(@Parameter(name = "address", desc = "Address of the queue") String address,
+-                    @Parameter(name = "name", desc = "Name of the queue") String name,
+-                    @Parameter(name = "filter", desc = "Filter of the queue") String filter,
+-                    @Parameter(name = "durable", desc = "Is the queue durable?") boolean durable,
+-                    @Parameter(name = "routingType", desc = "The routing type used for this address, MULTICAST or ANYCAST") String routingType) throws Exception;
+-
+-   /**
+-    * Create a queue.
+-    * <br>
+-    * If {@code address} is {@code null} it will be defaulted to {@code name}.
+-    * <br>
+-    * This method throws a {@link org.apache.activemq.artemis.api.core.ActiveMQQueueExistsException}) exception if the queue already exits.
+-    *
+-    * @param address            address to bind the queue to
+-    * @param routingType        the routing type used for this address, {@code MULTICAST} or {@code ANYCAST}
+-    * @param name               name of the queue
+-    * @param filterStr          filter of the queue
+-    * @param durable            is the queue durable?
+-    * @param maxConsumers       the maximum number of consumers allowed on this queue at any one time
+-    * @param purgeOnNoConsumers delete this queue when the last consumer disconnects
+-    * @param autoCreateAddress  create an address with default values should a matching address not be found
+-    * @return a textual summary of the queue
+-    * @throws Exception
+-    */
+-   @Operation(desc = "Create a queue", impact = MBeanOperationInfo.ACTION)
+-   String createQueue(@Parameter(name = "address", desc = "Address of the queue") String address,
+-                      @Parameter(name = "routingType", desc = "The routing type used for this address, MULTICAST or ANYCAST") String routingType,
+-                      @Parameter(name = "name", desc = "Name of the queue") String name,
+-                      @Parameter(name = "filter", desc = "Filter of the queue") String filterStr,
+-                      @Parameter(name = "durable", desc = "Is the queue durable?") boolean durable,
+-                      @Parameter(name = "maxConsumers", desc = "The maximum number of consumers allowed on this queue at any one time") int maxConsumers,
+-                      @Parameter(name = "purgeOnNoConsumers", desc = "Delete this queue when the last consumer disconnects") boolean purgeOnNoConsumers,
+-                      @Parameter(name = "autoCreateAddress", desc = "Create an address with default values should a matching address not be found") boolean autoCreateAddress) throws Exception;
+-
+-   /**
+-    * Update a queue.
+-    *
+-    * @param name               name of the queue
+-    * @param routingType        the routing type used for this address, {@code MULTICAST} or {@code ANYCAST}
+-    * @param maxConsumers       the maximum number of consumers allowed on this queue at any one time
+-    * @param purgeOnNoConsumers delete this queue when the last consumer disconnects
+-    * @return a textual summary of the queue
+-    * @throws Exception
+-    */
+-   String updateQueue(@Parameter(name = "name", desc = "Name of the queue") String name,
+-                      @Parameter(name = "routingType", desc = "The routing type used for this address, MULTICAST or ANYCAST") String routingType,
+-                      @Parameter(name = "maxConsumers", desc = "The maximum number of consumers allowed on this queue at any one time") Integer maxConsumers,
+-                      @Parameter(name = "purgeOnNoConsumers", desc = "Delete this queue when the last consumer disconnects") Boolean purgeOnNoConsumers) throws Exception;
+-
+-   /**
+-    * Update a queue.
+-    *
+-    * @param name               name of the queue
+-    * @param routingType        the routing type used for this address, {@code MULTICAST} or {@code ANYCAST}
+-    * @param maxConsumers       the maximum number of consumers allowed on this queue at any one time
+-    * @param purgeOnNoConsumers delete this queue when the last consumer disconnects
+-    * @return a textual summary of the queue
+-    * @throws Exception
+-    */
+-   String updateQueue(@Parameter(name = "name", desc = "Name of the queue") String name,
+-                      @Parameter(name = "routingType", desc = "The routing type used for this address, MULTICAST or ANYCAST") String routingType,
+-                      @Parameter(name = "maxConsumers", desc = "The maximum number of consumers allowed on this queue at any one time") Integer maxConsumers,
+-                      @Parameter(name = "purgeOnNoConsumers", desc = "Delete this queue when the last consumer disconnects") Boolean purgeOnNoConsumers,
+-                      @Parameter(name = "exclusive", desc = "If the queue should route exclusively to one consumer") Boolean exclusive) throws Exception;
+-
+    /**
+     * Deploy a durable queue.
+     * <br>
+@@ -679,14 +536,6 @@ public interface ActiveMQServerControl {
+    void destroyQueue(@Parameter(name = "name", desc = "Name of the queue to destroy") String name,
+                      @Parameter(name = "removeConsumers", desc = "Remove consumers of this queue") boolean removeConsumers) throws Exception;
+ 
+-   /**
+-    * Destroys the queue corresponding to the specified name and delete it's address if there are no other queues
+-    */
+-   @Operation(desc = "Destroy a queue", impact = MBeanOperationInfo.ACTION)
+-   void destroyQueue(@Parameter(name = "name", desc = "Name of the queue to destroy") String name,
+-                     @Parameter(name = "removeConsumers", desc = "Remove consumers of this queue") boolean removeConsumers,
+-                     @Parameter(name = "autoDeleteAddress", desc = "Automatically delete the address if this was the last queue") boolean autoDeleteAddress) throws Exception;
+-
+    /**
+     * Enables message counters for this server.
+     */
+@@ -799,33 +648,12 @@ public interface ActiveMQServerControl {
+    @Operation(desc = "Closes all the connections for sessions with the given user name", impact = MBeanOperationInfo.INFO)
+    boolean closeConnectionsForUser(@Parameter(desc = "a user name", name = "userName") String address) throws Exception;
+ 
+-   /**
+-    * Closes the connection with the given id.
+-    */
+-   @Operation(desc = "Closes all the connection with the id", impact = MBeanOperationInfo.INFO)
+-   boolean closeConnectionWithID(@Parameter(desc = "The connection ID", name = "ID") String ID) throws Exception;
+-
+-   /**
+-    * Closes the session with the given id.
+-    */
+-   @Operation(desc = "Closes the session with the id", impact = MBeanOperationInfo.INFO)
+-   boolean closeSessionWithID(@Parameter(desc = "The connection ID", name = "connectionID") String connectionID,
+-                              @Parameter(desc = "The session ID", name = "ID") String ID) throws Exception;
+-
+-   /**
+-    * Closes the consumer with the given id.
+-    */
+-   @Operation(desc = "Closes the consumer with the id", impact = MBeanOperationInfo.INFO)
+-   boolean closeConsumerWithID(@Parameter(desc = "The session ID", name = "sessionID") String sessionID,
+-                               @Parameter(desc = "The consumer ID", name = "ID") String ID) throws Exception;
+-
+    /**
+     * Lists all the IDs of the connections connected to this server.
+     */
+    @Operation(desc = "List all the connection IDs", impact = MBeanOperationInfo.INFO)
+    String[] listConnectionIDs() throws Exception;
+ 
+-   @Operation(desc = "List all producers", impact = MBeanOperationInfo.INFO)
+    String listProducersInfoAsJSON() throws Exception;
+ 
+    /**
+@@ -865,7 +693,7 @@ public interface ActiveMQServerControl {
+     * </pre>
+     */
+    @Operation(desc = "List all consumers associated with a connection as a JSON string")
+-   String listConsumersAsJSON(@Parameter(desc = "a connection ID", name = "connectionID") String connectionID) throws Exception;
++   String listConsumersAsJSON(String connectionID) throws Exception;
+ 
+    /**
+     * Lists all the consumers connected to this server.
+@@ -946,8 +774,7 @@ public interface ActiveMQServerControl {
+                             @Parameter(desc = "a comma-separated list of roles allowed to delete non durable queues", name = "deleteNonDurableQueueRoles") String deleteNonDurableQueueRoles,
+                             @Parameter(desc = "a comma-separated list of roles allowed to send management messages messages", name = "manage") String manageRoles,
+                             @Parameter(desc = "a comma-separated list of roles allowed to browse queues", name = "browse") String browseRoles,
+-                            @Parameter(desc = "a comma-separated list of roles allowed to create addresses", name = "createAddressRoles") String createAddressRoles,
+-                            @Parameter(desc = "a comma-separated list of roles allowed to delete addresses", name = "deleteAddressRoles") String deleteAddressRoles) throws Exception;
++                            @Parameter(desc = "a comma-separated list of roles allowed to create addresses", name = "createAddressRoles") String createAddressRoles) throws Exception;
+ 
+    @Operation(desc = "Remove security settings for an address", impact = MBeanOperationInfo.ACTION)
+    void removeSecuritySettings(@Parameter(desc = "an address match", name = "addressMatch") String addressMatch) throws Exception;
+@@ -985,39 +812,7 @@ public interface ActiveMQServerControl {
+                            @Parameter(desc = "allow topics to be created automatically", name = "autoCreateJmsTopics") boolean autoCreateJmsTopics,
+                            @Parameter(desc = "allow auto-created topics to be deleted automatically", name = "autoDeleteJmsTopics") boolean autoDeleteJmsTopics) throws Exception;
+ 
+-   /**
+-    * adds a new address setting for a specific address
+-    */
+-   @Operation(desc = "Add address settings for addresses matching the addressMatch", impact = MBeanOperationInfo.ACTION)
+-   void addAddressSettings(@Parameter(desc = "an address match", name = "addressMatch") String addressMatch,
+-                           @Parameter(desc = "the dead letter address setting", name = "DLA") String DLA,
+-                           @Parameter(desc = "the expiry address setting", name = "expiryAddress") String expiryAddress,
+-                           @Parameter(desc = "the expiry delay setting", name = "expiryDelay") long expiryDelay,
+-                           @Parameter(desc = "are any queues created for this address a last value queue", name = "lastValueQueue") boolean lastValueQueue,
+-                           @Parameter(desc = "the delivery attempts", name = "deliveryAttempts") int deliveryAttempts,
+-                           @Parameter(desc = "the max size in bytes", name = "maxSizeBytes") long maxSizeBytes,
+-                           @Parameter(desc = "the page size in bytes", name = "pageSizeBytes") int pageSizeBytes,
+-                           @Parameter(desc = "the max number of pages in the soft memory cache", name = "pageMaxCacheSize") int pageMaxCacheSize,
+-                           @Parameter(desc = "the redelivery delay", name = "redeliveryDelay") long redeliveryDelay,
+-                           @Parameter(desc = "the redelivery delay multiplier", name = "redeliveryMultiplier") double redeliveryMultiplier,
+-                           @Parameter(desc = "the maximum redelivery delay", name = "maxRedeliveryDelay") long maxRedeliveryDelay,
+-                           @Parameter(desc = "the redistribution delay", name = "redistributionDelay") long redistributionDelay,
+-                           @Parameter(desc = "do we send to the DLA when there is no where to route the message", name = "sendToDLAOnNoRoute") boolean sendToDLAOnNoRoute,
+-                           @Parameter(desc = "the policy to use when the address is full", name = "addressFullMessagePolicy") String addressFullMessagePolicy,
+-                           @Parameter(desc = "when a consumer falls below this threshold in terms of messages consumed per second it will be considered 'slow'", name = "slowConsumerThreshold") long slowConsumerThreshold,
+-                           @Parameter(desc = "how often (in seconds) to check for slow consumers", name = "slowConsumerCheckPeriod") long slowConsumerCheckPeriod,
+-                           @Parameter(desc = "the policy to use when a slow consumer is detected", name = "slowConsumerPolicy") String slowConsumerPolicy,
+-                           @Parameter(desc = "allow jms queues to be created automatically", name = "autoCreateJmsQueues") boolean autoCreateJmsQueues,
+-                           @Parameter(desc = "allow auto-created jms queues to be deleted automatically", name = "autoDeleteJmsQueues") boolean autoDeleteJmsQueues,
+-                           @Parameter(desc = "allow jms topics to be created automatically", name = "autoCreateJmsTopics") boolean autoCreateJmsTopics,
+-                           @Parameter(desc = "allow auto-created jms topics to be deleted automatically", name = "autoDeleteJmsTopics") boolean autoDeleteJmsTopics,
+-                           @Parameter(desc = "allow queues to be created automatically", name = "autoCreateQueues") boolean autoCreateQueues,
+-                           @Parameter(desc = "allow auto-created queues to be deleted automatically", name = "autoDeleteQueues") boolean autoDeleteQueues,
+-                           @Parameter(desc = "allow topics to be created automatically", name = "autoCreateAddresses") boolean autoCreateAddresses,
+-                           @Parameter(desc = "allow auto-created topics to be deleted automatically", name = "autoDeleteAddresses") boolean autoDeleteAddresses) throws Exception;
+-
+-   @Operation(desc = "Remove address settings", impact = MBeanOperationInfo.ACTION)
+-   void removeAddressSettings(@Parameter(desc = "an address match", name = "addressMatch") String addressMatch) throws Exception;
++   void removeAddressSettings(String addressMatch) throws Exception;
+ 
+    /**
+     * returns the address settings as a JSON string
+@@ -1028,15 +823,6 @@ public interface ActiveMQServerControl {
+    @Attribute(desc = "names of the diverts deployed on this server")
+    String[] getDivertNames();
+ 
+-   /**
+-    * Jon plugin doesn't recognize an Operation whose name is in
+-    * form getXXXX(), so add this one.
+-    */
+-   @Operation(desc = "names of the diverts deployed on this server", impact = MBeanOperationInfo.INFO)
+-   default String[] listDivertNames() {
+-      return getDivertNames();
+-   }
+-
+    @Operation(desc = "Create a Divert", impact = MBeanOperationInfo.ACTION)
+    void createDivert(@Parameter(name = "name", desc = "Name of the divert") String name,
+                      @Parameter(name = "routingName", desc = "Routing name of the divert") String routingName,
+@@ -1046,38 +832,6 @@ public interface ActiveMQServerControl {
+                      @Parameter(name = "filterString", desc = "Filter of the divert") String filterString,
+                      @Parameter(name = "transformerClassName", desc = "Class name of the divert's transformer") String transformerClassName) throws Exception;
+ 
+-   @Operation(desc = "Create a Divert", impact = MBeanOperationInfo.ACTION)
+-   void createDivert(@Parameter(name = "name", desc = "Name of the divert") String name,
+-                     @Parameter(name = "routingName", desc = "Routing name of the divert") String routingName,
+-                     @Parameter(name = "address", desc = "Address to divert from") String address,
+-                     @Parameter(name = "forwardingAddress", desc = "Address to divert to") String forwardingAddress,
+-                     @Parameter(name = "exclusive", desc = "Is the divert exclusive?") boolean exclusive,
+-                     @Parameter(name = "filterString", desc = "Filter of the divert") String filterString,
+-                     @Parameter(name = "transformerClassName", desc = "Class name of the divert's transformer") String transformerClassName,
+-                     @Parameter(name = "routingType", desc = "How should the routing-type on the diverted messages be set?") String routingType) throws Exception;
+-
+-   @Operation(desc = "Create a Divert", impact = MBeanOperationInfo.ACTION)
+-   void createDivert(@Parameter(name = "name", desc = "Name of the divert") String name,
+-                     @Parameter(name = "routingName", desc = "Routing name of the divert") String routingName,
+-                     @Parameter(name = "address", desc = "Address to divert from") String address,
+-                     @Parameter(name = "forwardingAddress", desc = "Address to divert to") String forwardingAddress,
+-                     @Parameter(name = "exclusive", desc = "Is the divert exclusive?") boolean exclusive,
+-                     @Parameter(name = "filterString", desc = "Filter of the divert") String filterString,
+-                     @Parameter(name = "transformerClassName", desc = "Class name of the divert's transformer") String transformerClassName,
+-                     @Parameter(name = "transformerProperties", desc = "Configuration properties of the divert's transformer") Map<String, String> transformerProperties,
+-                     @Parameter(name = "routingType", desc = "How should the routing-type on the diverted messages be set?") String routingType) throws Exception;
+-
+-   @Operation(desc = "Create a Divert", impact = MBeanOperationInfo.ACTION)
+-   void createDivert(@Parameter(name = "name", desc = "Name of the divert") String name,
+-                     @Parameter(name = "routingName", desc = "Routing name of the divert") String routingName,
+-                     @Parameter(name = "address", desc = "Address to divert from") String address,
+-                     @Parameter(name = "forwardingAddress", desc = "Address to divert to") String forwardingAddress,
+-                     @Parameter(name = "exclusive", desc = "Is the divert exclusive?") boolean exclusive,
+-                     @Parameter(name = "filterString", desc = "Filter of the divert") String filterString,
+-                     @Parameter(name = "transformerClassName", desc = "Class name of the divert's transformer") String transformerClassName,
+-                     @Parameter(name = "transformerPropertiesAsJSON", desc = "Configuration properties of the divert's transformer in JSON form") String transformerPropertiesAsJSON,
+-                     @Parameter(name = "routingType", desc = "How should the routing-type on the diverted messages be set?") String routingType) throws Exception;
+-
+    @Operation(desc = "Destroy a Divert", impact = MBeanOperationInfo.ACTION)
+    void destroyDivert(@Parameter(name = "name", desc = "Name of the divert") String name) throws Exception;
+ 
+@@ -1088,7 +842,7 @@ public interface ActiveMQServerControl {
+    void createBridge(@Parameter(name = "name", desc = "Name of the bridge") String name,
+                      @Parameter(name = "queueName", desc = "Name of the source queue") String queueName,
+                      @Parameter(name = "forwardingAddress", desc = "Forwarding address") String forwardingAddress,
+-                     @Parameter(name = "filterString", desc = "Filter of the bridge") String filterString,
++                     @Parameter(name = "filterString", desc = "Filter of the brdige") String filterString,
+                      @Parameter(name = "transformerClassName", desc = "Class name of the bridge transformer") String transformerClassName,
+                      @Parameter(name = "retryInterval", desc = "Connection retry interval") long retryInterval,
+                      @Parameter(name = "retryIntervalMultiplier", desc = "Connection retry interval multiplier") double retryIntervalMultiplier,
+@@ -1108,49 +862,7 @@ public interface ActiveMQServerControl {
+    void createBridge(@Parameter(name = "name", desc = "Name of the bridge") String name,
+                      @Parameter(name = "queueName", desc = "Name of the source queue") String queueName,
+                      @Parameter(name = "forwardingAddress", desc = "Forwarding address") String forwardingAddress,
+-                     @Parameter(name = "filterString", desc = "Filter of the bridge") String filterString,
+-                     @Parameter(name = "transformerClassName", desc = "Class name of the bridge transformer") String transformerClassName,
+-                     @Parameter(name = "transformerProperties", desc = "Configuration properties of the bridge transformer") Map<String, String> transformerProperties,
+-                     @Parameter(name = "retryInterval", desc = "Connection retry interval") long retryInterval,
+-                     @Parameter(name = "retryIntervalMultiplier", desc = "Connection retry interval multiplier") double retryIntervalMultiplier,
+-                     @Parameter(name = "initialConnectAttempts", desc = "Number of initial connection attempts") int initialConnectAttempts,
+-                     @Parameter(name = "reconnectAttempts", desc = "Number of reconnection attempts") int reconnectAttempts,
+-                     @Parameter(name = "useDuplicateDetection", desc = "Use duplicate detection") boolean useDuplicateDetection,
+-                     @Parameter(name = "confirmationWindowSize", desc = "Confirmation window size") int confirmationWindowSize,
+-                     @Parameter(name = "producerWindowSize", desc = "Producer window size") int producerWindowSize,
+-                     @Parameter(name = "clientFailureCheckPeriod", desc = "Period to check client failure") long clientFailureCheckPeriod,
+-                     @Parameter(name = "staticConnectorNames", desc = "comma separated list of connector names or name of discovery group if 'useDiscoveryGroup' is set to true") String connectorNames,
+-                     @Parameter(name = "useDiscoveryGroup", desc = "use discovery  group") boolean useDiscoveryGroup,
+-                     @Parameter(name = "ha", desc = "Is it using HA") boolean ha,
+-                     @Parameter(name = "user", desc = "User name") String user,
+-                     @Parameter(name = "password", desc = "User password") String password) throws Exception;
+-
+-   @Operation(desc = "Create a Bridge", impact = MBeanOperationInfo.ACTION)
+-   void createBridge(@Parameter(name = "name", desc = "Name of the bridge") String name,
+-                     @Parameter(name = "queueName", desc = "Name of the source queue") String queueName,
+-                     @Parameter(name = "forwardingAddress", desc = "Forwarding address") String forwardingAddress,
+-                     @Parameter(name = "filterString", desc = "Filter of the bridge") String filterString,
+-                     @Parameter(name = "transformerClassName", desc = "Class name of the bridge transformer") String transformerClassName,
+-                     @Parameter(name = "transformerPropertiesAsJSON", desc = "Configuration properties of the bridge transformer in JSON form") String transformerPropertiesAsJSON,
+-                     @Parameter(name = "retryInterval", desc = "Connection retry interval") long retryInterval,
+-                     @Parameter(name = "retryIntervalMultiplier", desc = "Connection retry interval multiplier") double retryIntervalMultiplier,
+-                     @Parameter(name = "initialConnectAttempts", desc = "Number of initial connection attempts") int initialConnectAttempts,
+-                     @Parameter(name = "reconnectAttempts", desc = "Number of reconnection attempts") int reconnectAttempts,
+-                     @Parameter(name = "useDuplicateDetection", desc = "Use duplicate detection") boolean useDuplicateDetection,
+-                     @Parameter(name = "confirmationWindowSize", desc = "Confirmation window size") int confirmationWindowSize,
+-                     @Parameter(name = "producerWindowSize", desc = "Producer window size") int producerWindowSize,
+-                     @Parameter(name = "clientFailureCheckPeriod", desc = "Period to check client failure") long clientFailureCheckPeriod,
+-                     @Parameter(name = "staticConnectorNames", desc = "comma separated list of connector names or name of discovery group if 'useDiscoveryGroup' is set to true") String connectorNames,
+-                     @Parameter(name = "useDiscoveryGroup", desc = "use discovery  group") boolean useDiscoveryGroup,
+-                     @Parameter(name = "ha", desc = "Is it using HA") boolean ha,
+-                     @Parameter(name = "user", desc = "User name") String user,
+-                     @Parameter(name = "password", desc = "User password") String password) throws Exception;
+-
+-   @Operation(desc = "Create a Bridge", impact = MBeanOperationInfo.ACTION)
+-   void createBridge(@Parameter(name = "name", desc = "Name of the bridge") String name,
+-                     @Parameter(name = "queueName", desc = "Name of the source queue") String queueName,
+-                     @Parameter(name = "forwardingAddress", desc = "Forwarding address") String forwardingAddress,
+-                     @Parameter(name = "filterString", desc = "Filter of the bridge") String filterString,
++                     @Parameter(name = "filterString", desc = "Filter of the brdige") String filterString,
+                      @Parameter(name = "transformerClassName", desc = "Class name of the bridge transformer") String transformerClassName,
+                      @Parameter(name = "retryInterval", desc = "Connection retry interval") long retryInterval,
+                      @Parameter(name = "retryIntervalMultiplier", desc = "Connection retry interval multiplier") double retryIntervalMultiplier,
+@@ -1189,44 +901,5 @@ public interface ActiveMQServerControl {
+ 
+    @Operation(desc = "List the Network Topology", impact = MBeanOperationInfo.INFO)
+    String listNetworkTopology() throws Exception;
+-
+-   @Operation(desc = "Get the selected address", impact = MBeanOperationInfo.INFO)
+-   String getAddressInfo(@Parameter(name = "address", desc = "The address") String address) throws ActiveMQAddressDoesNotExistException;
+-
+-   @Operation(desc = "Get a list of bindings associated with an address", impact = MBeanOperationInfo.INFO)
+-   String listBindingsForAddress(@Parameter(name = "address", desc = "The address") String address) throws Exception;
+-
+-   @Operation(desc = "List Addresses on the broker", impact = MBeanOperationInfo.INFO)
+-   String listAddresses(@Parameter(name = "separator", desc = "Separator used on the string listing") String separator) throws Exception;
+-
+-   @Operation(desc = "Search for Connections", impact = MBeanOperationInfo.INFO)
+-   String listConnections(@Parameter(name = "Options") String options,
+-                          @Parameter(name = "Page Number") int page,
+-                          @Parameter(name = "Page Size") int pageSize) throws Exception;
+-
+-   @Operation(desc = "Search for Sessions", impact = MBeanOperationInfo.INFO)
+-   String listSessions(@Parameter(name = "Options") String options,
+-                       @Parameter(name = "Page Number") int page,
+-                       @Parameter(name = "Page Size") int pageSize) throws Exception;
+-
+-   @Operation(desc = "Search for Consumers", impact = MBeanOperationInfo.INFO)
+-   String listConsumers(@Parameter(name = "Options") String options,
+-                        @Parameter(name = "Page Number") int page,
+-                        @Parameter(name = "Page Size") int pageSize) throws Exception;
+-
+-   @Operation(desc = "Search for Consumers", impact = MBeanOperationInfo.INFO)
+-   String listProducers(@Parameter(name = "Options") String options,
+-                        @Parameter(name = "Page Number") int page,
+-                        @Parameter(name = "Page Size") int pageSize) throws Exception;
+-
+-   @Operation(desc = "Search for Addresses", impact = MBeanOperationInfo.INFO)
+-   String listAddresses(@Parameter(name = "Options") String options,
+-                        @Parameter(name = "Page Number") int page,
+-                        @Parameter(name = "Page Size") int pageSize) throws Exception;
+-
+-   @Operation(desc = "Search for Queues", impact = MBeanOperationInfo.INFO)
+-   String listQueues(@Parameter(name = "Options") String options,
+-                     @Parameter(name = "Page Number") int page,
+-                     @Parameter(name = "Page Size") int pageSize) throws Exception;
+ }
+ 

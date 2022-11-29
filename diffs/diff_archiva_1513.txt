@@ -1,0 +1,46 @@
+diff --git a/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/storage/RepositoryStorage.java b/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/storage/RepositoryStorage.java
+index f31f14aaf..1c894816b 100644
+--- a/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/storage/RepositoryStorage.java
++++ b/archiva-modules/metadata/metadata-repository-api/src/main/java/org/apache/archiva/metadata/repository/storage/RepositoryStorage.java
+@@ -19,7 +19,6 @@
+  * under the License.
+  */
+ 
+-import org.apache.archiva.admin.model.RepositoryAdminException;
+ import org.apache.archiva.metadata.model.ArtifactMetadata;
+ import org.apache.archiva.metadata.model.ProjectMetadata;
+ import org.apache.archiva.metadata.model.ProjectVersionMetadata;
+@@ -34,26 +33,19 @@
+ 
+     ProjectVersionMetadata readProjectVersionMetadata( String repoId, String namespace, String projectId,
+                                                        String projectVersion )
+-        throws RepositoryStorageMetadataInvalidException, RepositoryStorageMetadataNotFoundException,
+-        RepositoryAdminException;
++        throws RepositoryStorageMetadataInvalidException, RepositoryStorageMetadataNotFoundException;
+ 
+-    Collection<String> listRootNamespaces( String repoId, Filter<String> filter )
+-        throws RepositoryAdminException;
++    Collection<String> listRootNamespaces( String repoId, Filter<String> filter );
+ 
+-    Collection<String> listNamespaces( String repoId, String namespace, Filter<String> filter )
+-        throws RepositoryAdminException;
++    Collection<String> listNamespaces( String repoId, String namespace, Filter<String> filter );
+ 
+-    Collection<String> listProjects( String repoId, String namespace, Filter<String> filter )
+-        throws RepositoryAdminException;
++    Collection<String> listProjects( String repoId, String namespace, Filter<String> filter );
+ 
+-    Collection<String> listProjectVersions( String repoId, String namespace, String projectId, Filter<String> filter )
+-        throws RepositoryAdminException;
++    Collection<String> listProjectVersions( String repoId, String namespace, String projectId, Filter<String> filter );
+ 
+     Collection<ArtifactMetadata> readArtifactsMetadata( String repoId, String namespace, String projectId,
+-                                                        String projectVersion, Filter<String> filter )
+-        throws RepositoryAdminException;
++                                                        String projectVersion, Filter<String> filter );
+ 
+     // FIXME: reconsider this API, do we want to expose storage format in the form of a path?
+-    ArtifactMetadata readArtifactMetadataFromPath( String repoId, String path )
+-        throws RepositoryAdminException;
++    ArtifactMetadata readArtifactMetadataFromPath( String repoId, String path );
+ }

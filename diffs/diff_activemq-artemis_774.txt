@@ -1,0 +1,38 @@
+diff --git a/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/JMSMessageListenerWrapper.java b/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/JMSMessageListenerWrapper.java
+index f24e90db02..0d2420b68d 100644
+--- a/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/JMSMessageListenerWrapper.java
++++ b/artemis-jms-client/src/main/java/org/apache/activemq/artemis/jms/client/JMSMessageListenerWrapper.java
+@@ -25,7 +25,6 @@ import org.apache.activemq.artemis.api.core.client.ClientMessage;
+ import org.apache.activemq.artemis.api.core.client.MessageHandler;
+ import org.apache.activemq.artemis.api.jms.ActiveMQJMSConstants;
+ import org.apache.activemq.artemis.core.client.impl.ClientSessionInternal;
+-import org.apache.activemq.artemis.jms.client.compatible1X.ActiveMQCompatibleMessage;
+ 
+ public class JMSMessageListenerWrapper implements MessageHandler {
+ 
+@@ -73,13 +72,7 @@ public class JMSMessageListenerWrapper implements MessageHandler {
+     */
+    @Override
+    public void onMessage(final ClientMessage message) {
+-      ActiveMQMessage msg;
+-
+-      if (session.isEnable1xPrefixes()) {
+-         msg = ActiveMQCompatibleMessage.createMessage(message, session.getCoreSession(), options);
+-      } else {
+-         msg = ActiveMQMessage.createMessage(message, session.getCoreSession(), options);
+-      }
++      ActiveMQMessage msg = ActiveMQMessage.createMessage(message, session.getCoreSession(), options);
+ 
+       if (individualACK) {
+          msg.setIndividualAcknowledge();
+@@ -89,6 +82,10 @@ public class JMSMessageListenerWrapper implements MessageHandler {
+          msg.setClientAcknowledge();
+       }
+ 
++      if (session.isEnable1xPrefixes()) {
++         msg.setEnable1xPrefixes(true);
++      }
++
+       try {
+          msg.doBeforeReceive();
+       } catch (Exception e) {

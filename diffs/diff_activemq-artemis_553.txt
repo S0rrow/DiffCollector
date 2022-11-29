@@ -1,0 +1,423 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationEndpoint.java b/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationEndpoint.java
+index 3cd5bfd02f..c96a10f6e3 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationEndpoint.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/core/replication/ReplicationEndpoint.java
+@@ -47,7 +47,7 @@ import org.apache.activemq.artemis.core.paging.impl.Page;
+ import org.apache.activemq.artemis.core.paging.impl.PagingManagerImpl;
+ import org.apache.activemq.artemis.core.paging.impl.PagingStoreFactoryNIO;
+ import org.apache.activemq.artemis.core.persistence.StorageManager;
+-import org.apache.activemq.artemis.core.persistence.impl.journal.AbstractJournalStorageManager.JournalContent;
++import org.apache.activemq.artemis.core.persistence.impl.journal.JournalStorageManager.JournalContent;
+ import org.apache.activemq.artemis.core.persistence.impl.journal.LargeServerMessageInSync;
+ import org.apache.activemq.artemis.core.protocol.core.Channel;
+ import org.apache.activemq.artemis.core.protocol.core.ChannelHandler;
+@@ -68,7 +68,6 @@ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.Replicatio
+ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationPageWriteMessage;
+ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationPrepareMessage;
+ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationResponseMessage;
+-import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationResponseMessageV2;
+ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationStartSyncMessage;
+ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationStartSyncMessage.SyncDataType;
+ import org.apache.activemq.artemis.core.protocol.core.impl.wireformat.ReplicationSyncFileMessage;
+@@ -80,7 +79,6 @@ import org.apache.activemq.artemis.core.server.ServerMessage;
+ import org.apache.activemq.artemis.core.server.cluster.qourum.SharedNothingBackupQuorum;
+ import org.apache.activemq.artemis.core.server.impl.ActiveMQServerImpl;
+ import org.apache.activemq.artemis.core.server.impl.SharedNothingBackupActivation;
+-import org.jboss.logging.Logger;
+ 
+ /**
+  * Handles all the synchronization necessary for replication on the backup side (that is the
+@@ -88,8 +86,7 @@ import org.jboss.logging.Logger;
+  */
+ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQComponent {
+ 
+-   private static final Logger logger = Logger.getLogger(ReplicationEndpoint.class);
+-   private static final boolean isTrace = logger.isTraceEnabled();
++   private static final boolean trace = ActiveMQServerLogger.LOGGER.isTraceEnabled();
+ 
+    private final IOCriticalErrorListener criticalErrorListener;
+    private final ActiveMQServerImpl server;
+@@ -104,20 +101,20 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+    /**
+     * Files reserved in each journal for synchronization of existing data from the 'live' server.
+     */
+-   private final Map<JournalContent, Map<Long, JournalSyncFile>> filesReservedForSync = new HashMap<>();
++   private final Map<JournalContent, Map<Long, JournalSyncFile>> filesReservedForSync = new HashMap<JournalContent, Map<Long, JournalSyncFile>>();
+ 
+    /**
+     * Used to hold the real Journals before the backup is synchronized. This field should be
+     * {@code null} on an up-to-date server.
+     */
+-   private Map<JournalContent, Journal> journalsHolder = new HashMap<>();
++   private Map<JournalContent, Journal> journalsHolder = new HashMap<JournalContent, Journal>();
+ 
+    private StorageManager storageManager;
+ 
+    private PagingManager pageManager;
+ 
+-   private final ConcurrentMap<SimpleString, ConcurrentMap<Integer, Page>> pageIndex = new ConcurrentHashMap<>();
+-   private final ConcurrentMap<Long, ReplicatedLargeMessage> largeMessages = new ConcurrentHashMap<>();
++   private final ConcurrentMap<SimpleString, ConcurrentMap<Integer, Page>> pageIndex = new ConcurrentHashMap<SimpleString, ConcurrentMap<Integer, Page>>();
++   private final ConcurrentMap<Long, ReplicatedLargeMessage> largeMessages = new ConcurrentHashMap<Long, ReplicatedLargeMessage>();
+ 
+    // Used on tests, to simulate failures on delete pages
+    private boolean deletePages = true;
+@@ -146,7 +143,9 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+          journals = new Journal[id + 1];
+ 
+          if (oldJournals != null) {
+-            System.arraycopy(oldJournals, 0, journals, 0, oldJournals.length);
++            for (int i = 0; i < oldJournals.length; i++) {
++               journals[i] = oldJournals[i];
++            }
+          }
+       }
+ 
+@@ -155,18 +154,11 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+ 
+    @Override
+    public void handlePacket(final Packet packet) {
+-      if (isTrace) {
+-         logger.trace("handlePacket::handling " + packet);
+-      }
+       PacketImpl response = new ReplicationResponseMessage();
+       final byte type = packet.getType();
+ 
+       try {
+          if (!started) {
+-            if (isTrace) {
+-               logger.trace("handlePacket::ignoring " + packet);
+-            }
+-
+             return;
+          }
+ 
+@@ -204,7 +196,7 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+             handleLargeMessageEnd((ReplicationLargeMessageEndMessage) packet);
+          }
+          else if (type == PacketImpl.REPLICATION_START_FINISH_SYNC) {
+-            response = handleStartReplicationSynchronization((ReplicationStartSyncMessage) packet);
++            handleStartReplicationSynchronization((ReplicationStartSyncMessage) packet);
+          }
+          else if (type == PacketImpl.REPLICATION_SYNC_FILE) {
+             handleReplicationSynchronization((ReplicationSyncFileMessage) packet);
+@@ -246,12 +238,10 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+       activation.remoteFailOver(packet.isFinalMessage());
+    }
+ 
+-   @Override
+    public boolean isStarted() {
+       return started;
+    }
+ 
+-   @Override
+    public synchronized void start() throws Exception {
+       Configuration config = server.getConfiguration();
+       try {
+@@ -281,7 +271,6 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+       }
+    }
+ 
+-   @Override
+    public synchronized void stop() throws Exception {
+       if (!started) {
+          return;
+@@ -315,7 +304,7 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+          for (Page page : map.values()) {
+             try {
+                page.sync();
+-               page.close(false);
++               page.close();
+             }
+             catch (Exception e) {
+                ActiveMQServerLogger.LOGGER.errorClosingPageOnReplication(e);
+@@ -349,10 +338,56 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+       this.channel = channel;
+    }
+ 
+-   private void finishSynchronization(String liveID) throws Exception {
+-      if (isTrace) {
+-         logger.trace("finishSynchronization::" + liveID);
++   public void compareJournalInformation(final JournalLoadInformation[] journalInformation) throws ActiveMQException {
++      if (!activation.isRemoteBackupUpToDate()) {
++         throw ActiveMQMessageBundle.BUNDLE.journalsNotInSync();
++      }
++
++      if (journalLoadInformation == null || journalLoadInformation.length != journalInformation.length) {
++         throw ActiveMQMessageBundle.BUNDLE.replicationTooManyJournals();
++      }
++
++      for (int i = 0; i < journalInformation.length; i++) {
++         if (!journalInformation[i].equals(journalLoadInformation[i])) {
++            ActiveMQServerLogger.LOGGER.journalcomparisonMismatch(journalParametersToString(journalInformation));
++            throw ActiveMQMessageBundle.BUNDLE.replicationTooManyJournals();
++         }
+       }
++
++   }
++
++   /**
++    * Used on tests only. To simulate missing page deletes
++    */
++   public void setDeletePages(final boolean deletePages) {
++      this.deletePages = deletePages;
++   }
++
++   /**
++    * @param journalInformation
++    */
++   private String journalParametersToString(final JournalLoadInformation[] journalInformation) {
++      return "**********************************************************\n" + "parameters:\n" +
++         "BindingsImpl = " +
++         journalInformation[0] +
++         "\n" +
++         "Messaging = " +
++         journalInformation[1] +
++         "\n" +
++         "**********************************************************" +
++         "\n" +
++         "Expected:" +
++         "\n" +
++         "BindingsImpl = " +
++         journalLoadInformation[0] +
++         "\n" +
++         "Messaging = " +
++         journalLoadInformation[1] +
++         "\n" +
++         "**********************************************************";
++   }
++
++   private void finishSynchronization(String liveID) throws Exception {
+       for (JournalContent jc : EnumSet.allOf(JournalContent.class)) {
+          Journal journal = journalsHolder.remove(jc);
+          journal.synchronizationLock();
+@@ -390,13 +425,13 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+     * @param msg
+     * @throws Exception
+     */
+-   private void handleReplicationSynchronization(ReplicationSyncFileMessage msg) throws Exception {
++   private synchronized void handleReplicationSynchronization(ReplicationSyncFileMessage msg) throws Exception {
+       Long id = Long.valueOf(msg.getId());
+       byte[] data = msg.getData();
+       SequentialFile channel1;
+       switch (msg.getFileType()) {
+          case LARGE_MESSAGE: {
+-            ReplicatedLargeMessage largeMessage = lookupLargeMessage(id, false, false);
++            ReplicatedLargeMessage largeMessage = lookupLargeMessage(id, false);
+             if (!(largeMessage instanceof LargeServerMessageInSync)) {
+                ActiveMQServerLogger.LOGGER.largeMessageIncompatible();
+                return;
+@@ -425,6 +460,7 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+       }
+ 
+       if (data == null) {
++         channel1.close();
+          return;
+       }
+ 
+@@ -439,73 +475,63 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+     * {@link FileWrapperJournal} in place to store messages while synchronization is going on.
+     *
+     * @param packet
+-    * @return if the incoming packet indicates the synchronization is finished then return an acknowledgement otherwise
+-    * return an empty response
+     * @throws Exception
+     */
+-   private ReplicationResponseMessageV2 handleStartReplicationSynchronization(final ReplicationStartSyncMessage packet) throws Exception {
+-
+-      if (isTrace) {
+-         logger.trace("handleStartReplicationSynchronization:: nodeID = " + packet);
++   private void handleStartReplicationSynchronization(final ReplicationStartSyncMessage packet) throws Exception {
++      if (activation.isRemoteBackupUpToDate()) {
++         throw ActiveMQMessageBundle.BUNDLE.replicationBackupUpToDate();
+       }
+-      ReplicationResponseMessageV2 replicationResponseMessage = new ReplicationResponseMessageV2();
+-      if (!started)
+-         return replicationResponseMessage;
+ 
+-      if (packet.isSynchronizationFinished()) {
+-         finishSynchronization(packet.getNodeID());
+-         replicationResponseMessage.setSynchronizationIsFinishedAcknowledgement(true);
+-         return replicationResponseMessage;
+-      }
++      synchronized (this) {
++         if (!started)
++            return;
+ 
+-      switch (packet.getDataType()) {
+-         case LargeMessages:
+-            for (long msgID : packet.getFileIds()) {
+-               createLargeMessage(msgID, true);
+-            }
+-            break;
+-         case JournalBindings:
+-         case JournalMessages:
+-            if (wantedFailBack && !packet.isServerToFailBack()) {
+-               ActiveMQServerLogger.LOGGER.autoFailBackDenied();
+-            }
++         if (packet.isSynchronizationFinished()) {
++            finishSynchronization(packet.getNodeID());
++            return;
++         }
+ 
+-            final JournalContent journalContent = SyncDataType.getJournalContentType(packet.getDataType());
+-            final Journal journal = journalsHolder.get(journalContent);
++         switch (packet.getDataType()) {
++            case LargeMessages:
++               for (long msgID : packet.getFileIds()) {
++                  createLargeMessage(msgID, true);
++               }
++               break;
++            case JournalBindings:
++            case JournalMessages:
++               if (wantedFailBack && !packet.isServerToFailBack()) {
++                  ActiveMQServerLogger.LOGGER.autoFailBackDenied();
++               }
+ 
+-            if (packet.getNodeID() != null) {
+-               // At the start of replication, we still do not know which is the nodeID that the live uses.
+-               // This is the point where the backup gets this information.
+-               backupQuorum.liveIDSet(packet.getNodeID());
+-            }
+-            Map<Long, JournalSyncFile> mapToFill = filesReservedForSync.get(journalContent);
++               final JournalContent journalContent = SyncDataType.getJournalContentType(packet.getDataType());
++               final Journal journal = journalsHolder.get(journalContent);
+ 
+-            for (Entry<Long, JournalFile> entry : journal.createFilesForBackupSync(packet.getFileIds()).entrySet()) {
+-               mapToFill.put(entry.getKey(), new JournalSyncFile(entry.getValue()));
+-            }
+-            FileWrapperJournal syncJournal = new FileWrapperJournal(journal);
+-            registerJournal(journalContent.typeByte, syncJournal);
+-            break;
+-         default:
+-            throw ActiveMQMessageBundle.BUNDLE.replicationUnhandledDataType();
+-      }
++               if (packet.getNodeID() != null) {
++                  // At the start of replication, we still do not know which is the nodeID that the live uses.
++                  // This is the point where the backup gets this information.
++                  backupQuorum.liveIDSet(packet.getNodeID());
++               }
++               Map<Long, JournalSyncFile> mapToFill = filesReservedForSync.get(journalContent);
+ 
+-      return replicationResponseMessage;
++               for (Entry<Long, JournalFile> entry : journal.createFilesForBackupSync(packet.getFileIds()).entrySet()) {
++                  mapToFill.put(entry.getKey(), new JournalSyncFile(entry.getValue()));
++               }
++               FileWrapperJournal syncJournal = new FileWrapperJournal(journal);
++               registerJournal(journalContent.typeByte, syncJournal);
++               break;
++            default:
++               throw ActiveMQMessageBundle.BUNDLE.replicationUnhandledDataType();
++         }
++      }
+    }
+ 
+    private void handleLargeMessageEnd(final ReplicationLargeMessageEndMessage packet) {
+-      if (isTrace) {
+-         logger.trace("handleLargeMessageEnd on " + packet.getMessageId());
+-      }
+-      final ReplicatedLargeMessage message = lookupLargeMessage(packet.getMessageId(), true, false);
++      final ReplicatedLargeMessage message = lookupLargeMessage(packet.getMessageId(), true);
+       if (message != null) {
+          executor.execute(new Runnable() {
+             @Override
+             public void run() {
+                try {
+-                  if (isTrace) {
+-                     logger.trace("Deleting LargeMessage " + packet.getMessageId() + " on the executor @ handleLargeMessageEnd");
+-                  }
+                   message.deleteFile();
+                }
+                catch (Exception e) {
+@@ -520,15 +546,13 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+     * @param packet
+     */
+    private void handleLargeMessageWrite(final ReplicationLargeMessageWriteMessage packet) throws Exception {
+-      ReplicatedLargeMessage message = lookupLargeMessage(packet.getMessageId(), false, true);
++      ReplicatedLargeMessage message = lookupLargeMessage(packet.getMessageId(), false);
+       if (message != null) {
+          message.addBytes(packet.getBody());
+       }
+    }
+ 
+-   private ReplicatedLargeMessage lookupLargeMessage(final long messageId,
+-                                                     final boolean delete,
+-                                                     final boolean createIfNotExists) {
++   private ReplicatedLargeMessage lookupLargeMessage(final long messageId, final boolean delete) {
+       ReplicatedLargeMessage message;
+ 
+       if (delete) {
+@@ -537,14 +561,8 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+       else {
+          message = largeMessages.get(messageId);
+          if (message == null) {
+-            if (createIfNotExists) {
+-               createLargeMessage(messageId, false);
+-               message = largeMessages.get(messageId);
+-            }
+-            else {
+-               // No warnings if it's a delete, as duplicate deletes may be sent repeatedly.
+-               ActiveMQServerLogger.LOGGER.largeMessageNotAvailable(messageId);
+-            }
++            // No warnings if it's a delete, as duplicate deletes may be sent repeatedly.
++            ActiveMQServerLogger.LOGGER.largeMessageNotAvailable(messageId);
+          }
+       }
+ 
+@@ -558,9 +576,7 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+    private void handleLargeMessageBegin(final ReplicationLargeMessageBeginMessage packet) {
+       final long id = packet.getMessageId();
+       createLargeMessage(id, false);
+-      if (isTrace) {
+-         logger.trace("Receiving Large Message Begin " + id + " on backup");
+-      }
++      ActiveMQServerLogger.LOGGER.trace("Receiving Large Message " + id + " on backup");
+    }
+ 
+    private void createLargeMessage(final long id, boolean liveToBackupSync) {
+@@ -636,14 +652,14 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+    private void handleAppendAddRecord(final ReplicationAddMessage packet) throws Exception {
+       Journal journalToUse = getJournal(packet.getJournalID());
+       if (packet.getRecord() == ADD_OPERATION_TYPE.UPDATE) {
+-         if (isTrace) {
+-           logger.trace("Endpoint appendUpdate id = " + packet.getId());
++         if (ReplicationEndpoint.trace) {
++            ActiveMQServerLogger.LOGGER.trace("Endpoint appendUpdate id = " + packet.getId());
+          }
+          journalToUse.appendUpdateRecord(packet.getId(), packet.getJournalRecordType(), packet.getRecordData(), noSync);
+       }
+       else {
+-         if (isTrace) {
+-            logger.trace("Endpoint append id = " + packet.getId());
++         if (ReplicationEndpoint.trace) {
++            ActiveMQServerLogger.LOGGER.trace("Endpoint append id = " + packet.getId());
+          }
+          journalToUse.appendAddRecord(packet.getId(), packet.getJournalRecordType(), packet.getRecordData(), noSync);
+       }
+@@ -668,7 +684,7 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+             }
+          }
+          else {
+-            page.close(false);
++            page.close();
+          }
+       }
+ 
+@@ -689,7 +705,7 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+       ConcurrentMap<Integer, Page> resultIndex = pageIndex.get(storeName);
+ 
+       if (resultIndex == null) {
+-         resultIndex = new ConcurrentHashMap<>();
++         resultIndex = new ConcurrentHashMap<Integer, Page>();
+          ConcurrentMap<Integer, Page> mapResult = pageIndex.putIfAbsent(storeName, resultIndex);
+          if (mapResult != null) {
+             resultIndex = mapResult;
+@@ -777,7 +793,7 @@ public final class ReplicationEndpoint implements ChannelHandler, ActiveMQCompon
+     *
+     * @param backupQuorum
+     */
+-   public void setBackupQuorum(SharedNothingBackupQuorum backupQuorum) {
++   public synchronized void setBackupQuorum(SharedNothingBackupQuorum backupQuorum) {
+       this.backupQuorum = backupQuorum;
+    }
+ 

@@ -1,0 +1,217 @@
+diff --git a/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/jaas/PropertiesLoginModule.java b/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/jaas/PropertiesLoginModule.java
+index 957bb8ab47..6b96ed0b2f 100644
+--- a/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/jaas/PropertiesLoginModule.java
++++ b/artemis-server/src/main/java/org/apache/activemq/artemis/spi/core/security/jaas/PropertiesLoginModule.java
+@@ -25,46 +25,87 @@ import javax.security.auth.callback.UnsupportedCallbackException;
+ import javax.security.auth.login.FailedLoginException;
+ import javax.security.auth.login.LoginException;
+ import javax.security.auth.spi.LoginModule;
++import java.io.File;
+ import java.io.IOException;
+ import java.security.Principal;
+ import java.util.HashSet;
+ import java.util.Map;
+-import java.util.Properties;
+ import java.util.Set;
+ 
+-import org.apache.activemq.artemis.utils.HashProcessor;
+-import org.apache.activemq.artemis.utils.PasswordMaskingUtil;
+-import org.jboss.logging.Logger;
++import org.apache.activemq.artemis.core.server.ActiveMQServerLogger;
+ 
+-public class PropertiesLoginModule extends PropertiesLoader implements LoginModule {
++public class PropertiesLoginModule implements LoginModule {
+ 
+-   private static final Logger logger = Logger.getLogger(PropertiesLoginModule.class);
+-
+-   public static final String USER_FILE_PROP_NAME = "org.apache.activemq.jaas.properties.user";
+-   public static final String ROLE_FILE_PROP_NAME = "org.apache.activemq.jaas.properties.role";
++   private static final String USER_FILE = "org.apache.activemq.jaas.properties.user";
++   private static final String GROUP_FILE = "org.apache.activemq.jaas.properties.role";
+ 
+    private Subject subject;
+    private CallbackHandler callbackHandler;
+ 
+-   private Properties users;
+-   private Map<String, Set<String>> roles;
++   private boolean debug;
++   private boolean reload = false;
++   private static volatile PrincipalProperties users;
++   private static volatile PrincipalProperties roles;
+    private String user;
+-   private final Set<Principal> principals = new HashSet<>();
++   private final Set<Principal> principals = new HashSet<Principal>();
++   private File baseDir;
+    private boolean loginSucceeded;
+-   private HashProcessor hashProcessor;
++   //    private boolean decrypt = true;
+ 
+    @Override
+-   public void initialize(Subject subject,
+-                          CallbackHandler callbackHandler,
+-                          Map<String, ?> sharedState,
+-                          Map<String, ?> options) {
++   public void initialize(Subject subject, CallbackHandler callbackHandler, Map sharedState, Map options) {
+       this.subject = subject;
+       this.callbackHandler = callbackHandler;
+       loginSucceeded = false;
+ 
+-      init(options);
+-      users = load(USER_FILE_PROP_NAME, "user", options).getProps();
+-      roles = load(ROLE_FILE_PROP_NAME, "role", options).invertedPropertiesValuesMap();
++      debug = "true".equalsIgnoreCase((String) options.get("debug"));
++      if (options.get("reload") != null) {
++         reload = "true".equalsIgnoreCase((String) options.get("reload"));
++      }
++
++      if (options.get("baseDir") != null) {
++         baseDir = new File((String) options.get("baseDir"));
++      }
++
++      setBaseDir();
++      String usersFile = options.get(USER_FILE) + "";
++      File uf = baseDir != null ? new File(baseDir, usersFile) : new File(usersFile);
++
++      if (reload || users == null || uf.lastModified() > users.getReloadTime()) {
++         if (debug) {
++            ActiveMQServerLogger.LOGGER.debug("Reloading users from " + uf.getAbsolutePath());
++         }
++         users = new PrincipalProperties("user", uf, ActiveMQServerLogger.LOGGER);
++         //            if( decrypt ) {
++         //                try {
++         //                    EncryptionSupport.decrypt(users.getPrincipals());
++         //                } catch(NoClassDefFoundError e) {
++         //                    // this Happens whe jasypt is not on the classpath..
++         //                    decrypt = false;
++         //                    ActiveMQServerLogger.LOGGER.info("jasypt is not on the classpath: password decryption disabled.");
++         //                }
++         //            }
++      }
++
++      String groupsFile = options.get(GROUP_FILE) + "";
++      File gf = baseDir != null ? new File(baseDir, groupsFile) : new File(groupsFile);
++      if (reload || roles == null || gf.lastModified() > roles.getReloadTime()) {
++         if (debug) {
++            ActiveMQServerLogger.LOGGER.debug("Reloading roles from " + gf.getAbsolutePath());
++         }
++         roles = new PrincipalProperties("role", gf, ActiveMQServerLogger.LOGGER);
++      }
++   }
++
++   private void setBaseDir() {
++      if (baseDir == null) {
++         if (System.getProperty("java.security.auth.login.config") != null) {
++            baseDir = new File(System.getProperty("java.security.auth.login.config")).getParentFile();
++            if (debug) {
++               ActiveMQServerLogger.LOGGER.debug("Using basedir=" + baseDir.getAbsolutePath());
++            }
++         }
++      }
+    }
+ 
+    @Override
+@@ -75,9 +116,11 @@ public class PropertiesLoginModule extends PropertiesLoader implements LoginModu
+       callbacks[1] = new PasswordCallback("Password: ", false);
+       try {
+          callbackHandler.handle(callbacks);
+-      } catch (IOException ioe) {
++      }
++      catch (IOException ioe) {
+          throw new LoginException(ioe.getMessage());
+-      } catch (UnsupportedCallbackException uce) {
++      }
++      catch (UnsupportedCallbackException uce) {
+          throw new LoginException(uce.getMessage() + " not available to obtain information from user");
+       }
+       user = ((NameCallback) callbacks[0]).getName();
+@@ -93,24 +136,13 @@ public class PropertiesLoginModule extends PropertiesLoader implements LoginModu
+       if (password == null) {
+          throw new FailedLoginException("User does exist");
+       }
+-
+-      //password is hashed
+-      try {
+-         hashProcessor = PasswordMaskingUtil.getHashProcessor(password);
+-
+-         if (!hashProcessor.compare(tmpPassword, password)) {
+-            throw new FailedLoginException("Password does not match");
+-         }
+-         loginSucceeded = true;
+-      } catch (Exception e) {
+-         if (debug) {
+-            logger.debug("Exception getting a hash processor", e);
+-         }
+-         throw new FailedLoginException("Failed to get hash processor");
++      if (!password.equals(new String(tmpPassword))) {
++         throw new FailedLoginException("Password does not match");
+       }
++      loginSucceeded = true;
+ 
+       if (debug) {
+-         logger.debug("login " + user);
++         ActiveMQServerLogger.LOGGER.debug("login " + user);
+       }
+       return loginSucceeded;
+    }
+@@ -121,10 +153,17 @@ public class PropertiesLoginModule extends PropertiesLoader implements LoginModu
+       if (result) {
+          principals.add(new UserPrincipal(user));
+ 
+-         Set<String> matchedRoles = roles.get(user);
+-         if (matchedRoles != null) {
+-            for (String entry : matchedRoles) {
+-               principals.add(new RolePrincipal(entry));
++         for (Map.Entry<String, String> entry : roles.entries()) {
++            String name = entry.getKey();
++            if (debug) {
++               ActiveMQServerLogger.LOGGER.debug("Inspecting role '" + name + "' with user(s): " + entry.getValue());
++            }
++            String[] userList = entry.getValue().split(",");
++            for (int i = 0; i < userList.length; i++) {
++               if (user.equals(userList[i])) {
++                  principals.add(new RolePrincipal(name));
++                  break;
++               }
+             }
+          }
+ 
+@@ -135,7 +174,7 @@ public class PropertiesLoginModule extends PropertiesLoader implements LoginModu
+       clear();
+ 
+       if (debug) {
+-         logger.debug("commit, result: " + result);
++         ActiveMQServerLogger.LOGGER.debug("commit, result: " + result);
+       }
+       return result;
+    }
+@@ -145,7 +184,7 @@ public class PropertiesLoginModule extends PropertiesLoader implements LoginModu
+       clear();
+ 
+       if (debug) {
+-         logger.debug("abort");
++         ActiveMQServerLogger.LOGGER.debug("abort");
+       }
+       return true;
+    }
+@@ -156,7 +195,7 @@ public class PropertiesLoginModule extends PropertiesLoader implements LoginModu
+       principals.clear();
+       clear();
+       if (debug) {
+-         logger.debug("logout");
++         ActiveMQServerLogger.LOGGER.debug("logout");
+       }
+       return true;
+    }
+@@ -165,4 +204,12 @@ public class PropertiesLoginModule extends PropertiesLoader implements LoginModu
+       user = null;
+       loginSucceeded = false;
+    }
++
++   /**
++    * For test-usage only.
++    */
++   public static void resetUsersAndGroupsCache() {
++      users = null;
++      roles = null;
++   }
+ }

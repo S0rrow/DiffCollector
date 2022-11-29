@@ -1,0 +1,445 @@
+diff --git a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ProtonSessionIntegrationCallback.java b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ProtonSessionIntegrationCallback.java
+index 107df8a617..88506b6ee1 100644
+--- a/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ProtonSessionIntegrationCallback.java
++++ b/artemis-protocols/artemis-amqp-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/proton/plug/ProtonSessionIntegrationCallback.java
+@@ -17,47 +17,35 @@
+ package org.apache.activemq.artemis.core.protocol.proton.plug;
+ 
+ import java.util.concurrent.Executor;
+-import java.util.concurrent.atomic.AtomicBoolean;
+ 
+ import io.netty.buffer.ByteBuf;
+-import org.apache.activemq.artemis.api.core.ActiveMQException;
++import org.apache.activemq.artemis.core.io.IOCallback;
++import org.apache.qpid.proton.amqp.Binary;
++import org.apache.qpid.proton.amqp.transport.AmqpError;
++import org.apache.qpid.proton.amqp.transport.ErrorCondition;
++import org.apache.qpid.proton.engine.Delivery;
++import org.apache.qpid.proton.engine.Link;
++import org.apache.qpid.proton.engine.Receiver;
++import org.apache.qpid.proton.jms.EncodedMessage;
++import org.apache.qpid.proton.message.ProtonJMessage;
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.api.core.client.ActiveMQClient;
+-import org.apache.activemq.artemis.core.io.IOCallback;
+-import org.apache.activemq.artemis.core.paging.PagingStore;
+ import org.apache.activemq.artemis.core.protocol.proton.ProtonProtocolManager;
+-import org.apache.activemq.artemis.core.protocol.proton.converter.message.EncodedMessage;
+-import org.apache.activemq.artemis.core.server.BindingQueryResult;
+-import org.apache.activemq.artemis.core.server.MessageReference;
+ import org.apache.activemq.artemis.core.server.QueueQueryResult;
+ import org.apache.activemq.artemis.core.server.ServerConsumer;
+ import org.apache.activemq.artemis.core.server.ServerMessage;
+ import org.apache.activemq.artemis.core.server.ServerSession;
+-import org.apache.activemq.artemis.core.server.impl.ServerConsumerImpl;
+-import org.apache.activemq.artemis.core.transaction.Transaction;
+ import org.apache.activemq.artemis.spi.core.protocol.SessionCallback;
+-import org.apache.activemq.artemis.spi.core.remoting.Connection;
+ import org.apache.activemq.artemis.spi.core.remoting.ReadyListener;
+ import org.apache.activemq.artemis.utils.ByteUtil;
+ import org.apache.activemq.artemis.utils.IDGenerator;
+-import org.apache.activemq.artemis.utils.SelectorTranslator;
+ import org.apache.activemq.artemis.utils.SimpleIDGenerator;
+ import org.apache.activemq.artemis.utils.UUIDGenerator;
+-import org.apache.qpid.proton.amqp.Binary;
+-import org.apache.qpid.proton.amqp.messaging.Accepted;
+-import org.apache.qpid.proton.amqp.messaging.Rejected;
+-import org.apache.qpid.proton.amqp.transport.AmqpError;
+-import org.apache.qpid.proton.amqp.transport.ErrorCondition;
+-import org.apache.qpid.proton.engine.Delivery;
+-import org.apache.qpid.proton.engine.Link;
+-import org.apache.qpid.proton.engine.Receiver;
+-import org.apache.qpid.proton.message.ProtonJMessage;
+ import org.proton.plug.AMQPConnectionContext;
+ import org.proton.plug.AMQPSessionCallback;
+ import org.proton.plug.AMQPSessionContext;
+ import org.proton.plug.SASLResult;
+ import org.proton.plug.context.ProtonPlugSender;
+-import org.proton.plug.exceptions.ActiveMQAMQPResourceLimitExceededException;
+ import org.proton.plug.sasl.PlainSASLResult;
+ 
+ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, SessionCallback {
+@@ -70,61 +58,22 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+ 
+    private final AMQPConnectionContext connection;
+ 
+-   private final Connection transportConnection;
+-
+    private ServerSession serverSession;
+ 
+    private AMQPSessionContext protonSession;
+ 
+-   private final Executor closeExecutor;
+-
+-   private final AtomicBoolean draining = new AtomicBoolean(false);
+-
+    public ProtonSessionIntegrationCallback(ActiveMQProtonConnectionCallback protonSPI,
+                                            ProtonProtocolManager manager,
+-                                           AMQPConnectionContext connection,
+-                                           Connection transportConnection,
+-                                           Executor executor) {
++                                           AMQPConnectionContext connection) {
+       this.protonSPI = protonSPI;
+       this.manager = manager;
+       this.connection = connection;
+-      this.transportConnection = transportConnection;
+-      this.closeExecutor = executor;
+-   }
+-
+-   @Override
+-   public boolean isWritable(ReadyListener callback) {
+-      return transportConnection.isWritable(callback);
+    }
+ 
+    @Override
+-   public void onFlowConsumer(Object consumer, int credits, final boolean drain) {
+-      ServerConsumerImpl serverConsumer = (ServerConsumerImpl) consumer;
+-      if (drain) {
+-         // If the draining is already running, then don't do anything
+-         if (draining.compareAndSet(false, true)) {
+-            final ProtonPlugSender plugSender = (ProtonPlugSender) serverConsumer.getProtocolContext();
+-            serverConsumer.forceDelivery(1, new Runnable() {
+-               @Override
+-               public void run() {
+-                  try {
+-                     plugSender.getSender().drained();
+-                  }
+-                  finally {
+-                     draining.set(false);
+-                  }
+-               }
+-            });
+-         }
+-      }
+-      else {
+-         serverConsumer.receiveCredits(-1);
+-      }
+-   }
+-
+-   @Override
+-   public void browserFinished(ServerConsumer consumer) {
+-
++   public void onFlowConsumer(Object consumer, int credits) {
++      // We have our own flow control on AMQP, so we set activemq's flow control to 0
++      ((ServerConsumer) consumer).receiveCredits(-1);
+    }
+ 
+    @Override
+@@ -148,12 +97,7 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+                                                         false, // boolean autoCommitAcks,
+                                                         false, // boolean preAcknowledge,
+                                                         true, //boolean xa,
+-                                                        (String) null, this, true);
+-   }
+-
+-   @Override
+-   public void afterDelivery() throws Exception {
+-
++                                                        (String) null, this, null, true);
+    }
+ 
+    @Override
+@@ -164,13 +108,11 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+    @Override
+    public Object createSender(ProtonPlugSender protonSender,
+                               String queue,
+-                              String filter,
++                              String filer,
+                               boolean browserOnly) throws Exception {
+       long consumerID = consumerIDGenerator.generateID();
+ 
+-      filter = SelectorTranslator.convertToActiveMQFilterString(filter);
+-
+-      ServerConsumer consumer = serverSession.createConsumer(consumerID, SimpleString.toSimpleString(queue), SimpleString.toSimpleString(filter), browserOnly);
++      ServerConsumer consumer = serverSession.createConsumer(consumerID, SimpleString.toSimpleString(queue), SimpleString.toSimpleString(filer), browserOnly);
+ 
+       // AMQP handles its own flow control for when it's started
+       consumer.setStarted(true);
+@@ -192,16 +134,6 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+       serverSession.createQueue(SimpleString.toSimpleString(queueName), SimpleString.toSimpleString(queueName), null, true, false);
+    }
+ 
+-   @Override
+-   public void createTemporaryQueue(String address, String queueName) throws Exception {
+-      serverSession.createQueue(SimpleString.toSimpleString(address), SimpleString.toSimpleString(queueName), null, false, true);
+-   }
+-
+-   @Override
+-   public void createDurableQueue(String address, String queueName) throws Exception {
+-      serverSession.createQueue(SimpleString.toSimpleString(address), SimpleString.toSimpleString(queueName), null, false, true);
+-   }
+-
+    @Override
+    public boolean queueQuery(String queueName) throws Exception {
+       boolean queryResult = false;
+@@ -224,28 +156,6 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+       return queryResult;
+    }
+ 
+-   @Override
+-   public boolean bindingQuery(String address) throws Exception {
+-      boolean queryResult = false;
+-
+-      BindingQueryResult queueQuery = serverSession.executeBindingQuery(SimpleString.toSimpleString(address));
+-
+-      if (queueQuery.isExists()) {
+-         queryResult = true;
+-      }
+-      else {
+-         if (queueQuery.isAutoCreateJmsQueues()) {
+-            serverSession.createQueue(new SimpleString(address), new SimpleString(address), null, false, true);
+-            queryResult = true;
+-         }
+-         else {
+-            queryResult = false;
+-         }
+-      }
+-
+-      return queryResult;
+-   }
+-
+    @Override
+    public void closeSender(final Object brokerConsumer) throws Exception {
+       Runnable runnable = new Runnable() {
+@@ -279,12 +189,7 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+ 
+    @Override
+    public Binary getCurrentTXID() {
+-      Transaction tx = serverSession.getCurrentTransaction();
+-      if (tx == null) {
+-         tx = serverSession.newTransaction();
+-         serverSession.resetTX(tx);
+-      }
+-      return new Binary(ByteUtil.longToBytes(tx.getID()));
++      return new Binary(ByteUtil.longToBytes(serverSession.getCurrentTransaction().getID()));
+    }
+ 
+    @Override
+@@ -294,63 +199,27 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+ 
+    @Override
+    public void commitCurrentTX() throws Exception {
+-      recoverContext();
+-      try {
+-         serverSession.commit();
+-      }
+-      finally {
+-         resetContext();
+-      }
++      serverSession.commit();
+    }
+ 
+    @Override
+-   public void rollbackCurrentTX(boolean lastMessageDelivered) throws Exception {
+-      //need to check here as this can be called if init fails
+-      if (serverSession != null) {
+-         recoverContext();
+-         try {
+-            serverSession.rollback(lastMessageDelivered);
+-         }
+-         finally {
+-            resetContext();
+-         }
+-      }
++   public void rollbackCurrentTX() throws Exception {
++      serverSession.rollback(false);
+    }
+ 
+    @Override
+    public void close() throws Exception {
+-      //need to check here as this can be called if init fails
+-      if (serverSession != null) {
+-         recoverContext();
+-         try {
+-            serverSession.close(false);
+-         }
+-         finally {
+-            resetContext();
+-         }
+-      }
++      serverSession.close(false);
+    }
+ 
+    @Override
+    public void ack(Object brokerConsumer, Object message) throws Exception {
+-      recoverContext();
+-      try {
+-         ((ServerConsumer) brokerConsumer).individualAcknowledge(serverSession.getCurrentTransaction(), ((ServerMessage) message).getMessageID());
+-      }
+-      finally {
+-         resetContext();
+-      }
++      ((ServerConsumer) brokerConsumer).individualAcknowledge(null, ((ServerMessage) message).getMessageID());
+    }
+ 
+    @Override
+    public void cancel(Object brokerConsumer, Object message, boolean updateCounts) throws Exception {
+-      recoverContext();
+-      try {
+-         ((ServerConsumer) brokerConsumer).individualCancel(((ServerMessage) message).getMessageID(), updateCounts);
+-      }
+-      finally {
+-         resetContext();
+-      }
++      ((ServerConsumer) brokerConsumer).individualCancel(((ServerMessage) message).getMessageID(), updateCounts);
+    }
+ 
+    @Override
+@@ -372,116 +241,37 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+          message.setAddress(new SimpleString(address));
+       }
+ 
+-      recoverContext();
++      serverSession.send(message, false);
+ 
+-      PagingStore store = manager.getServer().getPagingManager().getPageStore(message.getAddress());
+-      if (store.isRejectingMessages()) {
+-         // We drop pre-settled messages (and abort any associated Tx)
+-         if (delivery.remotelySettled()) {
+-            if (serverSession.getCurrentTransaction() != null) {
+-               String amqpAddress = delivery.getLink().getTarget().getAddress();
+-               ActiveMQException e = new ActiveMQAMQPResourceLimitExceededException("Address is full: " + amqpAddress);
+-               serverSession.getCurrentTransaction().markAsRollbackOnly(e);
++      manager.getServer().getStorageManager().afterCompleteOperations(new IOCallback() {
++         @Override
++         public void done() {
++            synchronized (connection.getLock()) {
++               delivery.settle();
++               connection.flush();
+             }
+          }
+-         else {
+-            rejectMessage(delivery);
+-         }
+-      }
+-      else {
+-         serverSend(message, delivery, receiver);
+-      }
+-   }
+ 
+-   private void rejectMessage(Delivery delivery) {
+-      String address = delivery.getLink().getTarget().getAddress();
+-      ErrorCondition ec = new ErrorCondition(AmqpError.RESOURCE_LIMIT_EXCEEDED, "Address is full: " + address);
+-      Rejected rejected = new Rejected();
+-      rejected.setError(ec);
+-      delivery.disposition(rejected);
+-      connection.flush();
+-   }
+-
+-   private void serverSend(final ServerMessage message, final Delivery delivery, final Receiver receiver) throws Exception {
+-      try {
+-         serverSession.send(message, false);
+-         // FIXME Potential race here...
+-         manager.getServer().getStorageManager().afterCompleteOperations(new IOCallback() {
+-            @Override
+-            public void done() {
+-               synchronized (connection.getLock()) {
+-                  delivery.disposition(Accepted.getInstance());
+-                  delivery.settle();
+-                  connection.flush();
+-               }
+-            }
+-
+-            @Override
+-            public void onError(int errorCode, String errorMessage) {
+-               synchronized (connection.getLock()) {
+-                  receiver.setCondition(new ErrorCondition(AmqpError.ILLEGAL_STATE, errorCode + ":" + errorMessage));
+-                  connection.flush();
+-               }
+-            }
+-         });
+-      }
+-      finally {
+-         resetContext();
+-      }
+-   }
+-
+-   @Override
+-   public String getPubSubPrefix() {
+-      return manager.getPubSubPrefix();
+-   }
+-
+-   @Override
+-   public void offerProducerCredit(final String address, final int credits, final int threshold, final Receiver receiver) {
+-      try {
+-         final PagingStore store = manager.getServer().getPagingManager().getPageStore(new SimpleString(address));
+-         store.checkMemory(new Runnable() {
+-            @Override
+-            public void run() {
+-               if (receiver.getRemoteCredit() < threshold) {
+-                  receiver.flow(credits);
+-                  connection.flush();
+-               }
++         @Override
++         public void onError(int errorCode, String errorMessage) {
++            synchronized (connection.getLock()) {
++               receiver.setCondition(new ErrorCondition(AmqpError.ILLEGAL_STATE, errorCode + ":" + errorMessage));
++               connection.flush();
+             }
+-         });
+-      }
+-      catch (Exception e) {
+-         throw new RuntimeException(e);
+-      }
+-   }
+-
+-   @Override
+-   public void deleteQueue(String address) throws Exception {
+-      manager.getServer().destroyQueue(new SimpleString(address));
+-   }
+-
+-   private void resetContext() {
+-      manager.getServer().getStorageManager().setContext(null);
+-   }
+-
+-   private void recoverContext() {
+-      manager.getServer().getStorageManager().setContext(serverSession.getSessionContext());
++         }
++      });
+    }
+ 
+    @Override
+    public void sendProducerCreditsMessage(int credits, SimpleString address) {
+    }
+ 
+-   @Override
+-   public boolean updateDeliveryCountAfterCancel(ServerConsumer consumer, MessageReference ref, boolean failed) {
+-      return false;
+-   }
+-
+    @Override
+    public void sendProducerCreditsFailMessage(int credits, SimpleString address) {
+    }
+ 
+    @Override
+-   public int sendMessage(MessageReference ref, ServerMessage message, ServerConsumer consumer, int deliveryCount) {
++   public int sendMessage(ServerMessage message, ServerConsumer consumer, int deliveryCount) {
+ 
+       ProtonPlugSender plugSender = (ProtonPlugSender) consumer.getProtocolContext();
+ 
+@@ -499,7 +289,7 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+    }
+ 
+    @Override
+-   public int sendLargeMessage(MessageReference ref, ServerMessage message, ServerConsumer consumer, long bodySize, int deliveryCount) {
++   public int sendLargeMessage(ServerMessage message, ServerConsumer consumer, long bodySize, int deliveryCount) {
+       return 0;
+    }
+ 
+@@ -515,6 +305,16 @@ public class ProtonSessionIntegrationCallback implements AMQPSessionCallback, Se
+    public void closed() {
+    }
+ 
++   @Override
++   public void addReadyListener(ReadyListener listener) {
++
++   }
++
++   @Override
++   public void removeReadyListener(ReadyListener listener) {
++
++   }
++
+    @Override
+    public void disconnect(ServerConsumer consumer, String queueName) {
+       synchronized (connection.getLock()) {

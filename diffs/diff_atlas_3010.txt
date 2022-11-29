@@ -1,0 +1,93 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/DeleteHandlerV1.java b/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/DeleteHandlerV1.java
+index 18ed533d7..2b62a6878 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/DeleteHandlerV1.java
++++ b/repository/src/main/java/org/apache/atlas/repository/store/graph/v1/DeleteHandlerV1.java
+@@ -40,24 +40,15 @@ import org.apache.atlas.type.AtlasStructType.AtlasAttribute;
+ import org.apache.atlas.type.AtlasStructType.AtlasAttribute.AtlasRelationshipEdgeDirection;
+ import org.apache.atlas.type.AtlasType;
+ import org.apache.atlas.type.AtlasTypeRegistry;
+-import org.apache.commons.collections.CollectionUtils;
+-import org.apache.commons.lang3.StringUtils;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import java.util.*;
+ 
+ import static org.apache.atlas.model.instance.AtlasEntity.Status.DELETED;
+-import static org.apache.atlas.repository.Constants.CLASSIFICATION_LABEL;
+-import static org.apache.atlas.repository.Constants.PROPAGATED_TRAIT_NAMES_PROPERTY_KEY;
+ import static org.apache.atlas.repository.graph.GraphHelper.EDGE_LABEL_PREFIX;
+-import static org.apache.atlas.repository.graph.GraphHelper.addListProperty;
+-import static org.apache.atlas.repository.graph.GraphHelper.getPropagatedEdges;
+-import static org.apache.atlas.repository.graph.GraphHelper.getTraitNames;
+-import static org.apache.atlas.repository.graph.GraphHelper.getTypeName;
+ import static org.apache.atlas.repository.graph.GraphHelper.isRelationshipEdge;
+ import static org.apache.atlas.repository.graph.GraphHelper.string;
+-import static org.apache.atlas.repository.graph.GraphHelper.updateModificationMetadata;
+ import static org.apache.atlas.repository.store.graph.v1.AtlasGraphUtilsV1.getIdFromEdge;
+ import static org.apache.atlas.repository.store.graph.v1.AtlasGraphUtilsV1.getState;
+ 
+@@ -332,12 +323,7 @@ public abstract class DeleteHandlerV1 {
+     protected void deleteTypeVertex(AtlasVertex instanceVertex, TypeCategory typeCategory, boolean force) throws AtlasBaseException {
+         switch (typeCategory) {
+             case STRUCT:
+-                deleteTypeVertex(instanceVertex, force);
+-            break;
+-
+             case CLASSIFICATION:
+-                removeTagPropagation(instanceVertex);
+-
+                 deleteTypeVertex(instanceVertex, force);
+             break;
+ 
+@@ -351,50 +337,6 @@ public abstract class DeleteHandlerV1 {
+         }
+     }
+ 
+-    public List<AtlasVertex> removeTagPropagation(AtlasVertex classificationVertex) throws AtlasBaseException {
+-        List<AtlasVertex> ret = new ArrayList<>();
+-
+-        if (classificationVertex != null) {
+-            String          classificationName = getTypeName(classificationVertex);
+-            List<AtlasEdge> propagatedEdges    = getPropagatedEdges(classificationVertex);
+-
+-            if (CollectionUtils.isNotEmpty(propagatedEdges)) {
+-                for (AtlasEdge propagatedEdge : propagatedEdges) {
+-                    AtlasVertex propagatedEntityVertex = propagatedEdge.getOutVertex();
+-
+-                    if (LOG.isDebugEnabled()) {
+-                        LOG.debug("Removing propagated classification: [{}] from: [{}][{}] with edge label: [{}]", classificationName,
+-                                getTypeName(propagatedEntityVertex), GraphHelper.getGuid(propagatedEntityVertex), CLASSIFICATION_LABEL);
+-                    }
+-
+-                    removePropagatedTraitName(propagatedEntityVertex, classificationName);
+-
+-                    deleteEdge(propagatedEdge, true);
+-
+-                    updateModificationMetadata(propagatedEntityVertex);
+-
+-                    ret.add(propagatedEntityVertex);
+-                }
+-            }
+-        }
+-
+-        return ret;
+-    }
+-
+-    private void removePropagatedTraitName(AtlasVertex entityVertex, String classificationName) {
+-        if (entityVertex != null && StringUtils.isNotEmpty(classificationName)) {
+-            List<String> propagatedTraitNames = getTraitNames(entityVertex, true);
+-
+-            propagatedTraitNames.remove(classificationName);
+-
+-            entityVertex.removeProperty(PROPAGATED_TRAIT_NAMES_PROPERTY_KEY);
+-
+-            for (String propagatedTraitName : propagatedTraitNames) {
+-                addListProperty(entityVertex, PROPAGATED_TRAIT_NAMES_PROPERTY_KEY, propagatedTraitName);
+-            }
+-        }
+-    }
+-
+     /**
+      * Deleting any type vertex. Goes over the complex attributes and removes the references
+      * @param instanceVertex

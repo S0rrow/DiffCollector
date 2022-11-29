@@ -1,0 +1,83 @@
+diff --git a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
+index 1b8ecefd0..b25daef6a 100644
+--- a/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
++++ b/archiva-web/archiva-webapp/src/main/java/org/apache/maven/archiva/web/repository/ProxiedDavServer.java
+@@ -38,11 +38,12 @@
+ import org.codehaus.plexus.webdav.servlet.DavServerRequest;
+ import org.codehaus.plexus.webdav.util.WebdavMethodUtil;
+ 
++import java.io.File;
++import java.io.IOException;
++
+ import javax.servlet.ServletConfig;
+ import javax.servlet.ServletException;
+ import javax.servlet.http.HttpServletResponse;
+-import java.io.File;
+-import java.io.IOException;
+ 
+ /**
+  * ProxiedDavServer
+@@ -50,8 +51,8 @@
+  * @author <a href="mailto:joakime@apache.org">Joakim Erdfelt</a>
+  * @version $Id$
+  * @plexus.component role="org.codehaus.plexus.webdav.DavServerComponent"
+- * role-hint="proxied"
+- * instantiation-strategy="per-lookup"
++ *                   role-hint="proxied"
++ *                   instantiation-strategy="per-lookup"
+  */
+ public class ProxiedDavServer
+     extends AbstractDavServerComponent
+@@ -153,25 +154,13 @@ private void fetchContentFromProxies( DavServerRequest request )
+             ProjectReference project;
+             VersionedReference versioned;
+             ArtifactReference artifact;
+-            BidirectionalRepositoryLayout resourceLayout;
+-
+-            try
+-            {
+-                resourceLayout = layoutFactory.getLayoutForPath( resource );
+-            }
+-            catch ( LayoutException e )
+-            {
+-                /* invalid request - eat it */
+-                return;
+-            }
+ 
+             try
+             {
+-                artifact = resourceLayout.toArtifactReference( resource );
++                artifact = layout.toArtifactReference( resource );
+                 if ( artifact != null )
+                 {
+                     connectors.fetchFromProxies( managedRepository, artifact );
+-                    request.getRequest().setPathInfo( layout.toPath( artifact ) );
+                     return;
+                 }
+             }
+@@ -182,11 +171,10 @@ private void fetchContentFromProxies( DavServerRequest request )
+ 
+             try
+             {
+-                versioned = resourceLayout.toVersionedReference( resource );
++                versioned = layout.toVersionedReference( resource );
+                 if ( versioned != null )
+                 {
+                     connectors.fetchFromProxies( managedRepository, versioned );
+-                    request.getRequest().setPathInfo( layout.toPath( versioned ) );
+                     return;
+                 }
+             }
+@@ -197,11 +185,10 @@ private void fetchContentFromProxies( DavServerRequest request )
+ 
+             try
+             {
+-                project = resourceLayout.toProjectReference( resource );
++                project = layout.toProjectReference( resource );
+                 if ( project != null )
+                 {
+                     connectors.fetchFromProxies( managedRepository, project );
+-                    request.getRequest().setPathInfo( layout.toPath( project ) );
+                     return;
+                 }
+             }

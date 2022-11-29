@@ -1,0 +1,65 @@
+diff --git a/artemis-journal/src/main/java/org/apache/activemq/artemis/core/io/buffer/TimedBuffer.java b/artemis-journal/src/main/java/org/apache/activemq/artemis/core/io/buffer/TimedBuffer.java
+index 087453de5a..2713255b7f 100644
+--- a/artemis-journal/src/main/java/org/apache/activemq/artemis/core/io/buffer/TimedBuffer.java
++++ b/artemis-journal/src/main/java/org/apache/activemq/artemis/core/io/buffer/TimedBuffer.java
+@@ -23,6 +23,7 @@ import java.util.Timer;
+ import java.util.TimerTask;
+ import java.util.concurrent.Semaphore;
+ import java.util.concurrent.atomic.AtomicLong;
++import java.util.concurrent.locks.LockSupport;
+ 
+ import io.netty.buffer.Unpooled;
+ import org.apache.activemq.artemis.api.core.ActiveMQBuffer;
+@@ -47,7 +48,7 @@ public final class TimedBuffer {
+    // prevent that
+    private final Semaphore spinLimiter = new Semaphore(1);
+ 
+-   private CheckTimer timerRunnable;
++   private CheckTimer timerRunnable = null;
+ 
+    private final int bufferSize;
+ 
+@@ -370,9 +371,6 @@ public final class TimedBuffer {
+       int failedChecks = 0;
+       long timeBefore = 0;
+ 
+-      final int sleepMillis = timeout / 1000000; // truncates
+-      final int sleepNanos = timeout % 1000000;
+-
+       @Override
+       public void run() {
+          long lastFlushTime = 0;
+@@ -421,14 +419,7 @@ public final class TimedBuffer {
+                timeBefore = System.nanoTime();
+             }
+ 
+-            try {
+-               sleep(sleepMillis, sleepNanos);
+-            } catch (InterruptedException e) {
+-               throw new ActiveMQInterruptedException(e);
+-            } catch (Exception e) {
+-               useSleep = false;
+-               ActiveMQJournalLogger.LOGGER.warn(e.getMessage() + ", disabling sleep on TimedBuffer, using spin now", e);
+-            }
++            LockSupport.parkNanos(timeout);
+ 
+             if (checks < MAX_CHECKS_ON_SLEEP) {
+                long realTimeSleep = System.nanoTime() - timeBefore;
+@@ -453,17 +444,6 @@ public final class TimedBuffer {
+       }
+    }
+ 
+-   /**
+-    * Sub classes (tests basically) can use this to override how the sleep is being done
+-    *
+-    * @param sleepMillis
+-    * @param sleepNanos
+-    * @throws InterruptedException
+-    */
+-   protected void sleep(int sleepMillis, int sleepNanos) throws InterruptedException {
+-      Thread.sleep(sleepMillis, sleepNanos);
+-   }
+-
+    /**
+     * Sub classes (tests basically) can use this to override disabling spinning
+     */

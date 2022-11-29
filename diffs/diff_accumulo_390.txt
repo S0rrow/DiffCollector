@@ -1,0 +1,27 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/MultiTableRecoveryIT.java b/test/src/main/java/org/apache/accumulo/test/MultiTableRecoveryIT.java
+index 3bba08e061..d584613108 100644
+--- a/test/src/main/java/org/apache/accumulo/test/MultiTableRecoveryIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/MultiTableRecoveryIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertTrue;
+ 
+@@ -42,12 +41,13 @@ import org.apache.hadoop.fs.RawLocalFileSystem;
+ import org.junit.Test;
+ 
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class MultiTableRecoveryIT extends ConfigurableMacBase {
+ 
+   @Override
+   protected void configure(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
+-    cfg.setProperty(Property.INSTANCE_ZK_TIMEOUT, "15s");
++    cfg.setProperty(Property.INSTANCE_ZK_TIMEOUT, "5s");
+ 
+     // use raw local file system so walogs sync and flush will work
+     hadoopCoreSite.set("fs.file.impl", RawLocalFileSystem.class.getName());

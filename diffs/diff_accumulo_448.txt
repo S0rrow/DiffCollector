@@ -1,0 +1,22 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/SlowIterator.java b/test/src/main/java/org/apache/accumulo/test/functional/SlowIterator.java
+index 2f72db4416..aeb0dff92f 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/SlowIterator.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/SlowIterator.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-
+ import java.io.IOException;
+ import java.util.Collection;
+ import java.util.Map;
+@@ -32,6 +30,8 @@ import org.apache.accumulo.core.iterators.IteratorEnvironment;
+ import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
+ import org.apache.accumulo.core.iterators.WrappingIterator;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class SlowIterator extends WrappingIterator {
+ 
+   static private final String SLEEP_TIME = "sleepTime";

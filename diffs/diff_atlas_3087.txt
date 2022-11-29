@@ -1,0 +1,48 @@
+diff --git a/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java b/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java
+index 62298f9f1..5632520f7 100644
+--- a/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java
++++ b/repository/src/main/java/org/apache/atlas/repository/impexp/ExportService.java
+@@ -620,7 +620,7 @@ public class ExportService {
+         } else if (type instanceof AtlasEnumType) {
+             addEnumType((AtlasEnumType)type, context);
+         } else if (type instanceof AtlasRelationshipType) {
+-            addRelationshipType(type.getTypeName(), context);
++            addRelationshipType((AtlasRelationshipType)type, context);
+         }
+     }
+ 
+@@ -667,17 +667,13 @@ public class ExportService {
+         }
+     }
+ 
+-    private void addRelationshipType(String relationshipTypeName, ExportContext context) {
+-        if (!context.relationshipTypes.contains(relationshipTypeName)) {
+-            AtlasRelationshipType relationshipType = typeRegistry.getRelationshipTypeByName(relationshipTypeName);
++    private void addRelationshipType(AtlasRelationshipType relationshipType, ExportContext context) {
++        if (!context.relationshipTypes.contains(relationshipType.getTypeName())) {
++            context.relationshipTypes.add(relationshipType.getTypeName());
+ 
+-            if (relationshipType != null) {
+-                context.relationshipTypes.add(relationshipTypeName);
+-
+-                addAttributeTypes(relationshipType, context);
+-                addEntityType(relationshipType.getEnd1Type(), context);
+-                addEntityType(relationshipType.getEnd2Type(), context);
+-            }
++            addAttributeTypes(relationshipType, context);
++            addEntityType(relationshipType.getEnd1Type(), context);
++            addEntityType(relationshipType.getEnd2Type(), context);
+         }
+     }
+ 
+@@ -688,8 +684,8 @@ public class ExportService {
+     }
+ 
+     private void addRelationshipTypes(AtlasEntityType entityType, ExportContext context) {
+-        for (Map.Entry<String, Map<String, AtlasAttribute>> entry : entityType.getRelationshipAttributes().entrySet()) {
+-            for (String relationshipType : entry.getValue().keySet()) {
++        for (List<AtlasRelationshipType> relationshipTypes : entityType.getRelationshipAttributesType().values()) {
++            for (AtlasRelationshipType relationshipType : relationshipTypes) {
+                 addRelationshipType(relationshipType, context);
+             }
+         }

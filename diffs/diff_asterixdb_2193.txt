@@ -1,0 +1,101 @@
+diff --git a/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManagerWithReplication.java b/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManagerWithReplication.java
+index f27c13ff6a..951bbbd984 100644
+--- a/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManagerWithReplication.java
++++ b/asterixdb/asterix-transactions/src/main/java/org/apache/asterix/transaction/management/service/logging/LogManagerWithReplication.java
+@@ -37,6 +37,10 @@ public class LogManagerWithReplication extends LogManager {
+ 
+     @Override
+     public void log(ILogRecord logRecord) throws ACIDException {
++        if (logRecord.getLogSize() > logPageSize) {
++            throw new IllegalStateException();
++        }
++
+         //only locally generated logs should be replicated
+         logRecord.setReplicated(logRecord.getLogSource() == LogSource.LOCAL && logRecord.getLogType() != LogType.WAIT);
+ 
+@@ -54,11 +58,7 @@ public class LogManagerWithReplication extends LogManager {
+         syncAppendToLogTail(logRecord);
+ 
+         if (logRecord.isReplicated()) {
+-            try {
+-                replicationManager.replicateLog(logRecord);
+-            } catch (InterruptedException e) {
+-                Thread.currentThread().interrupt();
+-            }
++            replicationManager.replicateLog(logRecord);
+         }
+ 
+         if (logRecord.getLogSource() == LogSource.LOCAL) {
+@@ -69,7 +69,7 @@ public class LogManagerWithReplication extends LogManager {
+                         try {
+                             logRecord.wait();
+                         } catch (InterruptedException e) {
+-                            Thread.currentThread().interrupt();
++                            //ignore
+                         }
+                     }
+ 
+@@ -79,7 +79,7 @@ public class LogManagerWithReplication extends LogManager {
+                             try {
+                                 logRecord.wait();
+                             } catch (InterruptedException e) {
+-                                Thread.currentThread().interrupt();
++                                //ignore
+                             }
+                         }
+                     }
+@@ -90,21 +90,34 @@ public class LogManagerWithReplication extends LogManager {
+ 
+     @Override
+     protected synchronized void syncAppendToLogTail(ILogRecord logRecord) throws ACIDException {
+-        if (logRecord.getLogSource() == LogSource.LOCAL && logRecord.getLogType() != LogType.FLUSH) {
+-            ITransactionContext txnCtx = logRecord.getTxnCtx();
+-            if (txnCtx.getTxnState() == ITransactionManager.ABORTED && logRecord.getLogType() != LogType.ABORT) {
+-                throw new ACIDException(
+-                        "Aborted job(" + txnCtx.getJobId() + ") tried to write non-abort type log record.");
++        ITransactionContext txnCtx = null;
++
++        if (logRecord.getLogSource() == LogSource.LOCAL) {
++            if (logRecord.getLogType() != LogType.FLUSH) {
++                txnCtx = logRecord.getTxnCtx();
++                if (txnCtx.getTxnState() == ITransactionManager.ABORTED && logRecord.getLogType() != LogType.ABORT) {
++                    throw new ACIDException(
++                            "Aborted job(" + txnCtx.getJobId() + ") tried to write non-abort type log record.");
++                }
+             }
+         }
+ 
+-        final int logRecordSize = logRecord.getLogSize();
+-        if (!appendPage.hasSpace(logRecordSize)) {
+-            if (getLogFileOffset(appendLSN.get()) + logRecordSize > logFileSize) {
+-                prepareNextLogFile();
+-            }
++        if (getLogFileOffset(appendLSN.get()) + logRecord.getLogSize() > logFileSize) {
++            prepareNextLogFile();
++            appendPage.isFull(true);
++            getAndInitNewPage();
++        } else if (!appendPage.hasSpace(logRecord.getLogSize())) {
+             appendPage.isFull(true);
+-            getAndInitNewPage(logRecordSize);
++            if (logRecord.getLogSize() > logPageSize) {
++                getAndInitNewLargePage(logRecord.getLogSize());
++            } else {
++                getAndInitNewPage();
++            }
++        }
++        if (logRecord.getLogSource() == LogSource.LOCAL) {
++            if (logRecord.getLogType() == LogType.UPDATE) {
++                logRecord.setPrevLSN(txnCtx.getLastLSN());
++            }
+         }
+         appendPage.appendWithReplication(logRecord, appendLSN.get());
+ 
+@@ -112,7 +125,7 @@ public class LogManagerWithReplication extends LogManager {
+             logRecord.setLSN(appendLSN.get());
+         }
+ 
+-        appendLSN.addAndGet(logRecordSize);
++        appendLSN.addAndGet(logRecord.getLogSize());
+     }
+ 
+     @Override

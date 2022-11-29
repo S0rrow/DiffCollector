@@ -1,0 +1,233 @@
+diff --git a/archiva-modules/plugins/maven2-repository/src/main/java/org/apache/archiva/dependency/tree/maven2/DefaultDependencyTreeBuilder.java b/archiva-modules/plugins/maven2-repository/src/main/java/org/apache/archiva/dependency/tree/maven2/DefaultDependencyTreeBuilder.java
+index 61bfd5d93..12db707ea 100644
+--- a/archiva-modules/plugins/maven2-repository/src/main/java/org/apache/archiva/dependency/tree/maven2/DefaultDependencyTreeBuilder.java
++++ b/archiva-modules/plugins/maven2-repository/src/main/java/org/apache/archiva/dependency/tree/maven2/DefaultDependencyTreeBuilder.java
+@@ -20,21 +20,16 @@
+  */
+ 
+ import org.apache.archiva.common.plexusbridge.PlexusSisuBridge;
+-import org.apache.archiva.common.plexusbridge.PlexusSisuBridgeException;
+ import org.apache.archiva.metadata.repository.MetadataResolutionException;
+ import org.apache.archiva.metadata.repository.MetadataResolver;
+ import org.apache.archiva.metadata.repository.RepositorySession;
+ import org.apache.archiva.metadata.repository.RepositorySessionFactory;
+ import org.apache.archiva.metadata.repository.storage.RepositoryPathTranslator;
+ import org.apache.archiva.metadata.repository.storage.maven2.RepositoryModelResolver;
+-import org.apache.archiva.proxy.common.WagonFactory;
+ import org.apache.commons.lang.StringUtils;
+ import org.apache.maven.archiva.common.utils.Slf4JPlexusLogger;
+ import org.apache.maven.archiva.configuration.ArchivaConfiguration;
+ import org.apache.maven.archiva.configuration.ManagedRepositoryConfiguration;
+-import org.apache.maven.archiva.configuration.NetworkProxyConfiguration;
+-import org.apache.maven.archiva.configuration.ProxyConnectorConfiguration;
+-import org.apache.maven.archiva.configuration.RemoteRepositoryConfiguration;
+ import org.apache.maven.artifact.Artifact;
+ import org.apache.maven.artifact.factory.ArtifactFactory;
+ import org.apache.maven.artifact.metadata.ArtifactMetadataRetrievalException;
+@@ -55,7 +50,6 @@
+ import org.apache.maven.model.DependencyManagement;
+ import org.apache.maven.model.Exclusion;
+ import org.apache.maven.model.Model;
+-import org.apache.maven.model.building.DefaultModelBuilderFactory;
+ import org.apache.maven.model.building.DefaultModelBuildingRequest;
+ import org.apache.maven.model.building.ModelBuilder;
+ import org.apache.maven.model.building.ModelBuildingException;
+@@ -71,24 +65,23 @@
+ import org.apache.maven.shared.dependency.tree.traversal.CollectingDependencyNodeVisitor;
+ import org.apache.maven.shared.dependency.tree.traversal.DependencyNodeVisitor;
+ import org.apache.maven.shared.dependency.tree.traversal.FilteringDependencyNodeVisitor;
+-import org.apache.maven.wagon.proxy.ProxyInfo;
++import org.codehaus.plexus.component.repository.exception.ComponentLookupException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.stereotype.Service;
+ 
++import javax.annotation.PostConstruct;
++import javax.inject.Inject;
++import javax.inject.Named;
+ import java.io.File;
+ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Collections;
+-import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.LinkedHashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+-import javax.annotation.PostConstruct;
+-import javax.inject.Inject;
+-import javax.inject.Named;
+ 
+ /**
+  * Default implementation of <code>DependencyTreeBuilder</code>. Customized wrapper for maven-dependency-tree to use
+@@ -144,19 +137,13 @@
+     @Inject
+     private PlexusSisuBridge plexusSisuBridge;
+ 
+-    @Inject
+-    private WagonFactory wagonFactory;
+-
+     @PostConstruct
+     public void initialize()
+-        throws PlexusSisuBridgeException
++        throws ComponentLookupException
+     {
+-        factory = plexusSisuBridge.lookup( ArtifactFactory.class , "default" );
+-        collector = plexusSisuBridge.lookup( ArtifactCollector.class , "default" );
+-
+-
+-        DefaultModelBuilderFactory defaultModelBuilderFactory = new DefaultModelBuilderFactory();
+-        builder = defaultModelBuilderFactory.newInstance();
++        factory = plexusSisuBridge.lookup( ArtifactFactory.class );
++        collector = plexusSisuBridge.lookup( ArtifactCollector.class );
++        builder = plexusSisuBridge.lookup( ModelBuilder.class );
+     }
+ 
+     public void buildDependencyTree( List<String> repositoryIds, String groupId, String artifactId, String version,
+@@ -167,50 +154,18 @@ public void buildDependencyTree( List<String> repositoryIds, String groupId, Str
+             new DependencyTreeResolutionListener( new Slf4JPlexusLogger( getClass() ) );
+ 
+         Artifact projectArtifact = factory.createProjectArtifact( groupId, artifactId, version );
+-        ManagedRepositoryConfiguration repository = findArtifactInRepositories( repositoryIds, projectArtifact );
++        File basedir = findArtifactInRepositories( repositoryIds, projectArtifact );
+ 
+-        if ( repository == null )
++        if ( basedir == null )
+         {
+             // metadata could not be resolved
+             return;
+         }
+ 
+-        File basedir = new File( repository.getLocation() );
+-
+         try
+         {
+-            // MRM-1411
+-            List< RemoteRepositoryConfiguration > remoteRepositories = new ArrayList<RemoteRepositoryConfiguration>();
+-            Map<String, ProxyInfo > networkProxies = new HashMap<String, ProxyInfo>();
+-
+-            Map<String, List< ProxyConnectorConfiguration >> proxyConnectorsMap = archivaConfiguration.getConfiguration().getProxyConnectorAsMap();
+-            List<ProxyConnectorConfiguration> proxyConnectors = proxyConnectorsMap.get( repository.getId() );
+-            if( proxyConnectors != null )
+-            {
+-                for( ProxyConnectorConfiguration proxyConnector : proxyConnectors )
+-                {
+-                    remoteRepositories.add( archivaConfiguration.getConfiguration().findRemoteRepositoryById( proxyConnector.getTargetRepoId() ) );
+-
+-                    NetworkProxyConfiguration networkProxyConfig = archivaConfiguration.getConfiguration().getNetworkProxiesAsMap().get(
+-                        proxyConnector.getProxyId() );
+-
+-                    if( networkProxyConfig != null )
+-                    {
+-                        ProxyInfo proxy = new ProxyInfo();
+-                        proxy.setType( networkProxyConfig.getProtocol() );
+-                        proxy.setHost( networkProxyConfig.getHost() );
+-                        proxy.setPort( networkProxyConfig.getPort() );
+-                        proxy.setUserName( networkProxyConfig.getUsername() );
+-                        proxy.setPassword( networkProxyConfig.getPassword() );
+-
+-                        // key/value: remote repo ID/proxy info
+-                        networkProxies.put( proxyConnector.getTargetRepoId(), proxy );
+-                    }
+-                }
+-            }
+-
+-            Model model = buildProject( new RepositoryModelResolver( basedir, pathTranslator, wagonFactory, remoteRepositories,
+-                                         networkProxies, repository ), groupId, artifactId, version );
++            Model model =
++                buildProject( new RepositoryModelResolver( basedir, pathTranslator ), groupId, artifactId, version );
+ 
+             Map managedVersions = createManagedVersionMap( model );
+ 
+@@ -226,16 +181,6 @@ public void buildDependencyTree( List<String> repositoryIds, String groupId, Str
+                 // since our metadata source has control over them
+                 collector.collect( dependencyArtifacts, projectArtifact, managedVersions, null, null, metadataSource,
+                                    null, Collections.singletonList( listener ) );
+-
+-                //collector.collect( dependencyArtifacts, projectArtifact, null, Collections.<ArtifactRepository>emptyList(),
+-                //                   metadataSource, null,  Collections.singletonList( (ResolutionListener) listener ) );
+-
+-                /*
+-                Set<Artifact> artifacts, Artifact originatingArtifact,
+-                                      ArtifactRepository localRepository, List<ArtifactRepository> remoteRepositories,
+-                                      ArtifactMetadataSource source, ArtifactFilter filter,
+-                                      List< ResolutionListener > listeners
+-                */
+             }
+             finally
+             {
+@@ -276,7 +221,7 @@ public void buildDependencyTree( List<String> repositoryIds, String groupId, Str
+         }
+     }
+ 
+-    private ManagedRepositoryConfiguration findArtifactInRepositories( List<String> repositoryIds, Artifact projectArtifact )
++    private File findArtifactInRepositories( List<String> repositoryIds, Artifact projectArtifact )
+     {
+         for ( String repoId : repositoryIds )
+         {
+@@ -291,7 +236,7 @@ private ManagedRepositoryConfiguration findArtifactInRepositories( List<String>
+ 
+             if ( file.exists() )
+             {
+-                return repositoryConfiguration;
++                return repoDir;
+             }
+         }
+         return null;
+@@ -465,13 +410,11 @@ public ResolutionGroup retrieve( Artifact artifact, ArtifactRepository localRepo
+                 factory.createProjectArtifact( artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(),
+                                                artifact.getScope() );
+ 
+-            ManagedRepositoryConfiguration repository = findArtifactInRepositories( repositoryIds, pomArtifact );
++            File basedir = findArtifactInRepositories( repositoryIds, pomArtifact );
+ 
+             Model project = null;
+-            if ( !Artifact.SCOPE_SYSTEM.equals( artifact.getScope() ) && repository != null )
++            if ( !Artifact.SCOPE_SYSTEM.equals( artifact.getScope() ) && basedir != null )
+             {
+-                File basedir = new File( repository.getLocation() );
+-
+                 try
+                 {
+                     project =
+@@ -497,11 +440,11 @@ public ResolutionGroup retrieve( Artifact artifact, ArtifactRepository localRepo
+                 // if the project is null, we encountered an invalid model (read: m1 POM)
+                 // we'll just return an empty resolution group.
+                 // or used the inherited scope (should that be passed to the buildFromRepository method above?)
+-                result = new ResolutionGroup( pomArtifact, Collections.<Artifact>emptySet(), Collections.<ArtifactRepository>emptyList() );
++                result = new ResolutionGroup( pomArtifact, Collections.emptySet(), Collections.emptyList() );
+             }
+             else
+             {
+-                Set<Artifact> artifacts = Collections.emptySet();
++                Set artifacts = Collections.emptySet();
+                 if ( !artifact.getArtifactHandler().isIncludesDependencies() )
+                 {
+                     try
+@@ -514,7 +457,7 @@ public ResolutionGroup retrieve( Artifact artifact, ArtifactRepository localRepo
+                     }
+                 }
+ 
+-                result = new ResolutionGroup( pomArtifact, artifacts, Collections.<ArtifactRepository>emptyList() );
++                result = new ResolutionGroup( pomArtifact, artifacts, Collections.emptyList() );
+             }
+ 
+             return result;
+@@ -545,16 +488,6 @@ public List retrieveAvailableVersions( Artifact artifact, ArtifactRepository loc
+ 
+             return new ArrayList<ArtifactVersion>( versions );
+         }
+-
+-
+-        public List<ArtifactVersion> retrieveAvailableVersionsFromDeploymentRepository( Artifact artifact,
+-                                                                                        ArtifactRepository artifactRepository,
+-                                                                                        ArtifactRepository artifactRepository1 )
+-            throws ArtifactMetadataRetrievalException
+-        {
+-            // TODO
+-            return null;
+-        }
+     }
+ 
+     public ArtifactFactory getFactory()

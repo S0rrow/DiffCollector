@@ -1,0 +1,22 @@
+diff --git a/modules/registry/registry-core/src/main/java/org/apache/airavata/registry/core/app/catalog/util/AppCatalogThriftConversion.java b/modules/registry/registry-core/src/main/java/org/apache/airavata/registry/core/app/catalog/util/AppCatalogThriftConversion.java
+index 8ddf4f650..3d8663593 100644
+--- a/modules/registry/registry-core/src/main/java/org/apache/airavata/registry/core/app/catalog/util/AppCatalogThriftConversion.java
++++ b/modules/registry/registry-core/src/main/java/org/apache/airavata/registry/core/app/catalog/util/AppCatalogThriftConversion.java
+@@ -370,7 +370,6 @@ public class AppCatalogThriftConversion {
+     	LOCALSubmission submission = new LOCALSubmission();
+     	submission.setJobSubmissionInterfaceId(localSubmission.getJobSubmissionInterfaceId());
+     	submission.setResourceJobManager(getResourceJobManager(localSubmission.getResourceJobManagerResource()));
+-        submission.setSecurityProtocol(SecurityProtocol.valueOf(localSubmission.getSecurityProtocol()));
+     	return submission;
+     }
+     
+@@ -948,9 +947,4 @@ public class AppCatalogThriftConversion {
+         return userResourceProfile;
+     }
+ 
+-    public static UserResourceProfile createNullUserResourceProfile(String userId, String gatewayId){
+-        UserResourceProfile userResourceProfile = new UserResourceProfile(userId, gatewayId);
+-        userResourceProfile.setIsNull(true);
+-        return userResourceProfile;
+-    }
+ }

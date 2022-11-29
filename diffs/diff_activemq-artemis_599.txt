@@ -1,0 +1,248 @@
+diff --git a/tests/artemis-test-support/src/main/java/org/apache/activemq/transport/amqp/client/AmqpSender.java b/tests/artemis-test-support/src/main/java/org/apache/activemq/transport/amqp/client/AmqpSender.java
+index 9b2a70d689..404b943187 100644
+--- a/tests/artemis-test-support/src/main/java/org/apache/activemq/transport/amqp/client/AmqpSender.java
++++ b/tests/artemis-test-support/src/main/java/org/apache/activemq/transport/amqp/client/AmqpSender.java
+@@ -95,7 +95,7 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+     * Create a new sender instance using the given Target when creating the link.
+     *
+     * @param session  The parent session that created the session.
+-    * @param target   The target that this sender produces to.
++    * @param address  The address that this sender produces to.
+     * @param senderId The unique ID assigned to this sender.
+     */
+    public AmqpSender(AmqpSession session, Target target, String senderId) {
+@@ -117,18 +117,6 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+     * @throws IOException if an error occurs during the send.
+     */
+    public void send(final AmqpMessage message) throws IOException {
+-      checkClosed();
+-      send(message, null);
+-   }
+-
+-   /**
+-    * Sends the given message to this senders assigned address using the supplied transaction ID.
+-    *
+-    * @param message the message to send.
+-    * @param txId    the transaction ID to assign the outgoing send.
+-    * @throws IOException if an error occurs during the send.
+-    */
+-   public void send(final AmqpMessage message, final AmqpTransactionId txId) throws IOException {
+       checkClosed();
+       final ClientFuture sendRequest = new ClientFuture();
+ 
+@@ -137,9 +125,10 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+          @Override
+          public void run() {
+             try {
+-               doSend(message, sendRequest, txId);
++               doSend(message, sendRequest);
+                session.pumpToProtonTransport(sendRequest);
+-            } catch (Exception e) {
++            }
++            catch (Exception e) {
+                sendRequest.onFailure(e);
+                session.getConnection().fireClientException(e);
+             }
+@@ -148,7 +137,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+ 
+       if (sendTimeout <= 0) {
+          sendRequest.sync();
+-      } else {
++      }
++      else {
+          sendRequest.sync(sendTimeout, TimeUnit.MILLISECONDS);
+       }
+    }
+@@ -260,7 +250,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+       sender.setTarget(target);
+       if (presettle) {
+          sender.setSenderSettleMode(SenderSettleMode.SETTLED);
+-      } else {
++      }
++      else {
+          sender.setSenderSettleMode(SenderSettleMode.UNSETTLED);
+       }
+       sender.setReceiverSettleMode(ReceiverSettleMode.FIRST);
+@@ -276,7 +267,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+       org.apache.qpid.proton.amqp.transport.Target t = getEndpoint().getRemoteTarget();
+       if (t != null) {
+          super.doOpenCompletion();
+-      } else {
++      }
++      else {
+          // No link terminus was created, the peer will now detach/close us.
+       }
+    }
+@@ -285,7 +277,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+    protected void doOpenInspection() {
+       try {
+          getStateInspector().inspectOpenedResource(getSender());
+-      } catch (Throwable error) {
++      }
++      catch (Throwable error) {
+          getStateInspector().markAsInvalid(error.getMessage());
+       }
+    }
+@@ -294,7 +287,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+    protected void doClosedInspection() {
+       try {
+          getStateInspector().inspectClosedResource(getSender());
+-      } catch (Throwable error) {
++      }
++      catch (Throwable error) {
+          getStateInspector().markAsInvalid(error.getMessage());
+       }
+    }
+@@ -303,7 +297,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+    protected void doDetachedInspection() {
+       try {
+          getStateInspector().inspectDetachedResource(getSender());
+-      } catch (Throwable error) {
++      }
++      catch (Throwable error) {
+          getStateInspector().markAsInvalid(error.getMessage());
+       }
+    }
+@@ -314,33 +309,29 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+       org.apache.qpid.proton.amqp.transport.Target t = getEndpoint().getRemoteTarget();
+       if (t != null) {
+          return super.getOpenAbortException();
+-      } else {
++      }
++      else {
+          // No link terminus was created, the peer has detach/closed us, create IDE.
+          return new InvalidDestinationException("Link creation was refused");
+       }
+    }
+ 
+-   private void doSend(AmqpMessage message, AsyncResult request, AmqpTransactionId txId) throws Exception {
++   private void doSend(AmqpMessage message, AsyncResult request) throws Exception {
+       LOG.trace("Producer sending message: {}", message);
+ 
+       Delivery delivery = null;
+       if (presettle) {
+          delivery = getEndpoint().delivery(EMPTY_BYTE_ARRAY, 0, 0);
+-      } else {
++      }
++      else {
+          byte[] tag = tagGenerator.getNextTag();
+          delivery = getEndpoint().delivery(tag, 0, tag.length);
+       }
+ 
+       delivery.setContext(request);
+ 
+-      Binary amqpTxId = null;
+-      if (txId != null) {
+-         amqpTxId = txId.getRemoteTxId();
+-      } else if (session.isInTransaction()) {
+-         amqpTxId = session.getTransactionId().getRemoteTxId();
+-      }
+-
+-      if (amqpTxId != null) {
++      if (session.isInTransaction()) {
++         Binary amqpTxId = session.getTransactionId().getRemoteTxId();
+          TransactionalState state = new TransactionalState();
+          state.setTxnId(amqpTxId);
+          delivery.disposition(state);
+@@ -351,7 +342,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+       if (presettle) {
+          delivery.settle();
+          request.onSuccess();
+-      } else {
++      }
++      else {
+          pending.add(delivery);
+          getEndpoint().advance();
+       }
+@@ -364,7 +356,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+          try {
+             encodedSize = message.encode(encodeBuffer, 0, encodeBuffer.length);
+             break;
+-         } catch (java.nio.BufferOverflowException e) {
++         }
++         catch (java.nio.BufferOverflowException e) {
+             encodeBuffer = new byte[encodeBuffer.length * 2];
+          }
+       }
+@@ -378,7 +371,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+             if ((encodedSize - sentSoFar) == 0) {
+                break;
+             }
+-         } else {
++         }
++         else {
+             LOG.warn("{} failed to send any data from current Message.", this);
+          }
+       }
+@@ -398,9 +392,11 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+          if (state instanceof TransactionalState) {
+             LOG.trace("State of delivery is Transactional, retrieving outcome: {}", state);
+             outcome = ((TransactionalState) state).getOutcome();
+-         } else if (state instanceof Outcome) {
++         }
++         else if (state instanceof Outcome) {
+             outcome = (Outcome) state;
+-         } else {
++         }
++         else {
+             LOG.warn("Message send updated with unsupported state: {}", state);
+             outcome = null;
+          }
+@@ -413,7 +409,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+             if (request != null && !request.isComplete()) {
+                request.onSuccess();
+             }
+-         } else if (outcome instanceof Rejected) {
++         }
++         else if (outcome instanceof Rejected) {
+             LOG.trace("Outcome of delivery was rejected: {}", delivery);
+             ErrorCondition remoteError = ((Rejected) outcome).getError();
+             if (remoteError == null) {
+@@ -421,10 +418,12 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+             }
+ 
+             deliveryError = AmqpSupport.convertToException(remoteError);
+-         } else if (outcome instanceof Released) {
++         }
++         else if (outcome instanceof Released) {
+             LOG.trace("Outcome of delivery was released: {}", delivery);
+             deliveryError = new IOException("Delivery failed: released by receiver");
+-         } else if (outcome instanceof Modified) {
++         }
++         else if (outcome instanceof Modified) {
+             LOG.trace("Outcome of delivery was modified: {}", delivery);
+             deliveryError = new IOException("Delivery failed: failure at remote");
+          }
+@@ -432,7 +431,8 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+          if (deliveryError != null) {
+             if (request != null && !request.isComplete()) {
+                request.onFailure(deliveryError);
+-            } else {
++            }
++            else {
+                connection.fireClientException(deliveryError);
+             }
+          }
+@@ -440,8 +440,6 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+          tagGenerator.returnTag(delivery.getTag());
+          delivery.settle();
+          toRemove.add(delivery);
+-
+-         doDeliveryUpdate(delivery);
+       }
+ 
+       pending.removeAll(toRemove);
+@@ -451,13 +449,4 @@ public class AmqpSender extends AmqpAbstractResource<Sender> {
+    public String toString() {
+       return getClass().getSimpleName() + "{ address = " + address + "}";
+    }
+-
+-   @Override
+-   protected void doDeliveryUpdate(Delivery delivery) {
+-      try {
+-         getStateInspector().inspectDeliveryUpdate(delivery);
+-      } catch (Throwable error) {
+-         getStateInspector().markAsInvalid(error.getMessage());
+-      }
+-   }
+ }

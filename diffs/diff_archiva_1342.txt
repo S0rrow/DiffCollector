@@ -1,0 +1,111 @@
+diff --git a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
+index 9536673a6..9432c2939 100644
+--- a/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
++++ b/archiva-base/archiva-repository-layer/src/main/java/org/apache/maven/archiva/repository/layout/LegacyBidirectionalRepositoryLayout.java
+@@ -61,8 +61,8 @@ public String getId()
+ 
+     public String toPath( ArchivaArtifact reference )
+     {
+-        return toPath( reference.getGroupId(), reference.getArtifactId(), reference.getVersion(), reference
+-            .getClassifier(), reference.getType() );
++        return toPath( reference.getGroupId(), reference.getArtifactId(), reference
++            .getVersion(), reference.getClassifier(), reference.getType() );
+     }
+ 
+     public String toPath( ProjectReference reference )
+@@ -73,8 +73,8 @@ public String toPath( ProjectReference reference )
+ 
+     public String toPath( ArtifactReference artifact )
+     {
+-        return toPath( artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(),
+-                       artifact.getClassifier(), artifact.getType() );
++        return toPath( artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(), artifact.getClassifier(),
++                       artifact.getType() );
+     }
+ 
+     private String toPath( String groupId, String artifactId, String version, String classifier, String type )
+@@ -119,22 +119,9 @@ private String getDirectory( String classifier, String type )
+         return type + "s";
+     }
+ 
+-    class PathReferences
+-    {
+-        public String groupId;
+-
+-        public String pathType;
+-
+-        public String type;
+-
+-        public FilenameParts fileParts;
+-    }
+-
+-    private PathReferences toPathReferences( String path, boolean parseFilename )
++    public ArchivaArtifact toArtifact( String path )
+         throws LayoutException
+     {
+-        PathReferences prefs = new PathReferences();
+-
+         String normalizedPath = StringUtils.replace( path, "\\", "/" );
+ 
+         String pathParts[] = StringUtils.split( normalizedPath, '/' );
+@@ -155,49 +142,30 @@ private PathReferences toPathReferences( String path, boolean parseFilename )
+         }
+ 
+         // The Group ID.
+-        prefs.groupId = pathParts[0];
++        String groupId = pathParts[0];
+ 
+         // The Expected Type.
+-        prefs.pathType = pathParts[1];
+-
+-        if ( parseFilename )
+-        {
+-            // The Filename.
+-            String filename = pathParts[2];
++        String expectedType = pathParts[1];
+ 
+-            prefs.fileParts = RepositoryLayoutUtils.splitFilename( filename, null );
++        // The Filename.
++        String filename = pathParts[2];
+ 
+-            prefs.type = extensionMapper.getType( filename );
+-        }
+-
+-        return prefs;
+-    }
+-
+-    public ProjectReference toProjectReference( String path )
+-        throws LayoutException
+-    {
+-        throw new LayoutException( "Cannot parse legacy paths to a Project Reference." );
+-    }
++        FilenameParts fileParts = RepositoryLayoutUtils.splitFilename( filename, null );
+ 
+-    public ArchivaArtifact toArtifact( String path )
+-        throws LayoutException
+-    {
+-        PathReferences pathrefs = toPathReferences( path, true );
++        String type = extensionMapper.getType( filename );
+ 
+-        ArchivaArtifact artifact = new ArchivaArtifact( pathrefs.groupId, pathrefs.fileParts.artifactId,
+-                                                        pathrefs.fileParts.version, pathrefs.fileParts.classifier,
+-                                                        pathrefs.type );
++        ArchivaArtifact artifact = new ArchivaArtifact( groupId, fileParts.artifactId, fileParts.version,
++                                                        fileParts.classifier, type );
+ 
+         // Sanity Checks.
+-        if ( StringUtils.isEmpty( pathrefs.fileParts.extension ) )
++        if ( StringUtils.isEmpty( fileParts.extension ) )
+         {
+             throw new LayoutException( "Invalid artifact, no extension." );
+         }
+ 
+-        if ( !pathrefs.pathType.equals( pathrefs.fileParts.extension + "s" ) )
++        if ( !expectedType.equals( fileParts.extension + "s" ) )
+         {
+-            throw new LayoutException( "Invalid artifact, mismatch on extension <" + pathrefs.fileParts.extension
+-                + "> and layout specified type<" + pathrefs.pathType + ">." );
++            throw new LayoutException( "Invalid artifact, extension and layout specified type mismatch." );
+         }
+ 
+         return artifact;

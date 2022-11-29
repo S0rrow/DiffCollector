@@ -1,0 +1,36 @@
+diff --git a/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTRetainMessageManager.java b/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTRetainMessageManager.java
+index 5fdcb770b5..c1fd17f5df 100644
+--- a/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTRetainMessageManager.java
++++ b/artemis-protocols/artemis-mqtt-protocol/src/main/java/org/apache/activemq/artemis/core/protocol/mqtt/MQTTRetainMessageManager.java
+@@ -17,14 +17,14 @@
+ 
+ package org.apache.activemq.artemis.core.protocol.mqtt;
+ 
+-import java.util.Iterator;
+-
+ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.core.server.BindingQueryResult;
+ import org.apache.activemq.artemis.core.server.MessageReference;
+ import org.apache.activemq.artemis.core.server.Queue;
+ import org.apache.activemq.artemis.core.server.ServerMessage;
+ 
++import java.util.Iterator;
++
+ 
+ public class MQTTRetainMessageManager
+ {
+@@ -46,11 +46,11 @@ public class MQTTRetainMessageManager
+    {
+       SimpleString retainAddress = new SimpleString(MQTTUtil.convertMQTTAddressFilterToCoreRetain(address));
+ 
+-      Queue queue = session.getServer().locateQueue(retainAddress);
+-      if (queue == null)
++      if (!session.getServerSession().executeQueueQuery(retainAddress).isExists())
+       {
+-         queue = session.getServerSession().createQueue(retainAddress, retainAddress, null, false, true);
++         session.getServerSession().createQueue(retainAddress, retainAddress, null, false, true);
+       }
++      Queue queue = session.getServer().locateQueue(retainAddress);
+ 
+       // Set the address of this message to the retained queue.
+       message.setAddress(retainAddress);

@@ -1,0 +1,52 @@
+diff --git a/test/src/test/java/org/apache/accumulo/test/functional/DeleteRowsIT.java b/test/src/test/java/org/apache/accumulo/test/functional/DeleteRowsIT.java
+index 2aa2433737..3ab2768d5d 100644
+--- a/test/src/test/java/org/apache/accumulo/test/functional/DeleteRowsIT.java
++++ b/test/src/test/java/org/apache/accumulo/test/functional/DeleteRowsIT.java
+@@ -34,18 +34,11 @@ import org.apache.accumulo.core.data.Key;
+ import org.apache.accumulo.core.data.Mutation;
+ import org.apache.accumulo.core.data.Value;
+ import org.apache.accumulo.core.security.Authorizations;
+-import org.apache.accumulo.harness.UnmanagedAccumuloIT;
+ import org.apache.hadoop.io.Text;
+ import org.apache.log4j.Logger;
+ import org.junit.Test;
+ 
+-public class DeleteRowsIT extends UnmanagedAccumuloIT {
+-
+-  @Override
+-  protected int defaultTimeoutSeconds() {
+-    return 10 * 60;
+-  }
+-
++public class DeleteRowsIT extends SimpleMacIT {
+   private static final Logger log = Logger.getLogger(DeleteRowsIT.class);
+ 
+   private static final int ROWS_PER_TABLET = 10;
+@@ -64,24 +57,12 @@ public class DeleteRowsIT extends UnmanagedAccumuloIT {
+     ROWS.add("{");
+   }
+ 
+-  @Test(timeout = 5 * 60 * 1000)
+-  public void testDeleteAllRows() throws Exception {
+-    Connector c = getConnector();
+-    String[] tableNames = this.getUniqueNames(20);
+-    for (String tableName : tableNames) {
+-      c.tableOperations().create(tableName);
+-      c.tableOperations().deleteRows(tableName, null, null);
+-      Scanner scanner = c.createScanner(tableName, Authorizations.EMPTY);
+-      assertEquals(0, FunctionalTestUtils.count(scanner));
+-    }
+-  }
+-
+-  @Test
+-  public void testManyRows() throws Exception {
++  @Test(timeout = 10 * 60 * 1000)
++  public void test() throws Exception {
+     // Delete ranges of rows, and verify the tablets are removed.
+     int i = 0;
+     // Eliminate whole tablets
+-    String tableName = getUniqueNames(1)[0];
++    String tableName = getTableNames(1)[0];
+     testSplit(tableName + i++, "f", "h", "abcdefijklmnopqrstuvwxyz", 260);
+     // Eliminate whole tablets, partial first tablet
+     testSplit(tableName + i++, "f1", "h", "abcdeff1ijklmnopqrstuvwxyz", 262);

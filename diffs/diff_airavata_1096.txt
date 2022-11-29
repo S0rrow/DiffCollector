@@ -1,0 +1,89 @@
+diff --git a/modules/commons/src/main/java/org/apache/airavata/common/utils/DBEventManagerConstants.java b/modules/commons/src/main/java/org/apache/airavata/common/utils/DBEventManagerConstants.java
+index 572c4015a..0596bfc2e 100644
+--- a/modules/commons/src/main/java/org/apache/airavata/common/utils/DBEventManagerConstants.java
++++ b/modules/commons/src/main/java/org/apache/airavata/common/utils/DBEventManagerConstants.java
+@@ -1,15 +1,29 @@
+ package org.apache.airavata.common.utils;
+ 
+-import org.apache.airavata.model.dbevent.EntityType;
+-
+ /**
+  * Created by Ajinkya on 3/22/17.
+  */
+ public class DBEventManagerConstants {
+ 
++    public static final String DB_EVENT_SERVICE_DISCOVERY_QUEUE = "db.event.service.discovery.queue";
+     private final static String QUEUE_SUFFIX = ".queue";
+     public final static String DB_EVENT_EXCHANGE_NAME = "db.event.exchange";
+ 
++    public enum DBEventService{
++
++        USER_PROFILE("user.profile"),
++        SHARING("sharing"),
++        REGISTRY("registry");
++
++        private final String name;
++        DBEventService(String name) {
++            this.name = name;
++        }
++        public String toString() {
++            return this.name;
++        }
++    }
++
+     /**
+      * Get the queue-name of the service, given service-name as enum
+      * @param dBEventService
+@@ -19,21 +33,6 @@ public class DBEventManagerConstants {
+         return dBEventService.toString() + QUEUE_SUFFIX;
+     }
+ 
+-    /**
+-     * Return routing key which is capable of consuming any message published with serviceName in it.
+-     * For example: let' say serviceName is 'hello' function will return #.hello.#
+-     * This queue can consume message with any of these routing keys 'q1.12.hello.q3', 'q1.hello', 'hello.q2' or just 'hello'
+-     * It just need to have 'hello' in it.
+-     * @param serviceName
+-     * @return
+-     */
+-    public static String getRoutingKey(String serviceName) {
+-        if(serviceName.equals(DBEventService.DB_EVENT.toString())) {
+-            return serviceName;
+-        }
+-        return "#." + serviceName + ".#";
+-    }
+-
+     /**
+      * Get the queue-name of the service, given service-name as string
+      * @param dbEventService
+@@ -43,20 +42,6 @@ public class DBEventManagerConstants {
+         return getQueueName(getDBEventService(dbEventService));
+     }
+ 
+-    /**
+-     * Get serviceName from EntityType
+-     * @param entityType
+-     * @return
+-     */
+-    public static String getDbEventServiceName(EntityType entityType) {
+-        for (DBEventService service : DBEventService.values()) {
+-            if (service.name().equals(entityType.name())) {
+-                return service.toString();
+-            }
+-        }
+-        return null;
+-    }
+-
+     /**
+      * Get the service as enum, given the service-name as string
+      * @param dbEventService
+@@ -70,9 +55,4 @@ public class DBEventManagerConstants {
+         }
+         return null;
+     }
+-
+-//    public static void main(String[] args) {
+-//        System.out.println(DBEventManagerConstants.getDbEventServiceName(EntityType.USER_PROFILE));
+-//        System.out.println(DBEventService.REGISTRY);
+-//    }
+ }

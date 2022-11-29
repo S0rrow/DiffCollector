@@ -1,0 +1,201 @@
+diff --git a/repository/src/main/java/org/apache/atlas/services/DefaultMetadataService.java b/repository/src/main/java/org/apache/atlas/services/DefaultMetadataService.java
+index db61de935..ea39f92a8 100755
+--- a/repository/src/main/java/org/apache/atlas/services/DefaultMetadataService.java
++++ b/repository/src/main/java/org/apache/atlas/services/DefaultMetadataService.java
+@@ -31,7 +31,6 @@ import org.apache.atlas.listener.TypesChangeListener;
+ import org.apache.atlas.repository.IndexCreationException;
+ import org.apache.atlas.repository.MetadataRepository;
+ import org.apache.atlas.repository.typestore.ITypeStore;
+-import org.apache.atlas.typesystem.IStruct;
+ import org.apache.atlas.typesystem.ITypedReferenceableInstance;
+ import org.apache.atlas.typesystem.ITypedStruct;
+ import org.apache.atlas.typesystem.Referenceable;
+@@ -50,6 +49,7 @@ import org.apache.atlas.typesystem.types.Multiplicity;
+ import org.apache.atlas.typesystem.types.StructTypeDefinition;
+ import org.apache.atlas.typesystem.types.TraitType;
+ import org.apache.atlas.typesystem.types.TypeSystem;
++import org.apache.atlas.typesystem.types.TypeUtils;
+ import org.apache.atlas.typesystem.types.ValueConversionException;
+ import org.apache.atlas.typesystem.types.utils.TypesUtil;
+ import org.codehaus.jettison.json.JSONArray;
+@@ -63,11 +63,9 @@ import javax.inject.Inject;
+ import javax.inject.Singleton;
+ import java.util.Collection;
+ import java.util.HashMap;
+-import java.util.HashSet;
+ import java.util.LinkedHashSet;
+ import java.util.List;
+ import java.util.Map;
+-import java.util.Set;
+ 
+ /**
+  * Simple wrapper over TypeSystem and MetadataRepository services with hooks
+@@ -147,7 +145,8 @@ public class DefaultMetadataService implements MetadataService {
+ 
+     private void createType(HierarchicalTypeDefinition<ClassType> type) throws AtlasException {
+         if (!typeSystem.isRegistered(type.typeName)) {
+-            TypesDef typesDef = TypesUtil.getTypesDef(ImmutableList.<EnumTypeDefinition>of(), ImmutableList.<StructTypeDefinition>of(),
++            TypesDef typesDef = TypeUtils
++                    .getTypesDef(ImmutableList.<EnumTypeDefinition>of(), ImmutableList.<StructTypeDefinition>of(),
+                             ImmutableList.<HierarchicalTypeDefinition<TraitType>>of(),
+                             ImmutableList.of(type));
+             createType(TypesSerialization.toJson(typesDef));
+@@ -164,6 +163,8 @@ public class DefaultMetadataService implements MetadataService {
+     @Override
+     public JSONObject createType(String typeDefinition) throws AtlasException {
+         ParamChecker.notEmpty(typeDefinition, "type definition cannot be empty");
++        validateTypeDefinition(typeDefinition);
++
+         TypesDef typesDef = validateTypeDefinition(typeDefinition);
+ 
+         try {
+@@ -189,34 +190,6 @@ public class DefaultMetadataService implements MetadataService {
+         }
+     }
+ 
+-    @Override
+-    public JSONObject updateType(String typeDefinition) throws AtlasException {
+-        ParamChecker.notEmpty(typeDefinition, "type definition cannot be empty");
+-        TypesDef typesDef = validateTypeDefinition(typeDefinition);
+-
+-        try {
+-            final Map<String, IDataType> typesAdded = typeSystem.updateTypes(typesDef);
+-
+-            try {
+-                /* Create indexes first so that if index creation fails then we rollback
+-                   the typesystem and also do not persist the graph
+-                 */
+-                onTypesUpdated(typesAdded);
+-                typeStore.store(typeSystem, ImmutableList.copyOf(typesAdded.keySet()));
+-            } catch (Throwable t) {
+-                typeSystem.removeTypes(typesAdded.keySet());
+-                throw new AtlasException("Unable to persist types ", t);
+-            }
+-
+-            return new JSONObject() {{
+-                put(AtlasClient.TYPES, typesAdded.keySet());
+-            }};
+-        } catch (JSONException e) {
+-            LOG.error("Unable to create response for types={}", typeDefinition, e);
+-            throw new AtlasException("Unable to create response ", e);
+-        }
+-    }
+-
+     private TypesDef validateTypeDefinition(String typeDefinition) {
+         try {
+             TypesDef typesDef = TypesSerialization.fromJson(typeDefinition);
+@@ -276,14 +249,7 @@ public class DefaultMetadataService implements MetadataService {
+ 
+         final String[] guids = repository.createEntities(typedInstances);
+ 
+-        Set<ITypedReferenceableInstance> entitites = new HashSet<>();
+-
+-        for (String guid : guids) {
+-            entitites.add(repository.getEntityDefinition(guid));
+-        }
+-
+-        onEntitiesAddedToRepo(entitites);
+-
++        onEntityAddedToRepo(Arrays.asList(typedInstances));
+         return new JSONArray(Arrays.asList(guids)).toString();
+     }
+ 
+@@ -336,8 +302,8 @@ public class DefaultMetadataService implements MetadataService {
+ 
+     /**
+      * Validate that attribute is unique attribute
+-     * @param entityType     the entity type
+-     * @param attributeName  the name of the attribute
++     * @param entityType
++     * @param attributeName
+      */
+     private void validateUniqueAttribute(String entityType, String attributeName) throws AtlasException {
+         ClassType type = typeSystem.getDataType(ClassType.class, entityType);
+@@ -368,8 +334,6 @@ public class DefaultMetadataService implements MetadataService {
+         ParamChecker.notEmpty(value, "property value cannot be null");
+ 
+         repository.updateEntity(guid, property, value);
+-
+-        onEntityUpdated(repository.getEntityDefinition(guid));
+     }
+ 
+     private void validateTypeExists(String entityType) throws AtlasException {
+@@ -418,12 +382,12 @@ public class DefaultMetadataService implements MetadataService {
+ 
+         // ensure trait is not already defined
+         Preconditions
+-            .checkArgument(!getTraitNames(guid).contains(traitName), "trait=%s is already defined for entity=%s",
+-                traitName, guid);
++                .checkArgument(!getTraitNames(guid).contains(traitName), "trait=%s is already defined for entity=%s",
++                        traitName, guid);
+ 
+         repository.addTrait(guid, traitInstance);
+ 
+-        onTraitAddedToEntity(repository.getEntityDefinition(guid), traitInstance);
++        onTraitAddedToEntity(guid, traitName);
+     }
+ 
+     private ITypedStruct deserializeTraitInstance(String traitInstanceDefinition)
+@@ -465,7 +429,7 @@ public class DefaultMetadataService implements MetadataService {
+ 
+         repository.deleteTrait(guid, traitNameToBeDeleted);
+ 
+-        onTraitDeletedFromEntity(repository.getEntityDefinition(guid), traitNameToBeDeleted);
++        onTraitDeletedFromEntity(guid, traitNameToBeDeleted);
+     }
+ 
+     private void onTypesAdded(Map<String, IDataType> typesAdded) throws AtlasException {
+@@ -485,46 +449,23 @@ public class DefaultMetadataService implements MetadataService {
+         }
+     }
+ 
+-    private void onEntitiesAddedToRepo(Collection<ITypedReferenceableInstance> entities) throws AtlasException {
+-
+-        for (EntityChangeListener listener : entityChangeListeners) {
+-            listener.onEntitiesAdded(entities);
+-        }
+-    }
+-
+-    private void onTypesUpdated(Map<String, IDataType> typesUpdated) throws AtlasException {
+-        Map<TypesChangeListener, Throwable> caughtExceptions = new HashMap<>();
+-        for (Provider<TypesChangeListener> indexerProvider : typeChangeListeners) {
+-            final TypesChangeListener listener = indexerProvider.get();
+-            try {
+-                listener.onChange(typesUpdated.values());
+-            } catch (IndexCreationException ice) {
+-                LOG.error("Index creation for listener {} failed ", indexerProvider, ice);
+-                caughtExceptions.put(listener, ice);
+-            }
+-        }
+-
+-        if (caughtExceptions.size() > 0) {
+-            throw new IndexCreationException("Index creation failed for types " + typesUpdated.keySet() + ". Aborting");
+-        }
+-    }
++    private void onEntityAddedToRepo(Collection<ITypedReferenceableInstance> typedInstances)
++    throws AtlasException {
+ 
+-    private void onEntityUpdated(ITypedReferenceableInstance entity)
+-        throws AtlasException {
+         for (EntityChangeListener listener : entityChangeListeners) {
+-            listener.onEntityUpdated(entity);
++            listener.onEntityAdded(typedInstances);
+         }
+     }
+ 
+-    private void onTraitAddedToEntity(ITypedReferenceableInstance entity, IStruct trait) throws AtlasException {
++    private void onTraitAddedToEntity(String typeName, String traitName) throws AtlasException {
+         for (EntityChangeListener listener : entityChangeListeners) {
+-            listener.onTraitAdded(entity, trait);
++            listener.onTraitAdded(typeName, traitName);
+         }
+     }
+ 
+-    private void onTraitDeletedFromEntity(ITypedReferenceableInstance entity, String traitName) throws AtlasException {
++    private void onTraitDeletedFromEntity(String typeName, String traitName) throws AtlasException {
+         for (EntityChangeListener listener : entityChangeListeners) {
+-            listener.onTraitDeleted(entity, traitName);
++            listener.onTraitDeleted(typeName, traitName);
+         }
+     }
+ 

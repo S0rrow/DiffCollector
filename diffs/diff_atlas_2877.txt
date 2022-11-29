@@ -1,0 +1,245 @@
+diff --git a/repository/src/main/java/org/apache/atlas/discovery/EntitySearchProcessor.java b/repository/src/main/java/org/apache/atlas/discovery/EntitySearchProcessor.java
+index 6f629eb44..605cb15d2 100644
+--- a/repository/src/main/java/org/apache/atlas/discovery/EntitySearchProcessor.java
++++ b/repository/src/main/java/org/apache/atlas/discovery/EntitySearchProcessor.java
+@@ -20,7 +20,6 @@ package org.apache.atlas.discovery;
+ import org.apache.atlas.model.discovery.SearchParameters.FilterCriteria;
+ import org.apache.atlas.repository.Constants;
+ import org.apache.atlas.repository.graphdb.*;
+-import org.apache.atlas.repository.store.graph.v1.AtlasGraphUtilsV1;
+ import org.apache.atlas.type.AtlasClassificationType;
+ import org.apache.atlas.type.AtlasEntityType;
+ import org.apache.atlas.utils.AtlasPerfTracer;
+@@ -35,81 +34,60 @@ public class EntitySearchProcessor extends SearchProcessor {
+     private static final Logger PERF_LOG = AtlasPerfTracer.getPerfLogger("EntitySearchProcessor");
+ 
+     private final AtlasIndexQuery indexQuery;
+-    private final AtlasGraphQuery graphQuery;
+-    private final AtlasGraphQuery filterGraphQuery;
++    private final AtlasGraphQuery partialGraphQuery;
++    private final AtlasGraphQuery allGraphQuery;
+ 
+     public EntitySearchProcessor(SearchContext context) {
+         super(context);
+ 
+-        final AtlasEntityType entityType        = context.getEntityType();
+-        final FilterCriteria  filterCriteria    = context.getSearchParameters().getEntityFilters();
+-        final Set<String>     typeAndSubTypes   = entityType.getTypeAndAllSubTypes();
+-        final Set<String>     solrAttributes    = new HashSet<>();
+-        final Set<String>     gremlinAttributes = new HashSet<>();
+-        final Set<String>     allAttributes     = new HashSet<>();
+-
+-        final AtlasClassificationType classificationType   = context.getClassificationType();
+-        final boolean                 filterClassification = classificationType != null && !context.needClassificationProcessor();
++        AtlasEntityType         entityType         = context.getEntityType();
++        AtlasClassificationType classificationType = context.getClassificationType();
++        FilterCriteria          filterCriteria     = context.getSearchParameters().getEntityFilters();
++        Set<String>             typeAndSubTypes    = entityType.getTypeAndAllSubTypes();
++        Set<String>             solrAttributes     = new HashSet<>();
++        Set<String>             gremlinAttributes  = new HashSet<>();
++        Set<String>             allAttributes      = new HashSet<>();
+ 
+ 
+         processSearchAttributes(entityType, filterCriteria, solrAttributes, gremlinAttributes, allAttributes);
+ 
+-        final boolean typeSearchBySolr = !filterClassification && typeAndSubTypes.size() <= MAX_ENTITY_TYPES_IN_INDEX_QUERY;
+-        final boolean attrSearchBySolr = !filterClassification && CollectionUtils.isNotEmpty(solrAttributes) && canApplySolrFilter(entityType, filterCriteria, false);
+-
+-        StringBuilder solrQuery = new StringBuilder();
++        boolean useSolrSearch = typeAndSubTypes.size() <= MAX_ENTITY_TYPES_IN_INDEX_QUERY && canApplySolrFilter(entityType, filterCriteria, false);
+ 
+-        if (typeSearchBySolr) {
+-            constructTypeTestQuery(solrQuery, entityType, typeAndSubTypes);
+-        }
++        if (useSolrSearch) {
++            StringBuilder solrQuery = new StringBuilder();
+ 
+-        if (attrSearchBySolr) {
++            constructTypeTestQuery(solrQuery, typeAndSubTypes);
+             constructFilterQuery(solrQuery, entityType, filterCriteria, solrAttributes);
+-        } else {
+-            gremlinAttributes.addAll(solrAttributes);
+-        }
+ 
+-        if (solrQuery.length() > 0) {
+             String solrQueryString = STRAY_AND_PATTERN.matcher(solrQuery).replaceAll(")");
+ 
+             solrQueryString = STRAY_OR_PATTERN.matcher(solrQueryString).replaceAll(")");
+             solrQueryString = STRAY_ELIPSIS_PATTERN.matcher(solrQueryString).replaceAll("");
+ 
+             indexQuery = context.getGraph().indexQuery(Constants.VERTEX_INDEX, solrQueryString);
+-        } else {
+-            indexQuery = null;
+-        }
+ 
+-        if (CollectionUtils.isNotEmpty(gremlinAttributes) || !typeSearchBySolr) {
+-            AtlasGraphQuery query = context.getGraph().query();
++            if (CollectionUtils.isNotEmpty(gremlinAttributes) || classificationType != null) {
++                AtlasGraphQuery query = context.getGraph().query();
+ 
+-            if (!typeSearchBySolr) {
+-                query.in(Constants.TYPE_NAME_PROPERTY_KEY, typeAndSubTypes);
+-            }
+-
+-            if (filterClassification) {
+-                query.in(Constants.TRAIT_NAMES_PROPERTY_KEY, classificationType.getTypeAndAllSubTypes());
+-            }
++                addClassificationNameConditionIfNecessary(query);
+ 
+-            graphQuery = toGremlinFilterQuery(entityType, filterCriteria, gremlinAttributes, query);
+-
+-            if (context.getSearchParameters().getExcludeDeletedEntities() && indexQuery == null) {
+-                graphQuery.has(Constants.STATE_PROPERTY_KEY, "ACTIVE");
++                partialGraphQuery = toGremlinFilterQuery(entityType, filterCriteria, gremlinAttributes, query);
++            } else {
++                partialGraphQuery = null;
+             }
+         } else {
+-            graphQuery = null;
++            indexQuery      = null;
++            partialGraphQuery = null;
+         }
+ 
+         AtlasGraphQuery query = context.getGraph().query().in(Constants.TYPE_NAME_PROPERTY_KEY, typeAndSubTypes);
+ 
+-        if (filterClassification) {
+-            query.in(Constants.TRAIT_NAMES_PROPERTY_KEY, classificationType.getTypeAndAllSubTypes());
+-        }
++        addClassificationNameConditionIfNecessary(query);
+ 
+-        filterGraphQuery = toGremlinFilterQuery(entityType, filterCriteria, allAttributes, query);
++        allGraphQuery = toGremlinFilterQuery(entityType, filterCriteria, allAttributes, query);
+ 
+         if (context.getSearchParameters().getExcludeDeletedEntities()) {
+-            filterGraphQuery.has(Constants.STATE_PROPERTY_KEY, "ACTIVE");
++            allGraphQuery.has(Constants.STATE_PROPERTY_KEY, "ACTIVE");
+         }
+     }
+ 
+@@ -128,69 +106,57 @@ public class EntitySearchProcessor extends SearchProcessor {
+         }
+ 
+         try {
+-            final int startIdx  = context.getSearchParameters().getOffset();
+-            final int limit     = context.getSearchParameters().getLimit();
+-            int       qryOffset = (nextProcessor == null && (graphQuery == null || indexQuery == null)) ? startIdx : 0;
+-            int       resultIdx = qryOffset;
+-
+-            final List<AtlasVertex> entityVertices = new ArrayList<>();
+-
+-            for (; ret.size() < limit; qryOffset += limit) {
+-                entityVertices.clear();
++            int qryOffset = (nextProcessor == null) ? context.getSearchParameters().getOffset() : 0;
++            int limit     = context.getSearchParameters().getLimit();
++            int resultIdx = qryOffset;
+ 
++            while (ret.size() < limit) {
+                 if (context.terminateSearch()) {
+                     LOG.warn("query terminated: {}", context.getSearchParameters());
+ 
+                     break;
+                 }
+ 
++                List<AtlasVertex> vertices;
++
+                 if (indexQuery != null) {
+-                    Iterator<AtlasIndexQuery.Result> idxQueryResult = indexQuery.vertices(qryOffset, limit);
++                    Iterator<AtlasIndexQuery.Result> queryResult = indexQuery.vertices(qryOffset, limit);
+ 
+-                    if (!idxQueryResult.hasNext()) { // no more results from solr - end of search
++                    if (!queryResult.hasNext()) { // no more results from solr - end of search
+                         break;
+                     }
+ 
+-                    while (idxQueryResult.hasNext()) {
+-                        AtlasVertex vertex = idxQueryResult.next().getVertex();
+-
+-                        // skip non-entity vertices
+-                        if (!AtlasGraphUtilsV1.isEntityVertex(vertex)) {
+-                            LOG.warn("EntitySearchProcessor.execute(): ignoring non-entity vertex (id={})", vertex.getId()); // might cause duplicate entries in result
+-
+-                            continue;
+-                        }
+-
+-                        entityVertices.add(vertex);
+-                    }
++                    vertices = getVerticesFromIndexQueryResult(queryResult);
+ 
+-                    if (graphQuery != null) {
+-                        AtlasGraphQuery guidQuery = context.getGraph().query().in(Constants.GUID_PROPERTY_KEY, getGuids(entityVertices));
++                    if (partialGraphQuery != null) {
++                        AtlasGraphQuery guidQuery = context.getGraph().query().in(Constants.GUID_PROPERTY_KEY, getGuids(vertices));
+ 
+-                        guidQuery.addConditionsFrom(graphQuery);
++                        guidQuery.addConditionsFrom(partialGraphQuery);
+ 
+-                        getVertices(guidQuery.vertices().iterator(), entityVertices);
++                        vertices = getVertices(guidQuery.vertices().iterator());
+                     }
+                 } else {
+-                    Iterator<AtlasVertex> queryResult = graphQuery.vertices(qryOffset, limit).iterator();
++                    Iterator<AtlasVertex> queryResult = allGraphQuery.vertices(qryOffset, limit).iterator();
+ 
+                     if (!queryResult.hasNext()) { // no more results from query - end of search
+                         break;
+                     }
+ 
+-                    getVertices(queryResult, entityVertices);
++                    vertices = getVertices(queryResult);
+                 }
+ 
+-                super.filter(entityVertices);
++                qryOffset += limit;
+ 
+-                for (AtlasVertex entityVertex : entityVertices) {
++                vertices = super.filter(vertices);
++
++                for (AtlasVertex vertex : vertices) {
+                     resultIdx++;
+ 
+-                    if (resultIdx <= startIdx) {
++                    if (resultIdx < context.getSearchParameters().getOffset()) {
+                         continue;
+                     }
+ 
+-                    ret.add(entityVertex);
++                    ret.add(vertex);
+ 
+                     if (ret.size() == limit) {
+                         break;
+@@ -209,22 +175,29 @@ public class EntitySearchProcessor extends SearchProcessor {
+     }
+ 
+     @Override
+-    public void filter(List<AtlasVertex> entityVertices) {
++    public List<AtlasVertex> filter(List<AtlasVertex> entityVertices) {
+         if (LOG.isDebugEnabled()) {
+             LOG.debug("==> EntitySearchProcessor.filter({})", entityVertices.size());
+         }
+ 
+         AtlasGraphQuery query = context.getGraph().query().in(Constants.GUID_PROPERTY_KEY, getGuids(entityVertices));
+ 
+-        query.addConditionsFrom(filterGraphQuery);
++        query.addConditionsFrom(allGraphQuery);
+ 
+-        entityVertices.clear();
+-        getVertices(query.vertices().iterator(), entityVertices);
++        List<AtlasVertex> ret = getVertices(query.vertices().iterator());
+ 
+-        super.filter(entityVertices);
++        ret = super.filter(ret);
+ 
+         if (LOG.isDebugEnabled()) {
+-            LOG.debug("<== EntitySearchProcessor.filter(): ret.size()={}", entityVertices.size());
++            LOG.debug("<== EntitySearchProcessor.filter({}): ret.size()={}", entityVertices.size(), ret.size());
++        }
++
++        return ret;
++    }
++
++    private void addClassificationNameConditionIfNecessary(AtlasGraphQuery query) {
++        if (context.getClassificationType() != null && !context.needClassificationProcessor()) {
++            query.in(Constants.TRAIT_NAMES_PROPERTY_KEY, context.getClassificationType().getTypeAndAllSubTypes());
+         }
+     }
+ }

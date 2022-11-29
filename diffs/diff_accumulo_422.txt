@@ -1,0 +1,20 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/DeleteEverythingIT.java b/test/src/main/java/org/apache/accumulo/test/functional/DeleteEverythingIT.java
+index c82f72182a..45778139df 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/DeleteEverythingIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/DeleteEverythingIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ import static org.junit.Assert.assertEquals;
+ 
+@@ -43,6 +42,7 @@ import org.junit.Test;
+ 
+ import com.google.common.collect.Iterables;
+ import com.google.common.collect.Iterators;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ public class DeleteEverythingIT extends AccumuloClusterHarness {
+ 

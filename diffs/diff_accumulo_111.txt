@@ -1,0 +1,58 @@
+diff --git a/server/src/main/java/org/apache/accumulo/server/master/Master.java b/server/src/main/java/org/apache/accumulo/server/master/Master.java
+index 699630fc6e..d5fcc0a5ed 100644
+--- a/server/src/main/java/org/apache/accumulo/server/master/Master.java
++++ b/server/src/main/java/org/apache/accumulo/server/master/Master.java
+@@ -2129,26 +2129,6 @@ public class Master implements LiveTServerSet.Listener, TableObserver, CurrentSt
+     
+     tserverSet.startListeningForTabletServerChanges();
+ 
+-    // TODO: add shutdown for fate object
+-    try {
+-      final AgeOffStore<Master> store = new AgeOffStore<Master>(new org.apache.accumulo.fate.ZooStore<Master>(ZooUtil.getRoot(instance) + Constants.ZFATE,
+-          ZooReaderWriter.getRetryingInstance()), 1000 * 60 * 60 * 8);
+-      
+-      fate = new Fate<Master>(this, store, 4);
+-      
+-      SimpleTimer.getInstance().schedule(new TimerTask() {
+-        
+-        @Override
+-        public void run() {
+-          store.ageOff();
+-        }
+-      }, 63000, 63000);
+-    } catch (KeeperException e) {
+-      throw new IOException(e);
+-    } catch (InterruptedException e) {
+-      throw new IOException(e);
+-    }
+-    
+     ZooReaderWriter.getInstance().getChildren(zroot + Constants.ZRECOVERY, new Watcher() {
+       @Override
+       public void process(WatchedEvent event) {
+@@ -2172,6 +2152,26 @@ public class Master implements LiveTServerSet.Listener, TableObserver, CurrentSt
+       watcher.start();
+     }
+     
++    // TODO: add shutdown for fate object
++    try {
++      final AgeOffStore<Master> store = new AgeOffStore<Master>(new org.apache.accumulo.fate.ZooStore<Master>(ZooUtil.getRoot(instance) + Constants.ZFATE,
++          ZooReaderWriter.getRetryingInstance()), 1000 * 60 * 60 * 8);
++      
++      fate = new Fate<Master>(this, store, 4);
++      
++      SimpleTimer.getInstance().schedule(new TimerTask() {
++        
++        @Override
++        public void run() {
++          store.ageOff();
++        }
++      }, 63000, 63000);
++    } catch (KeeperException e) {
++      throw new IOException(e);
++    } catch (InterruptedException e) {
++      throw new IOException(e);
++    }
++    
+     Processor<Iface> processor = new Processor<Iface>(TraceWrap.service(new MasterClientServiceHandler()));
+     clientService = TServerUtils.startServer(getSystemConfiguration(), Property.MASTER_CLIENTPORT, processor, "Master", "Master Client Service Handler", null,
+         Property.MASTER_MINTHREADS, Property.MASTER_THREADCHECK, Property.GENERAL_MAX_MESSAGE_SIZE).server;

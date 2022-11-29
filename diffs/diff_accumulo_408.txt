@@ -1,0 +1,48 @@
+diff --git a/test/src/main/java/org/apache/accumulo/test/functional/AddSplitIT.java b/test/src/main/java/org/apache/accumulo/test/functional/AddSplitIT.java
+index 7f9ac6d39a..ddaca1efdd 100644
+--- a/test/src/main/java/org/apache/accumulo/test/functional/AddSplitIT.java
++++ b/test/src/main/java/org/apache/accumulo/test/functional/AddSplitIT.java
+@@ -16,7 +16,6 @@
+  */
+ package org.apache.accumulo.test.functional;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+ import java.util.Collection;
+@@ -40,6 +39,8 @@ import org.apache.accumulo.harness.AccumuloClusterHarness;
+ import org.apache.hadoop.io.Text;
+ import org.junit.Test;
+ 
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
++
+ public class AddSplitIT extends AccumuloClusterHarness {
+ 
+   @Override
+@@ -56,7 +57,7 @@ public class AddSplitIT extends AccumuloClusterHarness {
+ 
+     insertData(tableName, 1l);
+ 
+-    TreeSet<Text> splits = new TreeSet<>();
++    TreeSet<Text> splits = new TreeSet<Text>();
+     splits.add(new Text(String.format("%09d", 333)));
+     splits.add(new Text(String.format("%09d", 666)));
+ 
+@@ -66,7 +67,7 @@ public class AddSplitIT extends AccumuloClusterHarness {
+ 
+     Collection<Text> actualSplits = c.tableOperations().listSplits(tableName);
+ 
+-    if (!splits.equals(new TreeSet<>(actualSplits))) {
++    if (!splits.equals(new TreeSet<Text>(actualSplits))) {
+       throw new Exception(splits + " != " + actualSplits);
+     }
+ 
+@@ -86,7 +87,7 @@ public class AddSplitIT extends AccumuloClusterHarness {
+ 
+     actualSplits = c.tableOperations().listSplits(tableName);
+ 
+-    if (!splits.equals(new TreeSet<>(actualSplits))) {
++    if (!splits.equals(new TreeSet<Text>(actualSplits))) {
+       throw new Exception(splits + " != " + actualSplits);
+     }
+ 

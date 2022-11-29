@@ -1,0 +1,209 @@
+diff --git a/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java b/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java
+index 411ffa5a44..f42d4a4674 100644
+--- a/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java
++++ b/server/tserver/src/main/java/org/apache/accumulo/tserver/TabletServerResourceManager.java
+@@ -16,8 +16,7 @@
+  */
+ package org.apache.accumulo.tserver;
+ 
+-import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+-import static java.util.Objects.requireNonNull;
++import static com.google.common.base.Preconditions.checkNotNull;
+ 
+ import java.io.IOException;
+ import java.util.ArrayList;
+@@ -39,9 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
+ import org.apache.accumulo.core.conf.AccumuloConfiguration;
+ import org.apache.accumulo.core.conf.Property;
+ import org.apache.accumulo.core.data.impl.KeyExtent;
+-import org.apache.accumulo.core.file.blockfile.cache.BlockCache;
+ import org.apache.accumulo.core.file.blockfile.cache.LruBlockCache;
+-import org.apache.accumulo.core.file.blockfile.cache.TinyLfuBlockCache;
+ import org.apache.accumulo.core.metadata.schema.DataFileValue;
+ import org.apache.accumulo.core.util.Daemon;
+ import org.apache.accumulo.core.util.NamingThreadFactory;
+@@ -66,6 +63,7 @@ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
+ import com.google.common.annotations.VisibleForTesting;
++import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+ 
+ /**
+  * ResourceManager is responsible for managing the resources of all tablets within a tablet server.
+@@ -86,22 +84,20 @@ public class TabletServerResourceManager {
+   private final ExecutorService assignMetaDataPool;
+   private final ExecutorService readAheadThreadPool;
+   private final ExecutorService defaultReadAheadThreadPool;
+-  private final ExecutorService summaryRetrievalPool;
+-  private final ExecutorService summaryParitionPool;
+-  private final ExecutorService summaryRemotePool;
+-  private final Map<String,ExecutorService> threadPools = new TreeMap<>();
++  private final Map<String,ExecutorService> threadPools = new TreeMap<String,ExecutorService>();
+ 
+   private final ConcurrentHashMap<KeyExtent,RunnableStartedAt> activeAssignments;
+ 
++  private final VolumeManager fs;
++
+   private final FileManager fileManager;
+ 
+   private final MemoryManager memoryManager;
+ 
+   private final MemoryManagementFramework memMgmt;
+ 
+-  private final BlockCache _dCache;
+-  private final BlockCache _iCache;
+-  private final BlockCache _sCache;
++  private final LruBlockCache _dCache;
++  private final LruBlockCache _iCache;
+   private final TabletServer tserver;
+   private final ServerConfigurationFactory conf;
+ 
+@@ -143,14 +139,6 @@ public class TabletServerResourceManager {
+     return createEs(max, name, new LinkedBlockingQueue<Runnable>());
+   }
+ 
+-  private ExecutorService createIdlingEs(Property max, String name, long timeout, TimeUnit timeUnit) {
+-    LinkedBlockingQueue<Runnable> queue = new LinkedBlockingQueue<Runnable>();
+-    int maxThreads = conf.getConfiguration().getCount(max);
+-    ThreadPoolExecutor tp = new ThreadPoolExecutor(maxThreads, maxThreads, timeout, timeUnit, queue, new NamingThreadFactory(name));
+-    tp.allowCoreThreadTimeOut(true);
+-    return addEs(max, name, tp);
+-  }
+-
+   private ExecutorService createEs(Property max, String name, BlockingQueue<Runnable> queue) {
+     int maxThreads = conf.getConfiguration().getCount(max);
+     ThreadPoolExecutor tp = new ThreadPoolExecutor(maxThreads, maxThreads, 0L, TimeUnit.MILLISECONDS, queue, new NamingThreadFactory(name));
+@@ -164,6 +152,7 @@ public class TabletServerResourceManager {
+   public TabletServerResourceManager(TabletServer tserver, VolumeManager fs) {
+     this.tserver = tserver;
+     this.conf = tserver.getServerConfigurationFactory();
++    this.fs = fs;
+     final AccumuloConfiguration acuConf = conf.getConfiguration();
+ 
+     long maxMemory = acuConf.getMemoryInBytes(Property.TSERV_MAXMEM);
+@@ -172,33 +161,16 @@ public class TabletServerResourceManager {
+     long blockSize = acuConf.getMemoryInBytes(Property.TSERV_DEFAULT_BLOCKSIZE);
+     long dCacheSize = acuConf.getMemoryInBytes(Property.TSERV_DATACACHE_SIZE);
+     long iCacheSize = acuConf.getMemoryInBytes(Property.TSERV_INDEXCACHE_SIZE);
+-    long sCacheSize = acuConf.getMemoryInBytes(Property.TSERV_SUMMARYCACHE_SIZE);
+     long totalQueueSize = acuConf.getMemoryInBytes(Property.TSERV_TOTAL_MUTATION_QUEUE_MAX);
+ 
+-    String policy = acuConf.get(Property.TSERV_CACHE_POLICY);
+-    if (policy.equalsIgnoreCase("LRU")) {
+-      _iCache = new LruBlockCache(iCacheSize, blockSize);
+-      _dCache = new LruBlockCache(dCacheSize, blockSize);
+-      _sCache = new LruBlockCache(sCacheSize, blockSize);
+-    } else if (policy.equalsIgnoreCase("TinyLFU")) {
+-      _iCache = new TinyLfuBlockCache(iCacheSize, blockSize);
+-      _dCache = new TinyLfuBlockCache(dCacheSize, blockSize);
+-      _sCache = new TinyLfuBlockCache(sCacheSize, blockSize);
+-    } else {
+-      throw new IllegalArgumentException("Unknown Block cache policy " + policy);
+-    }
++    _iCache = new LruBlockCache(iCacheSize, blockSize);
++    _dCache = new LruBlockCache(dCacheSize, blockSize);
+ 
+     Runtime runtime = Runtime.getRuntime();
+-    if (usingNativeMap) {
+-      // Still check block cache sizes when using native maps.
+-      if (dCacheSize + iCacheSize + sCacheSize + totalQueueSize > runtime.maxMemory()) {
+-        throw new IllegalArgumentException(String.format("Block cache sizes %,d and mutation queue size %,d is too large for this JVM configuration %,d",
+-            dCacheSize + iCacheSize + sCacheSize, totalQueueSize, runtime.maxMemory()));
+-      }
+-    } else if (maxMemory + dCacheSize + iCacheSize + sCacheSize + totalQueueSize > runtime.maxMemory()) {
++    if (!usingNativeMap && maxMemory + dCacheSize + iCacheSize + totalQueueSize > runtime.maxMemory()) {
+       throw new IllegalArgumentException(String.format(
+           "Maximum tablet server map memory %,d block cache sizes %,d and mutation queue size %,d is too large for this JVM configuration %,d", maxMemory,
+-          dCacheSize + iCacheSize + sCacheSize, totalQueueSize, runtime.maxMemory()));
++          dCacheSize + iCacheSize, totalQueueSize, runtime.maxMemory()));
+     }
+     runtime.gc();
+ 
+@@ -229,15 +201,11 @@ public class TabletServerResourceManager {
+ 
+     assignMetaDataPool = createEs(0, 1, 60, "metadata tablet assignment");
+ 
+-    activeAssignments = new ConcurrentHashMap<>();
++    activeAssignments = new ConcurrentHashMap<KeyExtent,RunnableStartedAt>();
+ 
+     readAheadThreadPool = createEs(Property.TSERV_READ_AHEAD_MAXCONCURRENT, "tablet read ahead");
+     defaultReadAheadThreadPool = createEs(Property.TSERV_METADATA_READ_AHEAD_MAXCONCURRENT, "metadata tablets read ahead");
+ 
+-    summaryRetrievalPool = createIdlingEs(Property.TSERV_SUMMARY_RETRIEVAL_THREADS, "summary file retriever", 60, TimeUnit.SECONDS);
+-    summaryRemotePool = createIdlingEs(Property.TSERV_SUMMARY_REMOTE_THREADS, "summary remote", 60, TimeUnit.SECONDS);
+-    summaryParitionPool = createIdlingEs(Property.TSERV_SUMMARY_PARTITION_THREADS, "summary partition", 60, TimeUnit.SECONDS);
+-
+     int maxOpenFiles = acuConf.getCount(Property.TSERV_SCAN_MAX_OPENFILES);
+ 
+     fileManager = new FileManager(tserver, fs, maxOpenFiles, _dCache, _iCache);
+@@ -358,7 +326,7 @@ public class TabletServerResourceManager {
+ 
+     MemoryManagementFramework() {
+       tabletReports = Collections.synchronizedMap(new HashMap<KeyExtent,TabletStateImpl>());
+-      memUsageReports = new LinkedBlockingQueue<>();
++      memUsageReports = new LinkedBlockingQueue<TabletStateImpl>();
+       maxMem = conf.getConfiguration().getMemoryInBytes(Property.TSERV_MAXMEM);
+ 
+       Runnable r1 = new Runnable() {
+@@ -434,9 +402,9 @@ public class TabletServerResourceManager {
+         Map<KeyExtent,TabletStateImpl> tabletReportsCopy = null;
+         try {
+           synchronized (tabletReports) {
+-            tabletReportsCopy = new HashMap<>(tabletReports);
++            tabletReportsCopy = new HashMap<KeyExtent,TabletStateImpl>(tabletReports);
+           }
+-          ArrayList<TabletState> tabletStates = new ArrayList<>(tabletReportsCopy.values());
++          ArrayList<TabletState> tabletStates = new ArrayList<TabletState>(tabletReportsCopy.values());
+           mma = memoryManager.getMemoryManagementActions(tabletStates);
+ 
+         } catch (Throwable t) {
+@@ -574,8 +542,8 @@ public class TabletServerResourceManager {
+     private final AccumuloConfiguration tableConf;
+ 
+     TabletResourceManager(KeyExtent extent, AccumuloConfiguration tableConf) {
+-      requireNonNull(extent, "extent is null");
+-      requireNonNull(tableConf, "tableConf is null");
++      checkNotNull(extent, "extent is null");
++      checkNotNull(tableConf, "tableConf is null");
+       this.extent = extent;
+       this.tableConf = tableConf;
+     }
+@@ -673,7 +641,7 @@ public class TabletServerResourceManager {
+       CompactionStrategy strategy = Property.createTableInstanceFromPropertyName(tableConf, Property.TABLE_COMPACTION_STRATEGY, CompactionStrategy.class,
+           new DefaultCompactionStrategy());
+       strategy.init(Property.getCompactionStrategyOptions(tableConf));
+-      MajorCompactionRequest request = new MajorCompactionRequest(extent, reason, tableConf);
++      MajorCompactionRequest request = new MajorCompactionRequest(extent, reason, TabletServerResourceManager.this.fs, tableConf);
+       request.setFiles(tabletFiles);
+       try {
+         return strategy.shouldCompact(request);
+@@ -768,27 +736,12 @@ public class TabletServerResourceManager {
+     }
+   }
+ 
+-  public BlockCache getIndexCache() {
++  public LruBlockCache getIndexCache() {
+     return _iCache;
+   }
+ 
+-  public BlockCache getDataCache() {
++  public LruBlockCache getDataCache() {
+     return _dCache;
+   }
+ 
+-  public BlockCache getSummaryCache() {
+-    return _sCache;
+-  }
+-
+-  public ExecutorService getSummaryRetrievalExecutor() {
+-    return summaryRetrievalPool;
+-  }
+-
+-  public ExecutorService getSummaryPartitionExecutor() {
+-    return summaryParitionPool;
+-  }
+-
+-  public ExecutorService getSummaryRemoteExecutor() {
+-    return summaryRemotePool;
+-  }
+ }

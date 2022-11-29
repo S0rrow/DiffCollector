@@ -1,0 +1,357 @@
+diff --git a/tests/activemq5-unit-tests/src/main/java/org/apache/activemq/broker/artemiswrapper/ArtemisBrokerWrapper.java b/tests/activemq5-unit-tests/src/main/java/org/apache/activemq/broker/artemiswrapper/ArtemisBrokerWrapper.java
+index 94faf26ee2..86580e1c75 100644
+--- a/tests/activemq5-unit-tests/src/main/java/org/apache/activemq/broker/artemiswrapper/ArtemisBrokerWrapper.java
++++ b/tests/activemq5-unit-tests/src/main/java/org/apache/activemq/broker/artemiswrapper/ArtemisBrokerWrapper.java
+@@ -16,11 +16,10 @@
+  */
+ package org.apache.activemq.broker.artemiswrapper;
+ 
+-import java.io.File;
++import java.net.URI;
+ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Iterator;
+-import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ 
+@@ -29,85 +28,92 @@ import org.apache.activemq.artemis.api.core.SimpleString;
+ import org.apache.activemq.artemis.api.core.TransportConfiguration;
+ import org.apache.activemq.artemis.core.config.Configuration;
+ import org.apache.activemq.artemis.core.config.impl.SecurityConfiguration;
+-import org.apache.activemq.artemis.core.postoffice.Binding;
+-import org.apache.activemq.artemis.core.registry.JndiBindingRegistry;
+ import org.apache.activemq.artemis.core.remoting.impl.netty.TransportConstants;
+ import org.apache.activemq.artemis.core.security.Role;
+-import org.apache.activemq.artemis.core.server.impl.QueueImpl;
+-import org.apache.activemq.artemis.core.settings.impl.AddressFullMessagePolicy;
+ import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+-import org.apache.activemq.artemis.core.settings.impl.SlowConsumerPolicy;
+-import org.apache.activemq.artemis.jms.server.impl.JMSServerManagerImpl;
+-import org.apache.activemq.artemis.spi.core.security.ActiveMQJAASSecurityManager;
++import org.apache.activemq.artemis.spi.core.security.ActiveMQSecurityManagerImpl;
++import org.apache.activemq.artemiswrapper.ArtemisBrokerHelper;
+ import org.apache.activemq.broker.BrokerService;
+-import org.apache.activemq.broker.region.policy.PolicyEntry;
+-import org.apache.activemq.broker.region.policy.PolicyMap;
+ 
+-import javax.management.MBeanServer;
+-import javax.management.MBeanServerFactory;
++public class ArtemisBrokerWrapper extends ArtemisBrokerBase
++{
+ 
+-public class ArtemisBrokerWrapper extends ArtemisBrokerBase {
++   protected Map<String, SimpleString> testQueues = new HashMap<String, SimpleString>();
+ 
+-   protected final Map<String, SimpleString> testQueues = new HashMap<>();
+-   protected JMSServerManagerImpl jmsServer;
+-   protected MBeanServer mbeanServer;
+-
+-   public ArtemisBrokerWrapper(BrokerService brokerService, File temporaryFolder) {
+-      super(temporaryFolder);
++   public ArtemisBrokerWrapper(BrokerService brokerService)
++   {
+       this.bservice = brokerService;
+    }
+ 
+    @Override
+-   public void start() throws Exception {
++   public void start() throws Exception
++   {
++      testDir = temporaryFolder.getRoot().getAbsolutePath();
+       clearDataRecreateServerDirs();
+-
+-      mbeanServer = MBeanServerFactory.createMBeanServer();
+-
+-      server = createServer(realStore, true);
+-      server.setMBeanServer(mbeanServer);
+-
+-      server.getConfiguration().getAcceptorConfigurations().clear();
++      server = createServer(realStore, false);
++      HashMap<String, Object> params = new HashMap<String, Object>();
++      params.put(TransportConstants.PORT_PROP_NAME, "61616");
++      params.put(TransportConstants.PROTOCOLS_PROP_NAME, "OPENWIRE");
++      TransportConfiguration transportConfiguration = new TransportConfiguration(NETTY_ACCEPTOR_FACTORY, params);
+ 
+       Configuration serverConfig = server.getConfiguration();
+-      serverConfig.setJMXManagementEnabled(true);
+-
+-      Map<String, AddressSettings> addressSettingsMap = serverConfig.getAddressesSettings();
+ 
+-      //do policy translation
+-      PolicyMap policyMap = this.bservice.getDestinationPolicy();
++      Set<TransportConfiguration> acceptors0 = serverConfig.getAcceptorConfigurations();
++      Iterator<TransportConfiguration> iter0 = acceptors0.iterator();
+ 
+-      if (policyMap != null) {
+-         translatePolicyMap(serverConfig, policyMap);
++      while (iter0.hasNext())
++      {
++         System.out.println("===>: " + iter0.next());
+       }
+ 
++      Map<String, AddressSettings> addressSettings = serverConfig.getAddressesSettings();
+       String match = "jms.queue.#";
+-      AddressSettings commonSettings = addressSettingsMap.get(match);
+-      if (commonSettings == null) {
+-         commonSettings = new AddressSettings();
+-         addressSettingsMap.put(match, commonSettings);
+-      }
++      AddressSettings dlaSettings = new AddressSettings();
+       SimpleString dla = new SimpleString("jms.queue.ActiveMQ.DLQ");
+-      commonSettings.setDeadLetterAddress(dla);
+-      commonSettings.setAutoCreateJmsQueues(true);
++      dlaSettings.setDeadLetterAddress(dla);
++      addressSettings.put(match, dlaSettings);
+ 
+-      if (bservice.extraConnectors.size() == 0) {
+-         serverConfig.addAcceptorConfiguration("home", "tcp://localhost:61616?protocols=OPENWIRE,CORE");
+-      }
+-      if (this.bservice.enableSsl()) {
+-         //default
+-         addServerAcceptor(serverConfig, new BrokerService.ConnectorInfo(61611, true));
++      serverConfig.getAcceptorConfigurations().add(transportConfiguration);
++      if (this.bservice.enableSsl())
++      {
++         params = new HashMap<String, Object>();
++         params.put(TransportConstants.SSL_ENABLED_PROP_NAME, true);
++         params.put(TransportConstants.PORT_PROP_NAME, 61611);
++         params.put(TransportConstants.PROTOCOLS_PROP_NAME, "OPENWIRE");
++         params.put(TransportConstants.KEYSTORE_PATH_PROP_NAME, bservice.SERVER_SIDE_KEYSTORE);
++         params.put(TransportConstants.KEYSTORE_PASSWORD_PROP_NAME, bservice.KEYSTORE_PASSWORD);
++         params.put(TransportConstants.KEYSTORE_PROVIDER_PROP_NAME, bservice.storeType);
++         if (bservice.SERVER_SIDE_TRUSTSTORE != null)
++         {
++            params.put(TransportConstants.NEED_CLIENT_AUTH_PROP_NAME, true);
++            params.put(TransportConstants.TRUSTSTORE_PATH_PROP_NAME, bservice.SERVER_SIDE_TRUSTSTORE);
++            params.put(TransportConstants.TRUSTSTORE_PASSWORD_PROP_NAME, bservice.TRUSTSTORE_PASSWORD);
++            params.put(TransportConstants.TRUSTSTORE_PROVIDER_PROP_NAME, bservice.storeType);
++         }
++         TransportConfiguration sslTransportConfig = new TransportConfiguration(NETTY_ACCEPTOR_FACTORY, params);
++         serverConfig.getAcceptorConfigurations().add(sslTransportConfig);
+       }
+ 
+-      for (BrokerService.ConnectorInfo info : bservice.extraConnectors) {
+-         addServerAcceptor(serverConfig, info);
++      for (Integer port : bservice.extraConnectors)
++      {
++         if (port.intValue() != 61616)
++         {
++            //extra port
++            params = new HashMap<String, Object>();
++            params.put(TransportConstants.PORT_PROP_NAME, port.intValue());
++            params.put(TransportConstants.PROTOCOLS_PROP_NAME, "OPENWIRE");
++            TransportConfiguration extraTransportConfiguration = new TransportConfiguration(NETTY_ACCEPTOR_FACTORY, params);
++            serverConfig.getAcceptorConfigurations().add(extraTransportConfiguration);
++         }
+       }
+ 
+       serverConfig.setSecurityEnabled(enableSecurity);
+ 
+       //extraServerConfig(serverConfig);
+ 
+-      if (enableSecurity) {
+-         ActiveMQJAASSecurityManager sm = (ActiveMQJAASSecurityManager) server.getSecurityManager();
++      if (enableSecurity)
++      {
++         ActiveMQSecurityManagerImpl sm = (ActiveMQSecurityManagerImpl) server.getSecurityManager();
+          SecurityConfiguration securityConfig = sm.getConfiguration();
+          securityConfig.addRole("openwireSender", "sender");
+          securityConfig.addUser("openwireSender", "SeNdEr");
+@@ -132,13 +138,15 @@ public class ArtemisBrokerWrapper extends ArtemisBrokerBase {
+          Role destRole = new Role("manager", false, false, false, false, true, true, false);
+ 
+          Map<String, Set<Role>> settings = server.getConfiguration().getSecurityRoles();
+-         if (settings == null) {
+-            settings = new HashMap<>();
++         if (settings == null)
++         {
++            settings = new HashMap<String, Set<Role>>();
+             server.getConfiguration().setSecurityRoles(settings);
+          }
+          Set<Role> anySet = settings.get("#");
+-         if (anySet == null) {
+-            anySet = new HashSet<>();
++         if (anySet == null)
++         {
++            anySet = new HashSet<Role>();
+             settings.put("#", anySet);
+          }
+          anySet.add(senderRole);
+@@ -146,146 +154,56 @@ public class ArtemisBrokerWrapper extends ArtemisBrokerBase {
+          anySet.add(guestRole);
+          anySet.add(destRole);
+       }
+-
++/* no need to start jms server here
++         jmsServer = new JMSServerManagerImpl(server);
++	      jmsServer.setContext(new InVMNamingContext());
++	      jmsServer.start();
++*/
+       Set<TransportConfiguration> acceptors = serverConfig.getAcceptorConfigurations();
+       Iterator<TransportConfiguration> iter = acceptors.iterator();
+-      while (iter.hasNext()) {
+-         System.out.println("acceptor =>: " + iter.next());
+-      }
+-
+-      jmsServer = new JMSServerManagerImpl(server);
+-      InVMNamingContext namingContext = new InVMNamingContext();
+-      jmsServer.setRegistry(new JndiBindingRegistry(namingContext));
+-      jmsServer.start();
+-
+-      server.start();
+-
+-      stopped = false;
+-
+-   }
+ 
+-   private void addServerAcceptor(Configuration serverConfig, BrokerService.ConnectorInfo info) throws Exception {
+-      if (info.ssl) {
+-         HashMap<String, Object> params = new HashMap<String, Object>();
+-         params.put(TransportConstants.SSL_ENABLED_PROP_NAME, true);
+-         params.put(TransportConstants.PORT_PROP_NAME, info.port);
+-         params.put(TransportConstants.PROTOCOLS_PROP_NAME, "OPENWIRE");
+-         params.put(TransportConstants.KEYSTORE_PATH_PROP_NAME, bservice.SERVER_SIDE_KEYSTORE);
+-         params.put(TransportConstants.KEYSTORE_PASSWORD_PROP_NAME, bservice.KEYSTORE_PASSWORD);
+-         params.put(TransportConstants.KEYSTORE_PROVIDER_PROP_NAME, bservice.storeType);
+-         if (bservice.SERVER_SIDE_TRUSTSTORE != null) {
+-            params.put(TransportConstants.TRUSTSTORE_PATH_PROP_NAME, bservice.SERVER_SIDE_TRUSTSTORE);
+-            params.put(TransportConstants.TRUSTSTORE_PASSWORD_PROP_NAME, bservice.TRUSTSTORE_PASSWORD);
+-            params.put(TransportConstants.TRUSTSTORE_PROVIDER_PROP_NAME, bservice.storeType);
+-         }
+-         TransportConfiguration sslTransportConfig = new TransportConfiguration(NETTY_ACCEPTOR_FACTORY, params);
+-         serverConfig.getAcceptorConfigurations().add(sslTransportConfig);
+-      }
+-      else {
+-         serverConfig.addAcceptorConfiguration("homePort" + info.port, "tcp://localhost:" + info.port + "?protocols=OPENWIRE,CORE");
+-      }
+-   }
+-
+-   private void translatePolicyMap(Configuration serverConfig, PolicyMap policyMap) {
+-      List allEntries = policyMap.getAllEntries();
+-      Map<String, AddressSettings> settingsMap = serverConfig.getAddressesSettings();
+-      for (Object o : allEntries) {
+-         PolicyEntry entry = (PolicyEntry) o;
+-         org.apache.activemq.command.ActiveMQDestination targetDest = entry.getDestination();
+-         String match = getCorePattern(targetDest);
+-         AddressSettings settings = settingsMap.get(match);
+-         if (settings == null) {
+-            settings = new AddressSettings();
+-            settingsMap.put(match, settings);
+-         }
+-
+-         if (entry.isAdvisoryForSlowConsumers()) {
+-            settings.setSlowConsumerThreshold(1000);
+-            settings.setSlowConsumerCheckPeriod(1);
+-            settings.setSlowConsumerPolicy(SlowConsumerPolicy.NOTIFY);
+-         }
+-         if (entry.isProducerFlowControl()) {
+-            settings.setMaxSizeBytes(10240000).setAddressFullMessagePolicy(AddressFullMessagePolicy.BLOCK);
+-            if (bservice.getSystemUsage().isSendFailIfNoSpace()) {
+-               settings.setAddressFullMessagePolicy(AddressFullMessagePolicy.FAIL);
+-            }
+-         }
+-         int queuePrefetch = entry.getQueuePrefetch();
+-         settings.setQueuePrefetch(queuePrefetch);
++      while (iter.hasNext())
++      {
++         System.out.println(">: " + iter.next());
+       }
++      server.start();
+ 
+-      PolicyEntry defaultEntry = policyMap.getDefaultEntry();
+-      if (defaultEntry != null) {
+-         AddressSettings defSettings = settingsMap.get("#");
+-         if (defSettings == null) {
+-            defSettings = new AddressSettings();
+-            settingsMap.put("#", defSettings);
+-         }
+-         if (defaultEntry.isProducerFlowControl()) {
+-            defSettings.setMaxSizeBytes(10240000).setAddressFullMessagePolicy(AddressFullMessagePolicy.BLOCK);
+-            if (bservice.getSystemUsage().isSendFailIfNoSpace()) {
+-               defSettings.setAddressFullMessagePolicy(AddressFullMessagePolicy.FAIL);
+-            }
+-         }
+-      }
+-   }
++/*
++	      registerConnectionFactory();
++	      mbeanServer = MBeanServerFactory.createMBeanServer();
++*/
+ 
+-   private String getCorePattern(org.apache.activemq.command.ActiveMQDestination dest) {
+-      String physicalName = dest.getPhysicalName();
+-      String pattern = physicalName.replace(">", "#");
+-      if (dest.isTopic()) {
+-         pattern = "jms.topic." + pattern;
+-      }
+-      else {
+-         pattern = "jms.queue." + pattern;
+-      }
++      ArtemisBrokerHelper.setBroker(this.bservice);
++      stopped = false;
+ 
+-      return pattern;
+    }
+ 
+    @Override
+-   public void stop() throws Exception {
+-      try {
+-         server.stop();
+-         testQueues.clear();
+-         stopped = true;
+-      }
+-      catch (Throwable t) {
+-         //ignore
+-      }
+-      finally {
+-         server = null;
+-      }
++   public void stop() throws Exception
++   {
++      server.stop();
++      testQueues.clear();
++      stopped = true;
+    }
+ 
+-   public void makeSureQueueExists(String qname) throws Exception {
+-      synchronized (testQueues) {
++   public void makeSureQueueExists(String qname) throws Exception
++   {
++      synchronized (testQueues)
++      {
+          SimpleString coreQ = testQueues.get(qname);
+-         if (coreQ == null) {
++         if (coreQ == null)
++         {
+             coreQ = new SimpleString("jms.queue." + qname);
+-            try {
++            try
++            {
+                this.server.createQueue(coreQ, coreQ, null, false, false);
+                testQueues.put(qname, coreQ);
+             }
+-            catch (ActiveMQQueueExistsException e) {
++            catch (ActiveMQQueueExistsException e)
++            {
+                //ignore
+             }
+          }
+       }
+    }
+-
+-   public long getAMQueueMessageCount(String physicalName) {
+-      long count = 0;
+-      String qname = "jms.queue." + physicalName;
+-      Binding binding = server.getPostOffice().getBinding(new SimpleString(qname));
+-      if (binding != null) {
+-         QueueImpl q = (QueueImpl) binding.getBindable();
+-         count = q.getMessageCount();
+-      }
+-      return count;
+-   }
+-
+-   public MBeanServer getMbeanServer() {
+-      return this.mbeanServer;
+-   }
+ }
