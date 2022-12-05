@@ -44,22 +44,23 @@ def compare_and_plot(diffs, vectors):
     # read vector file
     with open(vectors, 'r') as f:
         vectors = f.readlines()
-    # read diff file
-    with open(diffs, 'r') as f:
-        diffs = f.readlines()
     
     # plot x as index, y as diff length
     # also plot x as index, y as vector length
     x = []
     y1 = []
     y2 = []
-    for i in range(len(vectors)):
-        # get diff length
-        diff_len = len(diffs[i].splitlines())
+    for index in range(len(vectors)):
+        # get diff lengthfor path in Path(diffs).glob(f'diff_*_{index}.txt'):
+        # read diff
+        with open(path, 'r') as f:
+            diff = f.read()
+        # get lenght of diff
+        diff_len = len(diff.splitlines())
         # get vector length
         vector_len = len(vectors[i].split(','))
         # append to x, y1, y2
-        x.append(i)
+        x.append(index)
         y1.append(diff_len)
         y2.append(vector_len)
 
